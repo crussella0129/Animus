@@ -205,3 +205,82 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+
+# ==========================
+# AI / ML / Large Files
+# ==========================
+# Huge model weights (Llama, Qwen, etc.)
+*.gguf
+*.bin
+*.pt
+*.pth
+*.safetensors
+*.h5
+
+# NVIDIA / TensorRT / Jetson specifics
+*.engine
+*.plan
+*.trt
+*.cache
+
+# Vector Database Persistence (Don't commit the memory!)
+chroma_db/
+chromadb/
+.chroma/
+lancedb/
+.lance/
+vector_store/
+
+# Tree-sitter compiled languages
+build/
+*.so
+*.dll
+*.dylib
+
+# ==========================
+# Animus Specific
+# ==========================
+# Local config with potential keys (API keys, etc.)
+config.yaml
+config.dev.yaml
+.env
+.env.local
+
+# Ingestion staging area (Don't commit your dataset)
+data/
+uploads/
+ingest_cache/
+*.zim
+*.pdf
+*.epub
+
+# Execution logs
+*.log
+animus.log
+animus_history.json
+trace.json
+
+# ==========================
+# Packaging (PyInstaller/Nuitka)
+# ==========================
+*.spec
+*.manifest
+build/
+dist/
+
+# ==========================
+# IDE & OS
+# ==========================
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# VS Code / JetBrains
+.vscode/
+.idea/
+*.swp
