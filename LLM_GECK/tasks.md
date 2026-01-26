@@ -23,12 +23,15 @@
 - [x] All paths use pathlib for Windows compatibility
 
 ### Phase 2: The "Brain" Socket (Model Layer)
-- [ ] Create ModelProvider abstract base class
-- [ ] Implement OllamaProvider (connects to localhost:11434)
-- [ ] Implement TRTLLMProvider (Jetson-specific)
-- [ ] Implement APIProvider (HTTP requests)
-- [ ] Implement `animus pull <model>` command
-- [ ] Model availability check on boot
+- [x] Create ModelProvider abstract base class
+- [x] Implement OllamaProvider (connects to localhost:11434)
+- [x] Implement TRTLLMProvider (Jetson-specific placeholder)
+- [x] Implement APIProvider (OpenAI-compatible HTTP requests)
+- [x] Implement `animus pull <model>` command
+- [x] Implement `animus models` command
+- [x] Implement `animus status` command
+- [x] Add provider factory for unified creation
+- [x] Add LLM module tests
 
 ### Phase 3: The Librarian (RAG & Ingestion)
 - [ ] Implement `animus ingest <path>` command
@@ -68,4 +71,5 @@
 
 ## Completed (Recent)
 
+- Phase 2 Model Layer implementation (providers, commands, factory)
 - Phase 1 core implementation (CLI, detect, config, init)

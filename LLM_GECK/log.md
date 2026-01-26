@@ -113,7 +113,7 @@ Completed Phase 1: Core Shell implementation. Built CLI entry point with Typer, 
 - `tests/test_detection.py` — Detection module tests
 
 ### Commits
-(pending — will commit after checkpoint)
+- `89f5fc8` — feat: implement Phase 1 - Core Shell (CLI, detection, config)
 
 ### Findings
 - System detected: Windows 10.0.26200, x86_64, NVIDIA RTX 2080 Ti (11GB), CUDA 581.80
@@ -130,5 +130,53 @@ None
 - Implement Phase 2: ModelProvider abstract base class
 - Implement OllamaProvider (localhost:11434)
 - Implement `animus pull <model>` command
+
+---
+
+## Entry #2 — 2026-01-26
+
+### Summary
+Completed Phase 2: Model Layer implementation. Built unified provider interface with OllamaProvider, TRTLLMProvider, and APIProvider. Added model management CLI commands.
+
+### Actions
+- Created `src/llm/base.py` with ModelProvider ABC, Message, GenerationConfig, GenerationResult, ModelInfo
+- Implemented `src/llm/ollama.py` with full Ollama API support (list, pull, chat, streaming)
+- Implemented `src/llm/trtllm.py` as placeholder for TensorRT-LLM (Jetson) integration
+- Implemented `src/llm/api.py` for OpenAI-compatible APIs (supports streaming)
+- Created `src/llm/factory.py` with provider factory and auto-detection
+- Added CLI commands: `models`, `pull`, `status`
+- Added httpx dependency for async HTTP requests
+- Created comprehensive LLM module tests (12 new tests)
+
+### Files Changed
+- `pyproject.toml` — Added httpx dependency
+- `requirements.txt` — Added httpx dependency
+- `src/main.py` — Added models, pull, status commands
+- `src/llm/__init__.py` — Module exports
+- `src/llm/base.py` — Provider ABC and data classes
+- `src/llm/ollama.py` — Ollama provider implementation
+- `src/llm/trtllm.py` — TensorRT-LLM provider (placeholder)
+- `src/llm/api.py` — OpenAI-compatible API provider
+- `src/llm/factory.py` — Provider factory functions
+- `tests/test_llm.py` — LLM module tests
+
+### Commits
+(pending)
+
+### Findings
+- Ollama API follows OpenAI-like patterns but with some differences
+- TensorRT-LLM requires platform-specific setup, kept as placeholder
+- All 16 tests passing
+
+### Issues
+None
+
+### Checkpoint
+**Status:** CONTINUE — Phase 2 complete, ready for Phase 3 (RAG & Ingestion).
+
+### Next
+- Implement Phase 3: RAG & Ingestion
+- `animus ingest <path>` command
+- File type detection and chunking
 
 ---

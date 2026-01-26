@@ -254,5 +254,200 @@ def init(
     console.print("  3. Run [cyan]animus chat[/cyan] to start chatting")
 
 
+@app.command()
+def models(
+    provider: Optional[str] = typer.Option(
+        None,
+        "--provider",
+        "-p",
+        help="Provider to list models from (ollama, api).",
+    ),
+) -> None:
+    """List available models."""
+    import asyncio
+    from src.llm import OllamaProvider, APIProvider, ProviderType
+    from src.core.config import ConfigManager
+
+    async def list_models() -> None:
+        config = ConfigManager().config
+        provider_type = provider or config.model.provider
+
+        if provider_type == "ollama":
+            prov = OllamaProvider(
+                host=config.ollama.host,
+                port=config.ollama.port,
+            )
+            if not prov.is_available:
+                console.print("[red]Ollama server not running.[/red]")
+                console.print("Start Ollama with: [cyan]ollama serve[/cyan]")
+                raise typer.Exit(1)
+        elif provider_type == "api":
+            if not config.model.api_key:
+                console.print("[red]API key not configured.[/red]")
+                console.print("Set it in [cyan]~/.animus/config.yaml[/cyan]")
+                raise typer.Exit(1)
+            prov = APIProvider(
+                api_base=config.model.api_base or "https://api.openai.com/v1",
+                api_key=config.model.api_key,
+            )
+        else:
+            console.print(f"[red]Unknown provider: {provider_type}[/red]")
+            raise typer.Exit(1)
+
+        try:
+            model_list = await prov.list_models()
+
+            if not model_list:
+                console.print(f"[yellow]No models found for {provider_type}.[/yellow]")
+                if provider_type == "ollama":
+                    console.print("Pull a model with: [cyan]animus pull <model>[/cyan]")
+                return
+
+            table = Table(title=f"Available Models ({provider_type})")
+            table.add_column("Name", style="cyan")
+            table.add_column("Size", style="green")
+            table.add_column("Quantization", style="yellow")
+
+            for model in model_list:
+                size = ""
+                if model.size_bytes:
+                    size_gb = model.size_bytes / (1024 ** 3)
+                    size = f"{size_gb:.1f} GB"
+                elif model.parameter_count:
+                    size = model.parameter_count
+
+                table.add_row(
+                    model.name,
+                    size,
+                    model.quantization or "",
+                )
+
+            console.print(table)
+        finally:
+            if hasattr(prov, 'close'):
+                await prov.close()
+
+    asyncio.run(list_models())
+
+
+@app.command()
+def pull(
+    model_name: str = typer.Argument(..., help="Name of the model to pull."),
+    provider: Optional[str] = typer.Option(
+        None,
+        "--provider",
+        "-p",
+        help="Provider to pull from (default: ollama).",
+    ),
+) -> None:
+    """Pull/download a model."""
+    import asyncio
+    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+    from src.llm import OllamaProvider
+    from src.core.config import ConfigManager
+
+    async def pull_model() -> None:
+        config = ConfigManager().config
+        provider_type = provider or config.model.provider
+
+        if provider_type != "ollama":
+            console.print(f"[yellow]Only Ollama supports model pulling.[/yellow]")
+            console.print("API models are accessed remotely and don't need to be downloaded.")
+            console.print("TensorRT models must be compiled locally.")
+            return
+
+        prov = OllamaProvider(
+            host=config.ollama.host,
+            port=config.ollama.port,
+        )
+
+        if not prov.is_available:
+            console.print("[red]Ollama server not running.[/red]")
+            console.print("Start Ollama with: [cyan]ollama serve[/cyan]")
+            raise typer.Exit(1)
+
+        console.print(f"[bold]Pulling model:[/bold] {model_name}")
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            console=console,
+        ) as progress:
+            task = progress.add_task("Downloading...", total=None)
+
+            try:
+                async for update in prov.pull_model(model_name):
+                    status = update.get("status", "")
+                    completed = update.get("completed", 0)
+                    total = update.get("total", 0)
+
+                    if total > 0:
+                        progress.update(task, total=total, completed=completed)
+
+                    if "pulling" in status.lower():
+                        digest = update.get("digest", "")[:12]
+                        progress.update(task, description=f"Pulling {digest}...")
+                    elif status:
+                        progress.update(task, description=status)
+
+                progress.update(task, description="Done!", completed=progress.tasks[0].total or 100)
+            finally:
+                await prov.close()
+
+        console.print(f"\n[bold green]Model '{model_name}' pulled successfully![/bold green]")
+
+    asyncio.run(pull_model())
+
+
+@app.command()
+def status() -> None:
+    """Show provider status and configured model."""
+    import asyncio
+    from src.llm import OllamaProvider, TRTLLMProvider, APIProvider
+    from src.core.config import ConfigManager
+
+    async def check_status() -> None:
+        config = ConfigManager().config
+
+        console.print("[bold]Animus Status[/bold]\n")
+
+        # Show configured provider and model
+        console.print(f"Configured Provider: [cyan]{config.model.provider}[/cyan]")
+        console.print(f"Configured Model: [cyan]{config.model.model_name}[/cyan]")
+        console.print()
+
+        # Check Ollama
+        ollama = OllamaProvider(host=config.ollama.host, port=config.ollama.port)
+        ollama_status = "[green]Running[/green]" if ollama.is_available else "[red]Not Running[/red]"
+        console.print(f"Ollama ({config.ollama.base_url}): {ollama_status}")
+
+        if ollama.is_available:
+            models = await ollama.list_models()
+            if models:
+                console.print(f"  Models: {len(models)} available")
+            await ollama.close()
+
+        # Check TensorRT-LLM
+        trtllm = TRTLLMProvider(engine_dir=config.data_dir / "engines")
+        trtllm_status = "[green]Available[/green]" if trtllm.is_available else "[dim]Not Installed[/dim]"
+        console.print(f"TensorRT-LLM: {trtllm_status}")
+
+        # Check API
+        if config.model.api_key:
+            api = APIProvider(
+                api_base=config.model.api_base or "https://api.openai.com/v1",
+                api_key=config.model.api_key,
+            )
+            api_status = "[green]Configured[/green]"
+            console.print(f"API ({config.model.api_base or 'OpenAI'}): {api_status}")
+            await api.close()
+        else:
+            console.print("API: [dim]Not Configured[/dim]")
+
+    asyncio.run(check_status())
+
+
 if __name__ == "__main__":
     app()
