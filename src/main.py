@@ -569,5 +569,95 @@ def status() -> None:
     asyncio.run(check_status())
 
 
+@app.command()
+def chat(
+    model: Optional[str] = typer.Option(
+        None,
+        "--model",
+        "-m",
+        help="Model to use for chat.",
+    ),
+    no_confirm: bool = typer.Option(
+        False,
+        "--no-confirm",
+        help="Skip tool confirmation prompts.",
+    ),
+) -> None:
+    """Start an interactive chat session with the agent."""
+    import asyncio
+    from rich.prompt import Prompt, Confirm
+    from rich.markdown import Markdown
+    from src.llm import get_default_provider
+    from src.core import Agent, AgentConfig
+    from src.core.config import ConfigManager
+
+    async def run_chat() -> None:
+        config = ConfigManager().config
+        provider = get_default_provider(config)
+
+        if not provider.is_available:
+            console.print("[red]No LLM provider available.[/red]")
+            console.print("Start Ollama with: [cyan]ollama serve[/cyan]")
+            console.print("Or configure an API key in [cyan]~/.animus/config.yaml[/cyan]")
+            raise typer.Exit(1)
+
+        async def confirm_tool(tool_name: str, description: str) -> bool:
+            if no_confirm:
+                return True
+            console.print(f"\n[yellow]Tool request:[/yellow] {tool_name}")
+            console.print(f"[dim]{description}[/dim]")
+            return Confirm.ask("Execute this tool?", default=True)
+
+        agent_config = AgentConfig(
+            model=model or config.model.model_name,
+            temperature=config.model.temperature,
+            require_tool_confirmation=not no_confirm,
+        )
+
+        agent = Agent(
+            provider=provider,
+            config=agent_config,
+            confirm_callback=confirm_tool,
+        )
+
+        console.print("[bold blue]Animus Chat[/bold blue]")
+        console.print("Type your message. Use [cyan]exit[/cyan] or [cyan]quit[/cyan] to end.\n")
+
+        while True:
+            try:
+                user_input = Prompt.ask("[bold green]You[/bold green]")
+
+                if user_input.lower() in ("exit", "quit", "q"):
+                    console.print("[dim]Goodbye![/dim]")
+                    break
+
+                if not user_input.strip():
+                    continue
+
+                console.print()
+
+                async for turn in agent.run(user_input):
+                    if turn.role == "assistant":
+                        console.print("[bold blue]Animus[/bold blue]")
+                        # Render as markdown
+                        console.print(Markdown(turn.content))
+
+                        if turn.tool_calls:
+                            console.print(f"\n[dim]Executed {len(turn.tool_calls)} tool(s)[/dim]")
+
+                console.print()
+
+            except KeyboardInterrupt:
+                console.print("\n[dim]Interrupted. Type 'exit' to quit.[/dim]")
+            except Exception as e:
+                console.print(f"[red]Error: {e}[/red]")
+
+        # Cleanup
+        if hasattr(provider, 'close'):
+            await provider.close()
+
+    asyncio.run(run_chat())
+
+
 if __name__ == "__main__":
     app()

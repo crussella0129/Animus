@@ -45,12 +45,16 @@
 - [x] Add memory module tests (21 new tests)
 
 ### Phase 4: The Agentic Loop (Reasoning Engine)
-- [ ] Implement Agent class
-- [ ] Tool: read_file(path)
-- [ ] Tool: write_file(path, content)
-- [ ] Tool: list_dir(path)
-- [ ] Tool: run_shell(command) with confirmation
-- [ ] Sliding context window management
+- [x] Implement Agent class
+- [x] Tool: read_file(path)
+- [x] Tool: write_file(path, content)
+- [x] Tool: list_dir(path)
+- [x] Tool: run_shell(command) with confirmation
+- [x] Tool registry and OpenAI schema generation
+- [x] Human-in-the-loop confirmation for destructive operations
+- [x] Blocked command detection
+- [x] Implement `animus chat` command
+- [x] Add tools module tests (20 new tests)
 
 ### Phase 5: The Hive (Sub-Agent Orchestration)
 - [ ] Implement spawn_subagent(task_description, specialized_role)
@@ -63,8 +67,8 @@
 - [x] Exit codes are correct
 - [x] Input validation works properly
 - [x] Error messages are clear and actionable
-- [ ] LLM Agent can execute commands via the terminal
-- [ ] LLM Agent can create code in various languages
+- [x] LLM Agent can execute commands via the terminal
+- [x] LLM Agent can create code in various languages
 - [ ] LLM Agent can create specialized sub-agents
 
 ## Backlog
@@ -73,6 +77,7 @@
 
 ## Completed (Recent)
 
+- Phase 4 Agentic Loop (Agent class, tools, chat command)
 - Phase 3 RAG & Ingestion (scanner, chunker, extractor, embedder, vectorstore)
 - Phase 2 Model Layer implementation (providers, commands, factory)
 - Phase 1 core implementation (CLI, detect, config, init)

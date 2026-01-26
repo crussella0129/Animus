@@ -209,7 +209,7 @@ Completed Phase 3: RAG & Ingestion implementation. Built complete document inges
 - `tests/test_memory.py` — Memory module tests
 
 ### Commits
-(pending)
+- `fc57963` — feat: implement Phase 3 - RAG & Ingestion (memory module)
 
 ### Findings
 - All 37 tests passing (4 detection + 12 LLM + 21 memory)
@@ -226,5 +226,51 @@ None
 - Implement Phase 4: The Agentic Loop
 - Agent class with tool execution
 - Tools: read_file, write_file, list_dir, run_shell
+
+---
+
+## Entry #4 — 2026-01-26
+
+### Summary
+Completed Phase 4: Agentic Loop implementation. Built the Agent class with tool execution, human-in-the-loop confirmation, and interactive chat command.
+
+### Actions
+- Created `src/tools/base.py` with Tool ABC, ToolRegistry, ToolResult
+- Created `src/tools/filesystem.py` with ReadFileTool, WriteFileTool, ListDirectoryTool
+- Created `src/tools/shell.py` with ShellTool (destructive command detection, blocking)
+- Created `src/core/agent.py` with Agent class (Think -> Act -> Observe loop)
+- Added CLI command: `chat` for interactive sessions
+- Implemented human-in-the-loop confirmation for destructive operations
+- Implemented blocked command detection for dangerous operations
+- Created comprehensive tools module tests (20 new tests)
+
+### Files Changed
+- `src/main.py` — Added chat command
+- `src/core/__init__.py` — Added Agent exports
+- `src/core/agent.py` — Agent class with reasoning loop
+- `src/tools/__init__.py` — Module exports and default registry
+- `src/tools/base.py` — Tool ABC and registry
+- `src/tools/filesystem.py` — File operation tools
+- `src/tools/shell.py` — Shell execution with safety controls
+- `tests/test_tools.py` — Tools module tests
+
+### Commits
+(pending)
+
+### Findings
+- All 57 tests passing (4 detection + 12 LLM + 21 memory + 20 tools)
+- Shell tool properly blocks dangerous commands (rm -rf /, fork bombs)
+- Human confirmation works for destructive operations
+
+### Issues
+None
+
+### Checkpoint
+**Status:** CONTINUE — Phase 4 complete, ready for Phase 5 (Sub-Agent Orchestration).
+
+### Next
+- Implement Phase 5: Sub-Agent Orchestration
+- spawn_subagent function
+- Scope restriction and reporting
 
 ---
