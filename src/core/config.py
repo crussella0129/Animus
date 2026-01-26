@@ -11,8 +11,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class ModelConfig(BaseModel):
     """Model provider configuration."""
-    provider: str = Field(default="ollama", description="Model provider: ollama, trtllm, api")
-    model_name: str = Field(default="qwen2.5-coder:7b", description="Model name/identifier")
+    provider: str = Field(default="native", description="Model provider: native, ollama, trtllm, api")
+    model_name: str = Field(default="", description="Model name/identifier (empty = auto-detect)")
     api_base: Optional[str] = Field(default=None, description="API base URL for remote providers")
     api_key: Optional[str] = Field(default=None, description="API key for authenticated providers")
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
@@ -29,6 +29,23 @@ class OllamaConfig(BaseModel):
         return f"http://{self.host}:{self.port}"
 
 
+class NativeConfig(BaseModel):
+    """Native model loading configuration (llama-cpp-python)."""
+    models_dir: Path = Field(
+        default=Path.home() / ".animus" / "models",
+        description="Directory for storing downloaded models"
+    )
+    n_ctx: int = Field(default=4096, description="Context window size")
+    n_batch: int = Field(default=512, description="Batch size for prompt processing")
+    n_threads: Optional[int] = Field(default=None, description="Number of CPU threads (None = auto)")
+    n_gpu_layers: int = Field(default=-1, description="Layers to offload to GPU (-1 = all, 0 = none)")
+    use_mmap: bool = Field(default=True, description="Use memory mapping for model loading")
+    use_mlock: bool = Field(default=False, description="Lock model in RAM")
+    verbose: bool = Field(default=False, description="Enable verbose logging")
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
 class MemoryConfig(BaseModel):
     """RAG and memory configuration."""
     vector_db: str = Field(default="chromadb", description="Vector database: chromadb, qdrant, milvus")
@@ -41,6 +58,7 @@ class AnimusConfig(BaseModel):
     """Main Animus configuration."""
     model: ModelConfig = Field(default_factory=ModelConfig)
     ollama: OllamaConfig = Field(default_factory=OllamaConfig)
+    native: NativeConfig = Field(default_factory=NativeConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
 
     # Paths

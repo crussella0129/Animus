@@ -21,10 +21,12 @@ from src.memory.extractor import (
 )
 from src.memory.embedder import (
     Embedder,
+    NativeEmbedder,
     OllamaEmbedder,
     APIEmbedder,
     MockEmbedder,
     create_embedder,
+    SENTENCE_TRANSFORMERS_AVAILABLE,
 )
 from src.memory.vectorstore import (
     Document,
@@ -62,10 +64,12 @@ __all__ = [
     "can_extract",
     # Embedder
     "Embedder",
+    "NativeEmbedder",
     "OllamaEmbedder",
     "APIEmbedder",
     "MockEmbedder",
     "create_embedder",
+    "SENTENCE_TRANSFORMERS_AVAILABLE",
     # Vector Store
     "Document",
     "SearchResult",

@@ -80,7 +80,8 @@ class Ingester:
     async def _ensure_embedder(self) -> Embedder:
         """Ensure embedder is initialized."""
         if self.embedder is None:
-            self.embedder = create_embedder("ollama")
+            # Use "auto" to prefer native embedder, fall back to mock
+            self.embedder = create_embedder("auto")
         return self.embedder
 
     async def _ensure_vectorstore(self, persist_dir: Optional[Path] = None) -> VectorStore:

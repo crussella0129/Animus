@@ -7,6 +7,7 @@ from typing import Optional
 
 from src.core.config import AnimusConfig
 from src.llm.base import ModelProvider, ProviderType
+from src.llm.native import NativeProvider
 from src.llm.ollama import OllamaProvider
 from src.llm.trtllm import TRTLLMProvider
 from src.llm.api import APIProvider
@@ -20,7 +21,7 @@ def create_provider(
     Create an LLM provider based on type and configuration.
 
     Args:
-        provider_type: Type of provider to create ("ollama", "trtllm", "api").
+        provider_type: Type of provider to create ("native", "ollama", "trtllm", "api").
         config: Animus configuration. Uses defaults if not provided.
 
     Returns:
@@ -39,7 +40,19 @@ def create_provider(
         from src.core.config import ConfigManager
         config = ConfigManager().config
 
-    if provider_type == ProviderType.OLLAMA:
+    if provider_type == ProviderType.NATIVE:
+        return NativeProvider(
+            models_dir=config.native.models_dir,
+            n_ctx=config.native.n_ctx,
+            n_batch=config.native.n_batch,
+            n_threads=config.native.n_threads,
+            n_gpu_layers=config.native.n_gpu_layers,
+            use_mmap=config.native.use_mmap,
+            use_mlock=config.native.use_mlock,
+            verbose=config.native.verbose,
+        )
+
+    elif provider_type == ProviderType.OLLAMA:
         return OllamaProvider(
             host=config.ollama.host,
             port=config.ollama.port,
@@ -86,9 +99,10 @@ async def get_available_provider(config: Optional[AnimusConfig] = None) -> Optio
 
     Tries providers in order of preference:
     1. Configured default provider
-    2. Ollama (local)
-    3. TensorRT-LLM (if on Jetson)
-    4. API (if configured)
+    2. Native (direct model loading, no external service)
+    3. Ollama (local server)
+    4. TensorRT-LLM (if on Jetson)
+    5. API (if configured)
 
     Args:
         config: Animus configuration.
@@ -107,6 +121,20 @@ async def get_available_provider(config: Optional[AnimusConfig] = None) -> Optio
             return default
     except Exception:
         pass
+
+    # Try Native (llama-cpp-python)
+    native = NativeProvider(
+        models_dir=config.native.models_dir,
+        n_ctx=config.native.n_ctx,
+        n_batch=config.native.n_batch,
+        n_threads=config.native.n_threads,
+        n_gpu_layers=config.native.n_gpu_layers,
+    )
+    if native.is_available:
+        # Check if there are any local models
+        models = await native.list_models()
+        if models:
+            return native
 
     # Try Ollama
     ollama = OllamaProvider(

@@ -3,8 +3,17 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Optional, Any
 import httpx
+
+
+# Check if sentence-transformers is available
+try:
+    from sentence_transformers import SentenceTransformer
+    SENTENCE_TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    SENTENCE_TRANSFORMERS_AVAILABLE = False
+    SentenceTransformer = None
 
 
 class Embedder(ABC):
@@ -203,8 +212,75 @@ class MockEmbedder(Embedder):
         return embeddings
 
 
+class NativeEmbedder(Embedder):
+    """
+    Native embedder using sentence-transformers.
+
+    Runs entirely locally without requiring any external services.
+    Uses models like all-MiniLM-L6-v2 or all-mpnet-base-v2.
+    """
+
+    # Common models and their dimensions
+    MODEL_DIMS = {
+        "all-MiniLM-L6-v2": 384,
+        "all-MiniLM-L12-v2": 384,
+        "all-mpnet-base-v2": 768,
+        "paraphrase-MiniLM-L6-v2": 384,
+        "multi-qa-MiniLM-L6-cos-v1": 384,
+    }
+
+    def __init__(
+        self,
+        model: str = "all-MiniLM-L6-v2",
+        device: Optional[str] = None,
+    ):
+        """
+        Initialize native embedder.
+
+        Args:
+            model: Model name from sentence-transformers.
+            device: Device to use ('cuda', 'cpu', or None for auto).
+        """
+        if not SENTENCE_TRANSFORMERS_AVAILABLE:
+            raise RuntimeError(
+                "sentence-transformers is not installed. "
+                "Install with: pip install sentence-transformers"
+            )
+
+        self.model_name = model
+        self._model: Any = None
+        self._device = device
+
+    def _ensure_model(self) -> Any:
+        """Lazy load the model."""
+        if self._model is None:
+            self._model = SentenceTransformer(self.model_name, device=self._device)
+        return self._model
+
+    @property
+    def embedding_dim(self) -> int:
+        """Return embedding dimension."""
+        if self.model_name in self.MODEL_DIMS:
+            return self.MODEL_DIMS[self.model_name]
+        # Try to get from loaded model
+        model = self._ensure_model()
+        return model.get_sentence_embedding_dimension()
+
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        """Generate embeddings using sentence-transformers."""
+        model = self._ensure_model()
+        # sentence-transformers encode is synchronous, run in thread pool
+        import asyncio
+        loop = asyncio.get_event_loop()
+        embeddings = await loop.run_in_executor(
+            None,
+            lambda: model.encode(texts, convert_to_numpy=True).tolist()
+        )
+        return embeddings
+
+
 def create_embedder(
-    provider: str = "ollama",
+    provider: str = "auto",
     model: Optional[str] = None,
     **kwargs,
 ) -> Embedder:
@@ -212,14 +288,34 @@ def create_embedder(
     Create an embedder based on provider.
 
     Args:
-        provider: "ollama", "api", or "mock".
+        provider: "native", "ollama", "api", "mock", or "auto" (tries native first).
         model: Model name to use.
         **kwargs: Additional arguments for the embedder.
 
     Returns:
         Embedder instance.
     """
-    if provider == "ollama":
+    if provider == "auto":
+        # Try native first (fully local), then ollama, then mock
+        if SENTENCE_TRANSFORMERS_AVAILABLE:
+            return NativeEmbedder(
+                model=model or "all-MiniLM-L6-v2",
+                **kwargs,
+            )
+        # Fall back to mock if nothing else available
+        return MockEmbedder(**kwargs)
+
+    if provider == "native":
+        if not SENTENCE_TRANSFORMERS_AVAILABLE:
+            raise RuntimeError(
+                "sentence-transformers not installed. "
+                "Install with: pip install sentence-transformers"
+            )
+        return NativeEmbedder(
+            model=model or "all-MiniLM-L6-v2",
+            **kwargs,
+        )
+    elif provider == "ollama":
         return OllamaEmbedder(
             model=model or "nomic-embed-text",
             **kwargs,

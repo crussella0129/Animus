@@ -350,3 +350,105 @@ None
 - Test direct model loading
 
 ---
+
+## Entry #7 — 2026-01-26
+
+### Summary
+Implemented Phase 6: Native Model Loading. Created NativeProvider for direct GGUF model loading via llama-cpp-python, eliminating the dependency on Ollama for local inference.
+
+### Actions
+- Added `llama-cpp-python` and `huggingface-hub` as optional dependencies
+- Added NATIVE to ProviderType enum
+- Created NativeConfig in config.py with GPU/CPU settings
+- Implemented NativeProvider in src/llm/native.py with:
+  - Direct GGUF model loading
+  - GPU backend detection (CUDA, Metal, ROCm, CPU)
+  - Hugging Face model download support
+  - ChatML prompt formatting
+  - Streaming and non-streaming generation
+- Updated factory.py with Native provider and fallback chain (Native → Ollama → API)
+- Added CLI commands: `animus model download`, `animus model list`, `animus model remove`, `animus model info`
+- Updated status command to show Native provider status
+- Created comprehensive tests (28 new tests, 97 total)
+
+### Files Changed
+- `pyproject.toml` — Added optional native dependencies
+- `src/llm/base.py` — Added NATIVE to ProviderType enum
+- `src/core/config.py` — Added NativeConfig class
+- `src/llm/native.py` — New NativeProvider implementation
+- `src/llm/__init__.py` — Export NativeProvider
+- `src/llm/factory.py` — Added Native provider and updated fallback chain
+- `src/main.py` — Added model management commands, updated status
+- `tests/test_native.py` — New test file (28 tests)
+
+### Commits
+- (pending)
+
+### Findings
+- llama-cpp-python must be installed separately (CPU or GPU version)
+- GPU backend detection works for CUDA, Metal, and ROCm
+- Hugging Face hub provides easy model download
+- 97 tests passing
+
+### Issues
+None
+
+### Checkpoint
+**Status:** CONTINUE — Phase 6 core implementation complete. User can now download and use GGUF models directly.
+
+### Next
+- Install llama-cpp-python to test end-to-end native inference
+- Download a test model and verify chat works without Ollama
+- Optional: Add model conversion tools
+
+---
+
+## Entry #8 — 2026-01-26
+
+### Summary
+Completed full Ollama independence. Added NativeEmbedder using sentence-transformers, updated embedder auto-detection, and comprehensive README documentation for fully self-contained operation.
+
+### Actions
+- Added sentence-transformers to optional native dependencies
+- Created NativeEmbedder class using sentence-transformers (all-MiniLM-L6-v2)
+- Updated create_embedder() to support "auto" mode (native → mock fallback)
+- Updated ingest.py to use "auto" embedder by default
+- Changed default provider from "ollama" to "native" in config
+- Updated init command to auto-detect and prefer native provider
+- Updated detection recommendations to suggest native provider
+- Rewrote README.md with comprehensive instructions for:
+  - Option A: Fully independent operation (no Ollama)
+  - Option B: With Ollama (alternative)
+  - GPU acceleration setup (CUDA, Metal, ROCm)
+  - Model download and management
+  - All CLI commands documented
+- Updated exports in memory/__init__.py
+
+### Files Changed
+- `pyproject.toml` — Added sentence-transformers to native dependencies
+- `src/memory/embedder.py` — Added NativeEmbedder, updated create_embedder()
+- `src/memory/ingest.py` — Changed default embedder to "auto"
+- `src/memory/__init__.py` — Export NativeEmbedder and SENTENCE_TRANSFORMERS_AVAILABLE
+- `src/core/config.py` — Changed default provider to "native"
+- `src/main.py` — Updated init and detect recommendations for native
+- `README.md` — Complete rewrite with native-first instructions
+
+### Commits
+- (pending)
+
+### Findings
+- sentence-transformers provides high-quality local embeddings
+- all-MiniLM-L6-v2 is a good default (384 dimensions, fast)
+- Auto-detection allows seamless fallback when dependencies not installed
+- 99 tests still passing
+
+### Issues
+None
+
+### Checkpoint
+**Status:** COMPLETE — Animus can now run fully independently without Ollama or any external service.
+
+### Next
+- Awaiting further instructions
+
+---

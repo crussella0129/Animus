@@ -10,6 +10,7 @@ from typing import AsyncIterator, Optional, Any
 
 class ProviderType(str, Enum):
     """Supported LLM provider types."""
+    NATIVE = "native"  # Direct model loading via llama-cpp-python
     OLLAMA = "ollama"
     TRTLLM = "trtllm"
     API = "api"

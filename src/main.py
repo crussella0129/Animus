@@ -148,12 +148,12 @@ def detect(
         ))
     elif info.hardware_type == HardwareType.APPLE_SILICON:
         console.print(Panel(
-            "[yellow]Apple Silicon detected![/yellow] Use Ollama with Metal acceleration.",
+            "[yellow]Apple Silicon detected![/yellow] Use native provider with Metal acceleration.",
             title="Recommendation",
         ))
     elif info.gpu and info.gpu.cuda_available:
         console.print(Panel(
-            "[yellow]NVIDIA GPU detected![/yellow] Use Ollama or vLLM for GPU acceleration.",
+            "[yellow]NVIDIA GPU detected![/yellow] Use native provider with CUDA acceleration.",
             title="Recommendation",
         ))
 
@@ -231,17 +231,25 @@ def init(
     # Create directories and save config
     manager.ensure_directories()
 
-    # Adjust defaults based on detected hardware
+    # Adjust defaults based on detected hardware and available providers
+    from src.llm import LLAMA_CPP_AVAILABLE
+
     config = manager.config
     if info.hardware_type == HardwareType.JETSON:
         config.model.provider = "trtllm"
         console.print("[green]Jetson detected - configured for TensorRT-LLM[/green]")
-    elif info.hardware_type == HardwareType.APPLE_SILICON:
-        config.model.provider = "ollama"
-        console.print("[green]Apple Silicon detected - configured for Ollama with Metal[/green]")
+    elif LLAMA_CPP_AVAILABLE:
+        # Native provider available - use it for full independence
+        config.model.provider = "native"
+        if info.hardware_type == HardwareType.APPLE_SILICON:
+            console.print("[green]Apple Silicon detected - configured for native provider with Metal[/green]")
+        elif info.gpu and info.gpu.cuda_available:
+            console.print("[green]NVIDIA GPU detected - configured for native provider with CUDA[/green]")
+        else:
+            console.print("[green]Configured for native provider (CPU)[/green]")
     else:
         config.model.provider = "ollama"
-        console.print("[green]Configured for Ollama[/green]")
+        console.print("[green]Configured for Ollama (install llama-cpp-python for native mode)[/green]")
 
     manager.save(config)
 
@@ -521,11 +529,199 @@ def search(
     asyncio.run(run_search())
 
 
+# Model management subcommand group
+model_app = typer.Typer(
+    name="model",
+    help="Manage local GGUF models for native inference.",
+    no_args_is_help=True,
+)
+app.add_typer(model_app, name="model")
+
+
+@model_app.command("download")
+def model_download(
+    model_name: str = typer.Argument(
+        ...,
+        help="Model to download (format: repo_id or repo_id/filename.gguf)",
+    ),
+) -> None:
+    """Download a GGUF model from Hugging Face."""
+    import asyncio
+    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
+    from src.llm import NativeProvider, HF_HUB_AVAILABLE
+    from src.core.config import ConfigManager
+
+    if not HF_HUB_AVAILABLE:
+        console.print("[red]huggingface-hub not installed.[/red]")
+        console.print("Install with: [cyan]pip install huggingface-hub[/cyan]")
+        raise typer.Exit(1)
+
+    async def download() -> None:
+        config = ConfigManager().config
+        provider = NativeProvider(models_dir=config.native.models_dir)
+
+        console.print(f"[bold]Downloading model:[/bold] {model_name}")
+        console.print(f"[dim]Target directory: {config.native.models_dir}[/dim]\n")
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            console=console,
+        ) as progress:
+            task = progress.add_task("Starting...", total=None)
+
+            async for update in provider.pull_model(model_name):
+                status = update.get("status", "")
+
+                if status == "error":
+                    progress.update(task, description=f"[red]Error: {update.get('error')}[/red]")
+                    console.print(f"\n[red]Download failed:[/red] {update.get('error')}")
+                    raise typer.Exit(1)
+                elif status == "searching":
+                    progress.update(task, description=update.get("message", "Searching..."))
+                elif status == "selected":
+                    progress.update(task, description=f"Selected: {update.get('filename')}")
+                elif status == "downloading":
+                    progress.update(task, description=f"Downloading: {update.get('filename')}")
+                elif status == "complete":
+                    progress.update(task, description="Done!")
+                    size_mb = update.get("size", 0) / (1024 * 1024)
+                    console.print(f"\n[bold green]Download complete![/bold green]")
+                    console.print(f"  Path: [cyan]{update.get('path')}[/cyan]")
+                    console.print(f"  Size: {size_mb:.1f} MB")
+
+    asyncio.run(download())
+
+
+@model_app.command("list")
+def model_list() -> None:
+    """List locally downloaded GGUF models."""
+    import asyncio
+    from src.llm import NativeProvider, LLAMA_CPP_AVAILABLE
+    from src.core.config import ConfigManager
+
+    async def list_local() -> None:
+        config = ConfigManager().config
+        provider = NativeProvider(models_dir=config.native.models_dir)
+
+        console.print(f"[bold]Local Models[/bold]")
+        console.print(f"[dim]Directory: {config.native.models_dir}[/dim]\n")
+
+        models = await provider.list_models()
+
+        if not models:
+            console.print("[yellow]No local models found.[/yellow]")
+            console.print("\nDownload a model with:")
+            console.print("  [cyan]animus model download TheBloke/CodeLlama-7B-GGUF[/cyan]")
+            return
+
+        table = Table(title="Local GGUF Models")
+        table.add_column("Name", style="cyan")
+        table.add_column("Size", style="green")
+        table.add_column("Quantization", style="yellow")
+
+        for model in models:
+            size = ""
+            if model.size_bytes:
+                size_gb = model.size_bytes / (1024 ** 3)
+                if size_gb >= 1:
+                    size = f"{size_gb:.2f} GB"
+                else:
+                    size_mb = model.size_bytes / (1024 ** 2)
+                    size = f"{size_mb:.0f} MB"
+
+            table.add_row(
+                model.name,
+                size,
+                model.quantization or "Unknown",
+            )
+
+        console.print(table)
+
+        # Show llama-cpp-python status
+        console.print()
+        if LLAMA_CPP_AVAILABLE:
+            gpu_backend = provider.gpu_backend
+            console.print(f"[green]llama-cpp-python:[/green] Installed")
+            console.print(f"[green]GPU Backend:[/green] {gpu_backend}")
+        else:
+            console.print("[yellow]llama-cpp-python:[/yellow] Not installed")
+            console.print("Install with: [cyan]pip install llama-cpp-python[/cyan]")
+
+    asyncio.run(list_local())
+
+
+@model_app.command("remove")
+def model_remove(
+    model_name: str = typer.Argument(..., help="Name of the model file to remove."),
+    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation."),
+) -> None:
+    """Remove a locally downloaded model."""
+    from rich.prompt import Confirm
+    from src.core.config import ConfigManager
+
+    config = ConfigManager().config
+    model_path = config.native.models_dir / model_name
+
+    if not model_path.exists():
+        # Try with .gguf extension
+        model_path = config.native.models_dir / f"{model_name}.gguf"
+        if not model_path.exists():
+            console.print(f"[red]Model not found:[/red] {model_name}")
+            raise typer.Exit(1)
+
+    size_mb = model_path.stat().st_size / (1024 * 1024)
+
+    if not force:
+        console.print(f"Model: [cyan]{model_path.name}[/cyan]")
+        console.print(f"Size: {size_mb:.1f} MB")
+        if not Confirm.ask("Delete this model?", default=False):
+            console.print("[dim]Cancelled.[/dim]")
+            return
+
+    model_path.unlink()
+    console.print(f"[green]Deleted:[/green] {model_path.name}")
+
+
+@model_app.command("info")
+def model_info(
+    model_name: str = typer.Argument(..., help="Name of the model to inspect."),
+) -> None:
+    """Show information about a local model."""
+    from src.llm import NativeProvider, LLAMA_CPP_AVAILABLE
+    from src.llm.native import detect_quantization
+    from src.core.config import ConfigManager
+
+    config = ConfigManager().config
+    provider = NativeProvider(models_dir=config.native.models_dir)
+
+    model_path = provider._get_model_path(model_name)
+    if not model_path:
+        console.print(f"[red]Model not found:[/red] {model_name}")
+        raise typer.Exit(1)
+
+    stat = model_path.stat()
+    quant = detect_quantization(model_path.name)
+
+    console.print(f"[bold]Model Information[/bold]\n")
+    console.print(f"  Name: [cyan]{model_path.name}[/cyan]")
+    console.print(f"  Path: {model_path}")
+    console.print(f"  Size: {stat.st_size / (1024**3):.2f} GB")
+    console.print(f"  Quantization: {quant or 'Unknown'}")
+
+    if LLAMA_CPP_AVAILABLE:
+        console.print(f"\n[green]Ready for native inference[/green]")
+        console.print(f"  GPU Backend: {provider.gpu_backend}")
+    else:
+        console.print(f"\n[yellow]Install llama-cpp-python to use this model[/yellow]")
+
+
 @app.command()
 def status() -> None:
     """Show provider status and configured model."""
     import asyncio
-    from src.llm import OllamaProvider, TRTLLMProvider, APIProvider
+    from src.llm import NativeProvider, OllamaProvider, TRTLLMProvider, APIProvider, LLAMA_CPP_AVAILABLE
     from src.core.config import ConfigManager
 
     async def check_status() -> None:
@@ -537,6 +733,17 @@ def status() -> None:
         console.print(f"Configured Provider: [cyan]{config.model.provider}[/cyan]")
         console.print(f"Configured Model: [cyan]{config.model.model_name}[/cyan]")
         console.print()
+
+        # Check Native (llama-cpp-python)
+        native = NativeProvider(models_dir=config.native.models_dir)
+        if LLAMA_CPP_AVAILABLE:
+            models = await native.list_models()
+            native_status = f"[green]Available[/green] ({native.gpu_backend})"
+            console.print(f"Native (llama-cpp-python): {native_status}")
+            if models:
+                console.print(f"  Local models: {len(models)}")
+        else:
+            console.print("Native (llama-cpp-python): [dim]Not Installed[/dim]")
 
         # Check Ollama
         ollama = OllamaProvider(host=config.ollama.host, port=config.ollama.port)

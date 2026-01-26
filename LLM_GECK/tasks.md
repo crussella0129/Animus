@@ -67,18 +67,20 @@
 - [x] Add sub-agent tests (12 new tests)
 
 ### Phase 6: Native Model Loading (Self-Contained Inference)
-- [ ] Implement NativeProvider using llama-cpp-python
-- [ ] Support GGUF model format loading
-- [ ] Implement `animus model download <model>` command
-- [ ] Implement `animus model list-local` command
-- [ ] Add model storage in ~/.animus/models/
-- [ ] Implement GPU backend detection (CUDA, Metal, ROCm)
-- [ ] Implement CPU fallback for systems without GPU
-- [ ] Add automatic quantization format detection (Q4_K_M, Q5_K_M, Q8_0, etc.)
-- [ ] Implement provider fallback chain (Native → Ollama → API)
-- [ ] Update config to support native provider settings
-- [ ] Add native provider tests
-- [ ] Animus runs without Ollama service dependency
+- [x] Implement NativeProvider using llama-cpp-python
+- [x] Support GGUF model format loading
+- [x] Implement `animus model download <model>` command
+- [x] Implement `animus model list` command
+- [x] Add model storage in ~/.animus/models/
+- [x] Implement GPU backend detection (CUDA, Metal, ROCm)
+- [x] Implement CPU fallback for systems without GPU
+- [x] Add automatic quantization format detection (Q4_K_M, Q5_K_M, Q8_0, etc.)
+- [x] Implement provider fallback chain (Native → Ollama → API)
+- [x] Update config to support native provider settings
+- [x] Add native provider tests (28 new tests)
+- [x] Implement NativeEmbedder using sentence-transformers
+- [x] Update embedder to auto-detect best available (native → mock)
+- [x] Animus runs without Ollama service dependency
 
 ### Success Criteria
 - [x] All commands execute without errors
@@ -89,9 +91,10 @@
 - [x] LLM Agent can execute commands via the terminal
 - [x] LLM Agent can create code in various languages
 - [x] LLM Agent can create specialized sub-agents
-- [ ] Animus can load and run GGUF models directly without Ollama
-- [ ] Animus can download models from Hugging Face
-- [ ] Native inference works on CPU, CUDA, and Metal backends
+- [x] Animus can load and run GGUF models directly without Ollama
+- [x] Animus can download models from Hugging Face
+- [x] Native inference works on CPU, CUDA, and Metal backends
+- [x] Native embeddings work without Ollama (sentence-transformers)
 
 ## Backlog
 
@@ -99,6 +102,7 @@
 
 ## Completed (Recent)
 
+- Phase 6 Native Model Loading (GGUF support, native embeddings, Ollama-free operation)
 - Phase 5 Sub-Agent Orchestration (roles, scopes, parallel execution)
 - Phase 4 Agentic Loop (Agent class, tools, chat command)
 - Phase 3 RAG & Ingestion (scanner, chunker, extractor, embedder, vectorstore)

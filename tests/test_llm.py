@@ -8,6 +8,7 @@ from src.llm.base import (
     ModelInfo,
     ProviderType,
 )
+from src.llm.native import NativeProvider
 from src.llm.ollama import OllamaProvider
 from src.llm.api import APIProvider
 from src.llm.trtllm import TRTLLMProvider
@@ -62,6 +63,12 @@ def test_trtllm_provider_type():
     assert provider.provider_type == ProviderType.TRTLLM
 
 
+def test_native_provider_type():
+    """Test NativeProvider returns correct type."""
+    provider = NativeProvider()
+    assert provider.provider_type == ProviderType.NATIVE
+
+
 def test_api_provider_not_available_without_key():
     """Test APIProvider reports unavailable without key."""
     provider = APIProvider()
@@ -90,6 +97,12 @@ def test_create_provider_trtllm():
     """Test factory creates TRTLLMProvider."""
     provider = create_provider("trtllm")
     assert isinstance(provider, TRTLLMProvider)
+
+
+def test_create_provider_native():
+    """Test factory creates NativeProvider."""
+    provider = create_provider("native")
+    assert isinstance(provider, NativeProvider)
 
 
 def test_create_provider_invalid():
