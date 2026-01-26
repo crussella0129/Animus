@@ -255,7 +255,7 @@ Completed Phase 4: Agentic Loop implementation. Built the Agent class with tool 
 - `tests/test_tools.py` — Tools module tests
 
 ### Commits
-(pending)
+- `70a9c67` — feat: implement Phase 4 - Agentic Loop (tools and agent)
 
 ### Findings
 - All 57 tests passing (4 detection + 12 LLM + 21 memory + 20 tools)
@@ -272,5 +272,44 @@ None
 - Implement Phase 5: Sub-Agent Orchestration
 - spawn_subagent function
 - Scope restriction and reporting
+
+---
+
+## Entry #5 — 2026-01-26
+
+### Summary
+Completed Phase 5: Sub-Agent Orchestration. Built the system for spawning specialized sub-agents with restricted scope and parallel execution capabilities.
+
+### Actions
+- Created `src/core/subagent.py` with SubAgentOrchestrator, SubAgentScope, SubAgentRole
+- Implemented ScopedToolRegistry for tool filtering based on scope
+- Created predefined roles: CODER, REVIEWER, TESTER, DOCUMENTER, REFACTORER, DEBUGGER, RESEARCHER
+- Implemented scope restrictions: allowed paths, allowed tools, can_write, can_execute
+- Added parallel sub-agent execution with spawn_parallel
+- Created comprehensive sub-agent tests (12 new tests)
+
+### Files Changed
+- `src/core/__init__.py` — Added sub-agent exports
+- `src/core/subagent.py` — Sub-agent orchestration system
+- `tests/test_subagent.py` — Sub-agent module tests
+
+### Commits
+(pending)
+
+### Findings
+- All 69 tests passing (4 detection + 12 LLM + 21 memory + 20 tools + 12 subagent)
+- Scoped tool registry properly filters tools based on permissions
+- Role-specific prompts guide sub-agent behavior
+
+### Issues
+None
+
+### Checkpoint
+**Status:** COMPLETE — All 5 phases implemented. Project Animus core is functional.
+
+### Next
+- Integration testing with real LLM
+- Documentation and README updates
+- Optional: Add more specialized tools
 
 ---

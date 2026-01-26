@@ -57,9 +57,14 @@
 - [x] Add tools module tests (20 new tests)
 
 ### Phase 5: The Hive (Sub-Agent Orchestration)
-- [ ] Implement spawn_subagent(task_description, specialized_role)
-- [ ] Sub-agent scope restriction
-- [ ] Sub-agent reporting mechanism
+- [x] Implement SubAgentOrchestrator
+- [x] Implement SubAgentScope for restrictions
+- [x] Implement SubAgentRole with specialized prompts
+- [x] Implement ScopedToolRegistry for tool filtering
+- [x] Sub-agent scope restriction (paths, tools)
+- [x] Sub-agent reporting mechanism
+- [x] Parallel sub-agent execution
+- [x] Add sub-agent tests (12 new tests)
 
 ### Success Criteria
 - [x] All commands execute without errors
@@ -69,7 +74,7 @@
 - [x] Error messages are clear and actionable
 - [x] LLM Agent can execute commands via the terminal
 - [x] LLM Agent can create code in various languages
-- [ ] LLM Agent can create specialized sub-agents
+- [x] LLM Agent can create specialized sub-agents
 
 ## Backlog
 
@@ -77,6 +82,7 @@
 
 ## Completed (Recent)
 
+- Phase 5 Sub-Agent Orchestration (roles, scopes, parallel execution)
 - Phase 4 Agentic Loop (Agent class, tools, chat command)
 - Phase 3 RAG & Ingestion (scanner, chunker, extractor, embedder, vectorstore)
 - Phase 2 Model Layer implementation (providers, commands, factory)
