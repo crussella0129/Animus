@@ -29,7 +29,12 @@ pip install -e ".[native]"
 ```
 
 **Note for GPU acceleration:**
-- **NVIDIA (CUDA)**: Install llama-cpp-python with CUDA support:
+- **Windows (NVIDIA CUDA)**: Requires Visual Studio Build Tools. Download from https://visualstudio.microsoft.com/visual-cpp-build-tools/ and select "Desktop development with C++". Then:
+  ```bash
+  set CMAKE_ARGS=-DGGML_CUDA=on
+  pip install llama-cpp-python --force-reinstall --no-cache-dir
+  ```
+- **Linux (NVIDIA CUDA)**: Install llama-cpp-python with CUDA support:
   ```bash
   CMAKE_ARGS="-DGGML_CUDA=on" pip install llama-cpp-python --force-reinstall --no-cache-dir
   ```

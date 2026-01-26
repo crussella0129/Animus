@@ -40,15 +40,42 @@ pip install -e .
 ```
 
 ### Option B: Full Native Install (no external services)
+
+#### Windows Users - Choose One:
+
+**Method 1: Pre-built Wheels (Recommended - No Build Tools Required)**
+```bash
+pip install -e ".[native]"
+```
+This installs pre-built CPU wheels. If you see build errors about `CMAKE_C_COMPILER not set`, the pre-built wheel may not be available for your Python version. Try Method 2 or use Option A instead.
+
+**Method 2: With GPU Support (Requires Build Tools)**
+
+First, install Visual Studio Build Tools:
+1. Download from: https://visualstudio.microsoft.com/visual-cpp-build-tools/
+2. Run installer and select "Desktop development with C++"
+3. Restart your terminal after installation
+
+Then install with CUDA support:
+```bash
+pip install -e ".[native]"
+pip uninstall llama-cpp-python -y
+set CMAKE_ARGS=-DGGML_CUDA=on
+pip install llama-cpp-python --no-cache-dir
+```
+
+**If Installation Fails:**
+Use Option A (Basic Install with Ollama) instead - it requires no compilation and works reliably on all systems.
+
+#### macOS / Linux Users:
 ```bash
 pip install -e ".[native]"
 ```
 
-**For GPU acceleration (NVIDIA CUDA):**
+**For GPU acceleration (NVIDIA CUDA on Linux):**
 ```bash
 pip uninstall llama-cpp-python -y
-set CMAKE_ARGS=-DGGML_CUDA=on
-pip install llama-cpp-python --no-cache-dir
+CMAKE_ARGS="-DGGML_CUDA=on" pip install llama-cpp-python --no-cache-dir
 ```
 
 ---
