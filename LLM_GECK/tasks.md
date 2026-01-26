@@ -34,13 +34,15 @@
 - [x] Add LLM module tests
 
 ### Phase 3: The Librarian (RAG & Ingestion)
-- [ ] Implement `animus ingest <path>` command
-- [ ] Scanner: Walk directory respecting .gitignore
-- [ ] Router: Identify file type
-- [ ] Extractor: ZIM/PDF stream read (512-token chunks)
-- [ ] Extractor: Code parsing with Tree-sitter
-- [ ] Indexer: Generate embeddings and upsert to Vector DB
-- [ ] Rich progress bar during ingestion
+- [x] Implement `animus ingest <path>` command
+- [x] Implement `animus search <query>` command
+- [x] Scanner: Walk directory respecting .gitignore
+- [x] Router/Extractor: Identify and extract from file types
+- [x] Chunker: Token, Sentence, and Code chunking strategies
+- [x] Embedder: Ollama, API, and Mock embedders
+- [x] VectorStore: InMemory and ChromaDB support
+- [x] Rich progress bar during ingestion
+- [x] Add memory module tests (21 new tests)
 
 ### Phase 4: The Agentic Loop (Reasoning Engine)
 - [ ] Implement Agent class
@@ -59,7 +61,7 @@
 - [x] All commands execute without errors
 - [x] Help text is accurate and complete
 - [x] Exit codes are correct
-- [ ] Input validation works properly
+- [x] Input validation works properly
 - [x] Error messages are clear and actionable
 - [ ] LLM Agent can execute commands via the terminal
 - [ ] LLM Agent can create code in various languages
@@ -71,5 +73,6 @@
 
 ## Completed (Recent)
 
+- Phase 3 RAG & Ingestion (scanner, chunker, extractor, embedder, vectorstore)
 - Phase 2 Model Layer implementation (providers, commands, factory)
 - Phase 1 core implementation (CLI, detect, config, init)

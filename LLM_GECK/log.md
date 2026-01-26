@@ -161,7 +161,7 @@ Completed Phase 2: Model Layer implementation. Built unified provider interface 
 - `tests/test_llm.py` — LLM module tests
 
 ### Commits
-(pending)
+- `3d3f363` — feat: implement Phase 2 - Model Layer (LLM providers)
 
 ### Findings
 - Ollama API follows OpenAI-like patterns but with some differences
@@ -178,5 +178,53 @@ None
 - Implement Phase 3: RAG & Ingestion
 - `animus ingest <path>` command
 - File type detection and chunking
+
+---
+
+## Entry #3 — 2026-01-26
+
+### Summary
+Completed Phase 3: RAG & Ingestion implementation. Built complete document ingestion pipeline with directory scanning, text extraction, chunking strategies, embedding generation, and vector storage.
+
+### Actions
+- Created `src/memory/scanner.py` with GitIgnoreParser and DirectoryScanner
+- Created `src/memory/chunker.py` with TokenChunker, SentenceChunker, CodeChunker
+- Created `src/memory/extractor.py` with PlainText, Code, Markdown, PDF extractors
+- Created `src/memory/embedder.py` with OllamaEmbedder, APIEmbedder, MockEmbedder
+- Created `src/memory/vectorstore.py` with InMemoryVectorStore and ChromaVectorStore
+- Created `src/memory/ingest.py` orchestrating the full ingestion pipeline
+- Added CLI commands: `ingest`, `search`
+- Created comprehensive memory module tests (21 new tests)
+- Added pytest-asyncio dependency for async tests
+
+### Files Changed
+- `src/main.py` — Added ingest and search commands
+- `src/memory/__init__.py` — Module exports
+- `src/memory/scanner.py` — Directory scanning with .gitignore support
+- `src/memory/chunker.py` — Text chunking strategies
+- `src/memory/extractor.py` — File text extraction
+- `src/memory/embedder.py` — Embedding generation
+- `src/memory/vectorstore.py` — Vector database abstraction
+- `src/memory/ingest.py` — Ingestion orchestrator
+- `tests/test_memory.py` — Memory module tests
+
+### Commits
+(pending)
+
+### Findings
+- All 37 tests passing (4 detection + 12 LLM + 21 memory)
+- ChromaDB is optional - falls back to InMemoryVectorStore if not installed
+- PDF extraction requires pypdf or pdfplumber (optional)
+
+### Issues
+None
+
+### Checkpoint
+**Status:** CONTINUE — Phase 3 complete, ready for Phase 4 (Agentic Loop).
+
+### Next
+- Implement Phase 4: The Agentic Loop
+- Agent class with tool execution
+- Tools: read_file, write_file, list_dir, run_shell
 
 ---

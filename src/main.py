@@ -402,6 +402,126 @@ def pull(
 
 
 @app.command()
+def ingest(
+    path: str = typer.Argument(..., help="File or directory to ingest."),
+    chunk_size: int = typer.Option(512, "--chunk-size", "-c", help="Chunk size in tokens."),
+    overlap: int = typer.Option(50, "--overlap", "-o", help="Overlap between chunks."),
+) -> None:
+    """Ingest documents into the knowledge base."""
+    import asyncio
+    from pathlib import Path as PathLib
+    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+    from src.memory import Ingester, IngestionProgress
+    from src.core.config import ConfigManager
+
+    async def run_ingestion() -> None:
+        config = ConfigManager().config
+        target_path = PathLib(path).resolve()
+
+        if not target_path.exists():
+            console.print(f"[red]Path not found:[/red] {target_path}")
+            raise typer.Exit(1)
+
+        console.print(f"[bold]Ingesting:[/bold] {target_path}")
+
+        ingester = Ingester(
+            chunk_size=chunk_size,
+            chunk_overlap=overlap,
+        )
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            console=console,
+        ) as progress:
+            task = progress.add_task("Starting...", total=None)
+
+            def on_progress(p: IngestionProgress):
+                if p.total > 0:
+                    progress.update(task, total=p.total, completed=p.current)
+                desc = p.message or p.stage
+                if p.current_file:
+                    # Show just filename, not full path
+                    filename = PathLib(p.current_file).name
+                    desc = f"{p.stage}: {filename}"
+                progress.update(task, description=desc)
+
+            try:
+                stats = await ingester.ingest(
+                    target_path,
+                    progress_callback=on_progress,
+                    persist_dir=config.data_dir / "vectordb",
+                )
+
+                progress.update(task, description="Done!", completed=progress.tasks[0].total or 100)
+
+            finally:
+                await ingester.close()
+
+        # Print summary
+        console.print()
+        console.print("[bold green]Ingestion complete![/bold green]")
+        console.print(f"  Files scanned:  {stats.files_scanned}")
+        console.print(f"  Files processed: {stats.files_processed}")
+        console.print(f"  Files skipped:   {stats.files_skipped}")
+        console.print(f"  Chunks created:  {stats.chunks_created}")
+        console.print(f"  Embeddings:      {stats.embeddings_generated}")
+
+        if stats.errors:
+            console.print(f"\n[yellow]Errors ({len(stats.errors)}):[/yellow]")
+            for file, error in stats.errors[:5]:
+                console.print(f"  {file}: {error}")
+            if len(stats.errors) > 5:
+                console.print(f"  ... and {len(stats.errors) - 5} more")
+
+    asyncio.run(run_ingestion())
+
+
+@app.command()
+def search(
+    query: str = typer.Argument(..., help="Search query."),
+    k: int = typer.Option(5, "--results", "-k", help="Number of results."),
+) -> None:
+    """Search the knowledge base."""
+    import asyncio
+    from src.memory import Ingester
+    from src.core.config import ConfigManager
+
+    async def run_search() -> None:
+        config = ConfigManager().config
+        ingester = Ingester()
+
+        try:
+            results = await ingester.search(
+                query,
+                k=k,
+                persist_dir=config.data_dir / "vectordb",
+            )
+
+            if not results:
+                console.print("[yellow]No results found.[/yellow]")
+                return
+
+            console.print(f"[bold]Results for:[/bold] {query}\n")
+
+            for i, (content, score, metadata) in enumerate(results, 1):
+                source = metadata.get("source", "Unknown")
+                console.print(f"[cyan]{i}.[/cyan] [dim]({score:.3f})[/dim] {source}")
+                # Show first 200 chars of content
+                preview = content[:200].replace("\n", " ")
+                if len(content) > 200:
+                    preview += "..."
+                console.print(f"   {preview}\n")
+
+        finally:
+            await ingester.close()
+
+    asyncio.run(run_search())
+
+
+@app.command()
 def status() -> None:
     """Show provider status and configured model."""
     import asyncio

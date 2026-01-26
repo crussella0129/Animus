@@ -1,1 +1,80 @@
 """Memory module - RAG, VectorDB, and ingestion logic."""
+
+from src.memory.scanner import DirectoryScanner, GitIgnoreParser
+from src.memory.chunker import (
+    TextChunk,
+    ChunkingStrategy,
+    TokenChunker,
+    SentenceChunker,
+    CodeChunker,
+    get_chunker,
+)
+from src.memory.extractor import (
+    ExtractedText,
+    TextExtractor,
+    PlainTextExtractor,
+    CodeExtractor,
+    MarkdownExtractor,
+    PDFExtractor,
+    extract_text,
+    can_extract,
+)
+from src.memory.embedder import (
+    Embedder,
+    OllamaEmbedder,
+    APIEmbedder,
+    MockEmbedder,
+    create_embedder,
+)
+from src.memory.vectorstore import (
+    Document,
+    SearchResult,
+    VectorStore,
+    InMemoryVectorStore,
+    ChromaVectorStore,
+    create_document_id,
+)
+from src.memory.ingest import (
+    Ingester,
+    IngestionProgress,
+    IngestionStats,
+)
+
+__all__ = [
+    # Scanner
+    "DirectoryScanner",
+    "GitIgnoreParser",
+    # Chunker
+    "TextChunk",
+    "ChunkingStrategy",
+    "TokenChunker",
+    "SentenceChunker",
+    "CodeChunker",
+    "get_chunker",
+    # Extractor
+    "ExtractedText",
+    "TextExtractor",
+    "PlainTextExtractor",
+    "CodeExtractor",
+    "MarkdownExtractor",
+    "PDFExtractor",
+    "extract_text",
+    "can_extract",
+    # Embedder
+    "Embedder",
+    "OllamaEmbedder",
+    "APIEmbedder",
+    "MockEmbedder",
+    "create_embedder",
+    # Vector Store
+    "Document",
+    "SearchResult",
+    "VectorStore",
+    "InMemoryVectorStore",
+    "ChromaVectorStore",
+    "create_document_id",
+    # Ingestion
+    "Ingester",
+    "IngestionProgress",
+    "IngestionStats",
+]
