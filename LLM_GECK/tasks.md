@@ -66,6 +66,20 @@
 - [x] Parallel sub-agent execution
 - [x] Add sub-agent tests (12 new tests)
 
+### Phase 6: Native Model Loading (Self-Contained Inference)
+- [ ] Implement NativeProvider using llama-cpp-python
+- [ ] Support GGUF model format loading
+- [ ] Implement `animus model download <model>` command
+- [ ] Implement `animus model list-local` command
+- [ ] Add model storage in ~/.animus/models/
+- [ ] Implement GPU backend detection (CUDA, Metal, ROCm)
+- [ ] Implement CPU fallback for systems without GPU
+- [ ] Add automatic quantization format detection (Q4_K_M, Q5_K_M, Q8_0, etc.)
+- [ ] Implement provider fallback chain (Native → Ollama → API)
+- [ ] Update config to support native provider settings
+- [ ] Add native provider tests
+- [ ] Animus runs without Ollama service dependency
+
 ### Success Criteria
 - [x] All commands execute without errors
 - [x] Help text is accurate and complete
@@ -75,6 +89,9 @@
 - [x] LLM Agent can execute commands via the terminal
 - [x] LLM Agent can create code in various languages
 - [x] LLM Agent can create specialized sub-agents
+- [ ] Animus can load and run GGUF models directly without Ollama
+- [ ] Animus can download models from Hugging Face
+- [ ] Native inference works on CPU, CUDA, and Metal backends
 
 ## Backlog
 

@@ -9,6 +9,7 @@
 Goal: Create a high-performance, cross-platform (Linux/macOS/Windows/Jetson) CLI coding agent. Core Philosophy:
 
 Local-First: Prioritize local inference (Ollama, TensorRT-LLM) but support APIs.
+Self-Contained: Break dependency on external services like Ollama; load and operate models directly using native libraries (llama.cpp, transformers, GGUF).
 Universal Ingestion: "Read" everything (Code, PDFs, ZIM archives) via RAG/Indexing, not fine-tuning.
 Orchestration: Capable of spawning sub-agents for specialized tasks.
 Hardware Aware: Optimized for edge hardware (Jetson Orin Nano) and standard desktops.
@@ -23,6 +24,9 @@ Hardware Aware: Optimized for edge hardware (Jetson Orin Nano) and standard desk
 - [ ] LLM Agent can execute commands via the terminal
 - [ ] LLM Agent can create code (in various languages like Bash, Python, C++, Rust, Javascript, CSS, etc...) that functions and does so according to the original instructions
 - [ ] LLM Agent can create specialized sub-agents, based in part off of Claude Codes sub-agent structure (View Claude Code Docmentation)
+- [ ] Animus can load and run GGUF models directly without Ollama installed
+- [ ] Animus can download models from Hugging Face or other sources
+- [ ] Native inference works on CPU, CUDA, and Metal backends
 
 ## Constraints
 
@@ -97,3 +101,15 @@ Main Agent realizes a task is too broad (e.g., "Refactor this entire module").
 Main Agent defines scope and constraints.
 Sub-Agent initializes with a restricted context (only relevant files).
 Sub-Agent reports back upon completion or failure.
+
+Phase 6: Native Model Loading (Self-Contained Inference)
+Objective: Eliminate dependency on Ollama; load and run models directly.
+
+Action: Implement NativeProvider using llama-cpp-python for GGUF model support.
+Action: Implement model download/management via `animus model download <model>`.
+Action: Support automatic model format detection (GGUF, safetensors, etc.).
+Action: Implement GPU acceleration detection and configuration (CUDA, Metal, ROCm).
+Action: Add fallback chain: Native → Ollama → API (configurable priority).
+Key Logic: On boot, check for local model files in ~/.animus/models/. If available, load directly without requiring Ollama service.
+Target Models: GGUF quantized models (Q4_K_M, Q5_K_M, Q8_0) for efficient local inference.
+Constraint: Must support CPU-only fallback for systems without GPU.

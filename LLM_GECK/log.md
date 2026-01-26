@@ -313,3 +313,40 @@ None
 - Optional: Add more specialized tools
 
 ---
+
+## Entry #6 — 2026-01-26
+
+### Summary
+Added Phase 6 development goal: Native Model Loading. This new phase aims to break dependency on Ollama by enabling Animus to load and operate models directly using native libraries.
+
+### Actions
+- Updated LLM_init.md with new "Self-Contained" core philosophy goal
+- Added Phase 6: Native Model Loading to implementation phases in LLM_init.md
+- Added success criteria for native model loading in LLM_init.md
+- Added Phase 6 task checklist to tasks.md (12 new tasks)
+- Updated success criteria in tasks.md
+
+### Files Changed
+- `LLM_GECK/LLM_init.md` — Added Self-Contained goal, Phase 6 definition, success criteria
+- `LLM_GECK/tasks.md` — Added Phase 6 task checklist and updated success criteria
+
+### Commits
+- (pending)
+
+### Findings
+- Phase 6 will use llama-cpp-python for GGUF model support
+- Provider fallback chain: Native → Ollama → API
+- Must support CPU, CUDA, Metal, and ROCm backends
+
+### Issues
+None
+
+### Checkpoint
+**Status:** CONTINUE — Goals updated, ready to begin Phase 6 implementation.
+
+### Next
+- Implement NativeProvider class
+- Add model download/management commands
+- Test direct model loading
+
+---
