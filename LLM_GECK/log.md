@@ -294,7 +294,7 @@ Completed Phase 5: Sub-Agent Orchestration. Built the system for spawning specia
 - `tests/test_subagent.py` — Sub-agent module tests
 
 ### Commits
-(pending)
+- `859b6a1` — feat: implement Phase 5 - Sub-Agent Orchestration (hive)
 
 ### Findings
 - All 69 tests passing (4 detection + 12 LLM + 21 memory + 20 tools + 12 subagent)
