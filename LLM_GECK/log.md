@@ -79,3 +79,56 @@ None
 **Status:** WAIT — Awaiting confirmation to begin work.
 
 ---
+
+## Entry #1 — 2026-01-26
+
+### Summary
+Completed Phase 1: Core Shell implementation. Built CLI entry point with Typer, environment detection (OS/hardware/GPU), and configuration management.
+
+### Actions
+- Created project directory structure using `src/` (renamed from `animus/` per user request to avoid confusion)
+- Initialized `pyproject.toml` with dependencies (Typer, Rich, PyYAML, Pydantic)
+- Implemented `src/core/detection.py` with OS, architecture, and hardware type detection
+- Implemented `src/core/config.py` with ConfigManager and YAML-based configuration
+- Created `src/main.py` as CLI entry point with Typer
+- Implemented commands: `detect`, `config`, `init`
+- Added GPU detection (NVIDIA via nvidia-smi, Apple Metal)
+- Added Jetson and Apple Silicon detection
+- Created basic tests for detection module
+- Fixed Pydantic deprecation warning (class Config → ConfigDict)
+
+### Files Changed
+- `pyproject.toml` — Project configuration and dependencies
+- `requirements.txt` — Quick-install dependencies
+- `src/__init__.py` — Package init with version
+- `src/main.py` — CLI entry point with detect/config/init commands
+- `src/core/__init__.py` — Core module exports
+- `src/core/detection.py` — System detection (OS, hardware, GPU)
+- `src/core/config.py` — Configuration management
+- `src/llm/__init__.py` — LLM module placeholder
+- `src/memory/__init__.py` — Memory module placeholder
+- `src/tools/__init__.py` — Tools module placeholder
+- `src/ui/__init__.py` — UI module placeholder
+- `tests/__init__.py` — Tests package
+- `tests/test_detection.py` — Detection module tests
+
+### Commits
+(pending — will commit after checkpoint)
+
+### Findings
+- System detected: Windows 10.0.26200, x86_64, NVIDIA RTX 2080 Ti (11GB), CUDA 581.80
+- Typer 0.21.1 no longer needs `[all]` extra
+- Python 3.13.11 compatible
+
+### Issues
+None
+
+### Checkpoint
+**Status:** CONTINUE — Phase 1 complete, ready for Phase 2 (Model Layer).
+
+### Next
+- Implement Phase 2: ModelProvider abstract base class
+- Implement OllamaProvider (localhost:11434)
+- Implement `animus pull <model>` command
+
+---
