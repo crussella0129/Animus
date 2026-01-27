@@ -4,7 +4,7 @@ A high-performance, cross-platform CLI coding agent that runs locally. Animus le
 
 ## Features
 
-- **Self-Contained**: Run completely locally without external services using native GGUF model loading
+- **Self-Contained**: Run completely locally, without external services, and using native GGUF model loading without the need for a wrapper like Ollama. 
 - **Cross-Platform**: Works on Windows, macOS, and Linux
 - **Hardware Aware**: Automatic GPU detection and acceleration (CUDA, Metal, ROCm)
 - **RAG/Knowledge Base**: Ingest codebases, documentation, and files for context-aware assistance
