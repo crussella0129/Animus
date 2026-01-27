@@ -452,3 +452,75 @@ None
 - Awaiting further instructions
 
 ---
+
+## Entry #9 — 2026-01-26
+
+### Summary
+Fixed critical issues discovered during QUICKSTART testing: Windows 11 detection, tool execution, and autonomous agent behavior.
+
+### Analysis of Animus_Test_Windows_1.txt
+
+**Issues Identified:**
+
+1. **Windows Version Misdetected**: System reported "Windows (10.0.26200)" but user is on Windows 11. Build 26200 is Windows 11 (build >= 22000).
+
+2. **write_file Never Executed**: LLM outputted tool commands as text (e.g., `write_file "path" "content"`) instead of JSON format. Agent's `_parse_tool_calls` expected `{"tool": "name", "arguments": {...}}` so tools were never parsed or executed.
+
+3. **Hallucinated Output**: The LogOS directory analysis was completely fabricated. The LLM "listed" and "read" files that don't exist because it never actually called tools—it just generated plausible-looking output.
+
+4. **LLM Asking User to Execute Commands**: Instead of executing tools autonomously, the LLM kept saying "run this command" or "paste the output." This defeats the purpose of an agentic assistant.
+
+### Actions
+
+**1. Fixed Windows Version Detection** (`src/core/detection.py`)
+- Added `_get_windows_marketing_name()` function
+- Windows 11 detected when build >= 22000
+- Now displays "Windows 11 (Build 26200)" instead of raw version
+
+**2. Improved System Prompt** (`src/core/agent.py`)
+- Clear JSON format specification for tool calls
+- Explicit "Autonomous Execution Policy" section
+- Instructions to EXECUTE tools, not ask user to run them
+- Warning against hallucinating file contents
+
+**3. Added Auto-Execute Configuration** (`src/core/agent.py`)
+- New `auto_execute_tools` tuple for read-only tools (read_file, list_dir)
+- New `safe_shell_commands` tuple for read-only commands
+- Updated `_call_tool` method with `_is_safe_shell_command()` check
+
+**4. Improved Tool Call Parsing** (`src/core/agent.py`)
+- Enhanced `_parse_tool_calls` to handle multiple formats:
+  - JSON: `{"tool": "name", "arguments": {...}}`
+  - Function-style: `read_file("path")`
+  - Command-style: `read_file "path"`
+
+### Files Changed
+
+- `src/core/detection.py` — Fixed Windows 11 detection with `_get_windows_marketing_name()`
+- `src/core/agent.py` — Rewrote system prompt, added auto-execute logic, improved tool parsing
+
+### Commits
+
+- (pending)
+
+### Findings
+
+- Windows `platform.version()` returns "10.0.XXXXX" for both Win10 and Win11
+- Build number determines actual Windows version (22000+ = Win11)
+- LLMs need explicit, structured instructions for tool call format
+- Autonomous execution policy prevents "please run this for me" behavior
+
+### Issues
+
+- LLM may still hallucinate if it doesn't understand tool call format (model-dependent)
+- Need integration testing with actual LLM to verify fixes
+
+### Checkpoint
+**Status:** CONTINUE — Fixes implemented, need testing and commit.
+
+### Next
+- Run tests to verify changes don't break existing functionality
+- Test with actual LLM to verify tool calling works
+- Consider adding more flexible tool call parsing if needed
+
+---

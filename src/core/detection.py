@@ -67,7 +67,11 @@ def _detect_os() -> tuple[OperatingSystem, str]:
     version = platform.version()
 
     if system == "windows":
-        return OperatingSystem.WINDOWS, version
+        # Parse Windows version to distinguish Windows 10 vs 11
+        # Windows reports version as "10.0.XXXXX" for both Win10 and Win11
+        # Windows 11 has build number >= 22000
+        windows_version = _get_windows_marketing_name(version)
+        return OperatingSystem.WINDOWS, windows_version
     elif system == "darwin":
         return OperatingSystem.MACOS, platform.mac_ver()[0]
     elif system == "linux":
@@ -80,6 +84,35 @@ def _detect_os() -> tuple[OperatingSystem, str]:
         return OperatingSystem.LINUX, version
     else:
         return OperatingSystem.UNKNOWN, version
+
+
+def _get_windows_marketing_name(version: str) -> str:
+    """
+    Convert Windows build version to marketing name.
+
+    Windows 11: Build 22000+
+    Windows 10: Build < 22000
+
+    Args:
+        version: Raw version string like "10.0.26200"
+
+    Returns:
+        Marketing name like "11 (Build 26200)" or "10 (Build 19045)"
+    """
+    try:
+        # Parse version string "10.0.XXXXX"
+        parts = version.split(".")
+        if len(parts) >= 3:
+            build_number = int(parts[2])
+            if build_number >= 22000:
+                return f"11 (Build {build_number})"
+            else:
+                return f"10 (Build {build_number})"
+    except (ValueError, IndexError):
+        pass
+
+    # Fallback to raw version
+    return version
 
 
 def _detect_architecture() -> Architecture:

@@ -26,6 +26,18 @@ class AgentConfig:
     require_tool_confirmation: bool = True
     auto_confirm_safe_tools: bool = True
 
+    # Auto-execute these tools without confirmation (read-only operations)
+    auto_execute_tools: tuple = ("read_file", "list_dir")
+
+    # Safe shell commands that don't need confirmation (read-only)
+    safe_shell_commands: tuple = (
+        "ls", "dir", "cat", "type", "pwd", "cd", "echo",
+        "git status", "git log", "git diff", "git branch", "git remote",
+        "python --version", "python3 --version", "pip list", "pip show",
+        "node --version", "npm list", "which", "where", "whoami",
+        "date", "time", "hostname", "uname", "env", "printenv",
+    )
+
     # Memory settings
     use_memory: bool = True
     memory_search_k: int = 5
@@ -49,19 +61,54 @@ DEFAULT_SYSTEM_PROMPT = """You are Animus, an intelligent coding assistant. You 
 4. Running commands and tests
 5. Explaining concepts and solutions
 
-You have access to tools for:
-- Reading files (read_file)
-- Writing files (write_file)
-- Listing directories (list_dir)
-- Running shell commands (run_shell)
+## Available Tools
 
-When using tools:
-- Always read files before modifying them
-- Use list_dir to understand project structure
-- Run tests after making changes
-- Explain what you're doing and why
+You have access to these tools:
+- read_file: Read file contents
+- write_file: Write/create files (requires confirmation)
+- list_dir: List directory contents
+- run_shell: Execute shell commands
 
-Be concise but thorough. Ask clarifying questions when needed.
+## How to Call Tools
+
+IMPORTANT: To use a tool, output a JSON object in this exact format:
+{"tool": "tool_name", "arguments": {"arg1": "value1", "arg2": "value2"}}
+
+Example tool calls:
+{"tool": "read_file", "arguments": {"path": "C:/Users/example/file.txt"}}
+{"tool": "list_dir", "arguments": {"path": "C:/Users/example", "recursive": false}}
+{"tool": "write_file", "arguments": {"path": "C:/Users/example/new.py", "content": "print('hello')"}}
+{"tool": "run_shell", "arguments": {"command": "python --version"}}
+
+## Autonomous Execution Policy
+
+You MUST execute tools autonomously. DO NOT ask the user to run commands for you.
+
+**Execute immediately (no confirmation needed):**
+- read_file: Reading any file
+- list_dir: Listing directories
+- run_shell: Safe read-only commands (ls, dir, cat, type, pwd, cd, git status, git log, git diff, python --version, pip list)
+
+**Execute after system confirmation prompt:**
+- write_file: Creating or modifying files
+- run_shell: Commands that modify state (git commit, git push, pip install, mkdir, etc.)
+
+**Block and refuse:**
+- Destructive commands (rm -rf /, format, del /s, etc.)
+- Commands that could compromise security
+
+## Workflow
+
+1. When a user asks you to do something, IMMEDIATELY call the appropriate tool
+2. After receiving tool results, analyze them and take next steps
+3. Continue calling tools until the task is complete
+4. Provide a summary of what was accomplished
+
+DO NOT output tool syntax and ask the user to run it. YOU execute the tools.
+DO NOT hallucinate or fabricate file contents. ALWAYS use read_file to get actual contents.
+DO NOT guess directory structures. ALWAYS use list_dir to explore.
+
+Be concise but thorough.
 """
 
 
@@ -151,6 +198,15 @@ class Agent:
         except Exception:
             return None
 
+    def _is_safe_shell_command(self, command: str) -> bool:
+        """Check if a shell command is safe (read-only) and can be auto-executed."""
+        command_lower = command.lower().strip()
+        for safe_cmd in self.config.safe_shell_commands:
+            # Check if command starts with safe command
+            if command_lower.startswith(safe_cmd.lower()):
+                return True
+        return False
+
     async def _call_tool(self, tool_name: str, arguments: dict) -> ToolResult:
         """Call a tool with confirmation if needed."""
         tool = self.tool_registry.get(tool_name)
@@ -162,12 +218,22 @@ class Agent:
                 error=f"Unknown tool: {tool_name}",
             )
 
-        # Check if confirmation is needed
-        needs_confirm = (
-            self.config.require_tool_confirmation
-            and tool.requires_confirmation
-            and not (self.config.auto_confirm_safe_tools and not tool.requires_confirmation)
-        )
+        # Determine if confirmation is needed based on tool type and configuration
+        needs_confirm = False
+
+        if self.config.require_tool_confirmation:
+            # Check if this tool is in the auto-execute list
+            if tool_name in self.config.auto_execute_tools:
+                needs_confirm = False
+            # Check if this is a safe shell command
+            elif tool_name == "run_shell" and "command" in arguments:
+                if self._is_safe_shell_command(arguments["command"]):
+                    needs_confirm = False
+                else:
+                    needs_confirm = True
+            # Otherwise, use the tool's requires_confirmation setting
+            elif tool.requires_confirmation:
+                needs_confirm = True
 
         if needs_confirm and self.confirm_callback:
             description = f"{tool_name}({json.dumps(arguments, indent=2)})"
@@ -192,18 +258,20 @@ class Agent:
         """
         Parse tool calls from assistant response.
 
-        Supports both JSON function call format and natural language patterns.
+        Supports multiple formats:
+        1. JSON: {"tool": "tool_name", "arguments": {...}}
+        2. Function-style: tool_name(arg1, arg2)
+        3. Command-style: tool_name "arg1" "arg2"
         """
         tool_calls = []
-
-        # Try to find JSON tool calls in the content
-        # Format: {"tool": "tool_name", "arguments": {...}}
         import re
-        json_pattern = r'\{[^{}]*"tool"[^{}]*"arguments"[^{}]*\}'
 
-        for match in re.finditer(json_pattern, content, re.DOTALL):
+        # Pattern 1: JSON format - {"tool": "name", "arguments": {...}}
+        # Use a more permissive pattern that can handle nested braces
+        json_matches = re.findall(r'\{[^{}]*"tool"\s*:\s*"[^"]+"\s*,\s*"arguments"\s*:\s*\{[^{}]*\}[^{}]*\}', content, re.DOTALL)
+        for match in json_matches:
             try:
-                data = json.loads(match.group())
+                data = json.loads(match)
                 if "tool" in data and "arguments" in data:
                     tool_calls.append({
                         "name": data["tool"],
@@ -211,6 +279,57 @@ class Agent:
                     })
             except json.JSONDecodeError:
                 continue
+
+        # If no JSON calls found, try natural language patterns
+        if not tool_calls:
+            # Pattern 2: Function-style - read_file("path") or read_file('path')
+            # Pattern 3: Command-style - read_file "path"
+            available_tools = ["read_file", "write_file", "list_dir", "run_shell"]
+
+            for tool_name in available_tools:
+                # Function style: tool_name("arg1", "arg2")
+                func_pattern = rf'{tool_name}\s*\(\s*["\']([^"\']+)["\'](?:\s*,\s*["\']([^"\']+)["\'])?\s*\)'
+                for match in re.finditer(func_pattern, content):
+                    args = {}
+                    if tool_name == "read_file":
+                        args["path"] = match.group(1)
+                    elif tool_name == "write_file":
+                        args["path"] = match.group(1)
+                        if match.group(2):
+                            args["content"] = match.group(2)
+                    elif tool_name == "list_dir":
+                        args["path"] = match.group(1)
+                    elif tool_name == "run_shell":
+                        args["command"] = match.group(1)
+                    if args:
+                        tool_calls.append({"name": tool_name, "arguments": args})
+
+                # Command style: tool_name "arg1" "arg2"
+                cmd_pattern = rf'{tool_name}\s+["\']([^"\']+)["\'](?:\s+["\']([^"\']+)["\'])?'
+                for match in re.finditer(cmd_pattern, content):
+                    # Skip if we already found this via function pattern
+                    path_or_cmd = match.group(1)
+                    existing = any(
+                        c["name"] == tool_name and
+                        (c["arguments"].get("path") == path_or_cmd or c["arguments"].get("command") == path_or_cmd)
+                        for c in tool_calls
+                    )
+                    if existing:
+                        continue
+
+                    args = {}
+                    if tool_name == "read_file":
+                        args["path"] = match.group(1)
+                    elif tool_name == "write_file":
+                        args["path"] = match.group(1)
+                        if match.group(2):
+                            args["content"] = match.group(2)
+                    elif tool_name == "list_dir":
+                        args["path"] = match.group(1)
+                    elif tool_name == "run_shell":
+                        args["command"] = match.group(1)
+                    if args:
+                        tool_calls.append({"name": tool_name, "arguments": args})
 
         return tool_calls
 

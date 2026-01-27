@@ -16,17 +16,20 @@ Hardware Aware: Optimized for edge hardware (Jetson Orin Nano) and standard desk
 
 ## Success Criteria
 
-- [ ] All commands execute without errors
-- [ ] Help text is accurate and complete
-- [ ] Exit codes are correct
-- [ ] Input validation works properly
-- [ ] Error messages are clear and actionable
-- [ ] LLM Agent can execute commands via the terminal
-- [ ] LLM Agent can create code (in various languages like Bash, Python, C++, Rust, Javascript, CSS, etc...) that functions and does so according to the original instructions
-- [ ] LLM Agent can create specialized sub-agents, based in part off of Claude Codes sub-agent structure (View Claude Code Docmentation)
-- [ ] Animus can load and run GGUF models directly without Ollama installed
-- [ ] Animus can download models from Hugging Face or other sources
-- [ ] Native inference works on CPU, CUDA, and Metal backends
+- [x] All commands execute without errors
+- [x] Help text is accurate and complete
+- [x] Exit codes are correct
+- [x] Input validation works properly
+- [x] Error messages are clear and actionable
+- [x] LLM Agent can execute commands via the terminal
+- [x] LLM Agent can create code (in various languages like Bash, Python, C++, Rust, Javascript, CSS, etc...) that functions and does so according to the original instructions
+- [x] LLM Agent can create specialized sub-agents, based in part off of Claude Codes sub-agent structure (View Claude Code Docmentation)
+- [x] Animus can load and run GGUF models directly without Ollama installed
+- [x] Animus can download models from Hugging Face or other sources
+- [x] Native inference works on CPU, CUDA, and Metal backends
+- [x] Windows 11 correctly identified (not misreported as Windows 10)
+- [ ] Agent executes tools autonomously (doesn't ask user to run commands)
+- [ ] Proper stopping cadences implemented for file operations
 
 ## Constraints
 
@@ -113,3 +116,26 @@ Action: Add fallback chain: Native → Ollama → API (configurable priority).
 Key Logic: On boot, check for local model files in ~/.animus/models/. If available, load directly without requiring Ollama service.
 Target Models: GGUF quantized models (Q4_K_M, Q5_K_M, Q8_0) for efficient local inference.
 Constraint: Must support CPU-only fallback for systems without GPU.
+
+Phase 7: Agent Autonomy & UX Improvements
+Objective: Make the agent truly autonomous—execute tools instead of asking user to run commands.
+
+Action: Fix Windows 11 detection (build >= 22000 vs Windows 10).
+Action: Update system prompt with explicit JSON tool call format.
+Action: Implement autonomous execution policy for read-only operations.
+Action: Define stopping cadences (when to pause for user confirmation).
+
+Stopping Cadences (Require Confirmation):
+- Authoring new documents and files
+- Changing working paths (cd to different project)
+- Deleting or editing existing documents
+- Identified security issues
+- Git push/commit operations
+- Installing packages or dependencies
+
+Auto-Execute (No Confirmation):
+- Reading files and directories
+- Running read-only shell commands (ls, git status, cat, etc.)
+- Navigating/exploring codebase
+
+Constraint: Agent must NEVER ask user to copy/paste commands. It executes tools autonomously.

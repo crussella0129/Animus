@@ -82,6 +82,35 @@
 - [x] Update embedder to auto-detect best available (native → mock)
 - [x] Animus runs without Ollama service dependency
 
+### Phase 7: Agent Autonomy & UX Improvements
+
+**Goal:** Make the agent truly autonomous—execute tools instead of asking user to run commands.
+
+**Stopping Cadences (Require User Confirmation):**
+- Authoring new documents and files
+- Changing working paths (cd to different project)
+- Deleting or editing existing documents
+- Identified security issues
+- Git push/commit operations
+- Installing packages or dependencies
+
+**Auto-Execute (No Confirmation Needed):**
+- Reading files and directories
+- Running read-only shell commands (ls, git status, cat, etc.)
+- Navigating/exploring codebase
+
+**Tasks:**
+- [x] Fix Windows 11 detection (build >= 22000)
+- [x] Update system prompt with explicit tool call format (JSON)
+- [x] Add autonomous execution policy to system prompt
+- [x] Create `auto_execute_tools` configuration for read-only tools
+- [x] Create `safe_shell_commands` configuration for safe commands
+- [x] Update `_call_tool` to auto-execute safe operations
+- [x] Improve `_parse_tool_calls` to handle multiple formats (JSON, function-style, command-style)
+- [ ] Integration test with actual LLM to verify tool execution
+- [ ] Add stopping cadence configuration to config.yaml
+- [ ] Implement path change detection and confirmation
+
 ### Success Criteria
 - [x] All commands execute without errors
 - [x] Help text is accurate and complete
@@ -95,10 +124,15 @@
 - [x] Animus can download models from Hugging Face
 - [x] Native inference works on CPU, CUDA, and Metal backends
 - [x] Native embeddings work without Ollama (sentence-transformers)
+- [x] Windows 11 correctly identified (not Windows 10)
+- [ ] Agent executes tools autonomously (doesn't ask user to run commands)
+- [ ] Proper stopping cadences for file creation/modification/deletion
 
 ## Backlog
 
-(empty)
+- [ ] Add Tree-sitter parsing for code chunking
+- [ ] Add ZIM archive support for Wikipedia offline ingestion
+- [ ] Implement conversation memory persistence
 
 ## Completed (Recent)
 

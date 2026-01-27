@@ -44,21 +44,38 @@ pip install -e .
 #### Windows Users - Choose One:
 
 **Method 1: Pre-built Wheels (Recommended - No Build Tools Required)**
+
+First, install llama-cpp-python using pre-built wheels, then install the rest:
+
+**For CPU-only:**
+```bash
+pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+pip install -e ".[native]"
+```
+
+**For NVIDIA GPU (CUDA 12.4):**
+```bash
+pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124
+pip install -e ".[native]"
+```
+
+Other CUDA versions available: `cu121`, `cu122`, `cu123`, `cu124`
+
+**Method 2: Build From Source (Requires Visual Studio Build Tools)**
+
+Only use this if Method 1 doesn't work for your Python version.
+
+1. Download Visual Studio Build Tools from: https://visualstudio.microsoft.com/visual-cpp-build-tools/
+2. Run installer and select "Desktop development with C++"
+3. Restart your terminal after installation
+4. Then install:
+
 ```bash
 pip install -e ".[native]"
 ```
-This installs pre-built CPU wheels. If you see build errors about `CMAKE_C_COMPILER not set`, the pre-built wheel may not be available for your Python version. Try Method 2 or use Option A instead.
 
-**Method 2: With GPU Support (Requires Build Tools)**
-
-First, install Visual Studio Build Tools:
-1. Download from: https://visualstudio.microsoft.com/visual-cpp-build-tools/
-2. Run installer and select "Desktop development with C++"
-3. Restart your terminal after installation
-
-Then install with CUDA support:
+**For CUDA support (after Build Tools installed):**
 ```bash
-pip install -e ".[native]"
 pip uninstall llama-cpp-python -y
 set CMAKE_ARGS=-DGGML_CUDA=on
 pip install llama-cpp-python --no-cache-dir
@@ -105,7 +122,7 @@ Expected output (varies by system):
 +----------------------------------------------------------+
 | Property         | Value                                 |
 |------------------+---------------------------------------|
-| Operating System | Windows (10.0.26200)                  |
+| Operating System | Windows 11 (Build 26200)              |
 | Architecture     | x86_64                                |
 | Hardware Type    | Standard x86_64                       |
 | Python Version   | 3.13.11                               |
