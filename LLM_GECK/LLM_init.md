@@ -28,8 +28,9 @@ Hardware Aware: Optimized for edge hardware (Jetson Orin Nano) and standard desk
 - [x] Animus can download models from Hugging Face or other sources
 - [x] Native inference works on CPU, CUDA, and Metal backends
 - [x] Windows 11 correctly identified (not misreported as Windows 10)
-- [ ] Agent executes tools autonomously (doesn't ask user to run commands)
-- [ ] Proper stopping cadences implemented for file operations
+- [~] Agent executes tools autonomously — **Tested 2026-01-27**: Infrastructure works, model compliance varies
+- [x] Proper stopping cadences implemented for file operations (confirmation prompts working)
+- [ ] Recommended models documented for reliable tool execution
 
 ## Constraints
 

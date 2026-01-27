@@ -773,6 +773,69 @@ None — All 138 tests pass.
 
 ---
 
+## Entry #13 — 2026-01-27
+
+### Summary
+Reviewed Windows system tests (systests/Windows). Identified working features and remaining issues with tool execution and model behavior.
+
+### Test Results Analysis
+
+**Animus_Test_Windows_1.txt:**
+- ✅ Native dependencies installed successfully (`pip install -e ".[native]"`)
+- ✅ GPU detected: NVIDIA GeForce RTX 2080 Ti (11264 MB), CUDA driver 581.80
+- ✅ llama-cpp-python built and installed with CUDA support
+- ✅ Model download working: CodeLlama-7B-Instruct GGUF (3.80 GB)
+- ✅ `animus detect`, `animus models`, `animus model list` all functional
+- ✅ Chat session starts correctly
+- ❌ Tool execution broken: Model outputs tool commands as text (e.g., `list_dir "path"`) but they don't execute
+- ❌ Model hallucination: Fabricated entire file analysis for "C:\Users\charl\LogOS" that doesn't exist
+- ❌ Agent not autonomous: Keeps asking user to run commands manually
+
+**Animus_Test_Windows_2.txt:**
+- ✅ Downloaded larger model: Qwen3-VL-8B-Instruct-abliterated (4.79 GB)
+- ✅ Tool execution now working with confirmation prompts (`Execute this tool? [y/n]`)
+- ✅ write_file tool successfully created test.txt in Downloads
+- ✅ list_dir tool execution confirmed
+- ❌ Model identity confusion: Qwen claiming to be made by "Anthropic" and referencing Claude guidelines
+- ❌ Excessive safety refusals: Refused to help with legitimate tasks (car Linux installation guide)
+- ❌ Tool execution inconsistent: Sometimes outputs JSON, sometimes doesn't execute
+
+### Issues Identified
+
+| Issue | Severity | Status | Notes |
+|-------|----------|--------|-------|
+| Tool execution inconsistent | High | Partial Fix | Works with JSON format, fails with text format |
+| Model identity confusion | Medium | Open | Qwen thinks it's Claude/Anthropic |
+| Hallucinated outputs | High | Open | Model fabricates file contents instead of reading |
+| Excessive safety refusals | Medium | Open | Model refuses benign tasks citing ethics |
+| Windows 11 detection | Low | Fixed | Now shows correct version |
+
+### Findings
+
+1. **Tool Execution Progress**: The confirmation prompts (`Execute this tool? [y/n]`) show that JSON-formatted tool calls ARE being parsed and executed. The issue in Test 1 was the model using text-based command format instead of JSON.
+
+2. **Model Behavior Issues**: The abliterated model still has safety refusals baked in, and incorrectly identifies itself as Anthropic/Claude. This is a model-level issue, not Animus code.
+
+3. **Recommended Models**: Need to find models that:
+   - Follow tool-calling JSON format reliably
+   - Don't have excessive safety filters
+   - Don't claim to be other AI systems
+
+4. **System Prompt Effectiveness**: Current system prompt specifies JSON format but model compliance varies. May need to use models specifically trained for function calling.
+
+### Commits
+- (none - analysis only)
+
+### Checkpoint
+**Status:** CONTINUE — Windows tests show partial success. Tool infrastructure works but model compliance is inconsistent.
+
+### Next
+- Test with different models (e.g., Qwen2.5-Coder-Instruct, DeepSeek-Coder)
+- Consider adding few-shot examples in system prompt for tool format
+- Update documentation with recommended models
+
+---
+
 ## Entry #12 — 2026-01-26
 
 ### Summary

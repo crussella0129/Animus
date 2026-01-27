@@ -1,6 +1,6 @@
 # Tasks — ANIMUS
 
-**Last Updated:** 2026-01-26 (Phase 11 added)
+**Last Updated:** 2026-01-27 (Windows systests reviewed)
 
 ## Legend
 
@@ -95,7 +95,12 @@
 - [x] Add stopping cadence configuration to config.yaml (`AgentBehaviorConfig`)
 - [x] Implement path change detection and confirmation
 - [x] Add blocked command detection
-- [ ] Integration test with actual LLM to verify tool execution
+- [x] Integration test with actual LLM to verify tool execution (Tested: 2026-01-27)
+  - ✅ Tool execution works when model outputs JSON format
+  - ✅ Confirmation prompts appear correctly
+  - ✅ write_file, list_dir tools functional
+  - ⚠️ Model compliance varies - some models output text instead of JSON
+  - ⚠️ Model identity/safety issues are model-dependent, not Animus code
 
 ---
 
@@ -321,11 +326,12 @@
 - [x] Native embeddings work without Ollama (sentence-transformers)
 - [x] Windows 11 correctly identified (not Windows 10)
 
-### Autonomy (In Progress)
-- [ ] Agent executes tools autonomously (doesn't ask user to run commands) — needs LLM integration test
+### Autonomy (Partial - Model Dependent)
+- [~] Agent executes tools autonomously — **Tested 2026-01-27**: Works when model outputs JSON, but model compliance varies
 - [x] Proper stopping cadences for file creation/modification/deletion
 - [x] Path change detection and confirmation
 - [x] Blocked command detection
+- [ ] Find/document recommended models for reliable tool execution
 
 ### Self-Improvement (Phase 8)
 - [ ] Decisions recorded with reasoning, not just actions
@@ -350,6 +356,23 @@
 - [ ] Pause/resume for multi-turn sub-agent conversations
 - [ ] OutputCleaner for I/O validation between nodes
 - [ ] Tool discovery before node creation
+
+---
+
+## Known Issues (from Windows Systests 2026-01-27)
+
+| Issue | Severity | Category | Notes |
+|-------|----------|----------|-------|
+| Model outputs text instead of JSON tool calls | High | Model | Some models don't follow JSON format in system prompt |
+| Model claims to be Anthropic/Claude | Medium | Model | Qwen abliterated model has identity confusion |
+| Hallucinated file contents | High | Model | Model fabricates outputs instead of executing tools |
+| Excessive safety refusals | Medium | Model | Model refuses benign tasks citing ethics |
+
+**Recommended Actions:**
+- [ ] Test additional models (Qwen2.5-Coder-Instruct, DeepSeek-Coder, CodeGemma)
+- [ ] Add few-shot examples to system prompt for tool format compliance
+- [ ] Document which models work best with Animus tool calling
+- [ ] Consider fine-tuning or adapter for reliable tool compliance
 
 ---
 
