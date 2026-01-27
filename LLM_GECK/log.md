@@ -752,7 +752,7 @@ Implemented Phase 7 & 9 fixes: improved JSON tool parsing, added error classific
 
 ### Commits
 
-- (pending)
+- 2b01d52 feat: error classification, improved JSON parsing, stopping cadences
 
 ### Findings
 
@@ -765,11 +765,249 @@ Implemented Phase 7 & 9 fixes: improved JSON tool parsing, added error classific
 None — All 138 tests pass.
 
 ### Checkpoint
-**Status:** CONTINUE — Core fixes implemented, ready for commit.
+**Status:** CONTINUE — Core fixes implemented and committed.
 
 ### Next
-- Commit and push changes
 - Begin Phase 8 (Decision Recording) or Phase 9 (Session Compaction)
 - Integration test with actual LLM
+
+---
+
+## Entry #12 — 2026-01-26
+
+### Summary
+Analyzed Hive agent-building skills (building-agents-core, building-agents-construction, building-agents-patterns) to identify improvements for Animus sub-agent architecture.
+
+---
+
+### Source Analysis: Hive Agent-Building Skills
+
+**Skills Reviewed:**
+1. `building-agents-core` — Fundamental concepts (goals, nodes, edges, tools)
+2. `building-agents-construction` — Step-by-step building process
+3. `building-agents-patterns` — Best practices and anti-patterns
+
+---
+
+### Key Patterns from Hive Framework
+
+#### 1. Goal-Driven Architecture
+```python
+Goal(
+    id="research-goal",
+    success_criteria=[
+        SuccessCriterion(id="completeness", metric="coverage_score", target=">=0.9", weight=0.4),
+    ],
+    constraints=[
+        Constraint(id="accuracy", description="All info must be verified", constraint_type="hard"),
+    ],
+)
+```
+**Value:** Sub-agents have clear, measurable success criteria. Parent can objectively evaluate results.
+
+#### 2. Node-Based Workflow
+```
+NodeTypes: llm_generate | llm_tool_use | router | function
+EdgeConditions: on_success | on_failure | always | conditional
+```
+**Value:** Structured workflow instead of freeform "think and act." Deterministic routing based on conditions.
+
+#### 3. Pause/Resume with Session State
+```python
+pause_nodes = ["request-clarification"]
+entry_points = {
+    "start": "analyze-request",
+    "request-clarification_resume": "process-clarification"
+}
+# Resume: pass session_state separately from input_data
+result = await agent.trigger_and_wait(entry_point, input_data, session_state=previous.session_state)
+```
+**Value:** Multi-turn conversations. Sub-agents can pause for human input and resume with memory intact.
+
+#### 4. OutputCleaner (Auto I/O Validation)
+```python
+NodeSpec(
+    input_schema={"analysis": {"type": "dict", "required": True}},
+    output_schema={"decision": {"type": "string", "required": True}},
+)
+```
+**Value:** Automatic validation and cleaning of node outputs. 1.8-2.2x success rate boost.
+
+#### 5. Tool Discovery Before Execution
+```python
+# MANDATORY: Discover tools BEFORE adding nodes
+available_tools = mcp__agent-builder__list_mcp_tools()
+if "web_search" not in available_tools:
+    raise Error("Tool not available")
+```
+**Value:** Prevent runtime failures from missing tools. Validate early.
+
+#### 6. Error Handling with Fallback Edges
+```python
+EdgeSpec(source="api-call", target="process-results", condition=EdgeCondition.ON_SUCCESS)
+EdgeSpec(source="api-call", target="fallback-cache", condition=EdgeCondition.ON_FAILURE)
+```
+**Value:** Graceful degradation. Alternative paths when primary fails.
+
+#### 7. Parallel Execution Pattern
+```python
+# Multiple edges from same source = parallel execution
+EdgeSpec(source="start", target="search-source-1", condition=EdgeCondition.ALWAYS)
+EdgeSpec(source="start", target="search-source-2", condition=EdgeCondition.ALWAYS)
+# Then converge at merge node
+```
+**Value:** Faster execution for independent tasks.
+
+---
+
+### Improvements for Animus Sub-Agents
+
+**Current State:** Animus has SubAgentOrchestrator with roles, scopes, and parallel execution.
+
+**Proposed Enhancements:**
+
+| Enhancement | Current | Proposed | Benefit |
+|-------------|---------|----------|---------|
+| **Goal-Driven** | Freeform prompts | Explicit Goal with SuccessCriteria | Measurable success, objective evaluation |
+| **Node Graph** | Single "run" method | Node-based workflow | Structured execution, deterministic routing |
+| **Pause/Resume** | Not supported | HITL pause/resume | Multi-turn sub-agent conversations |
+| **Output Validation** | Basic tool results | Input/Output schemas | Auto-validation, cleaning, 2x reliability |
+| **Tool Discovery** | Assume tools exist | Validate before use | Prevent runtime failures |
+| **Fallback Edges** | Retry or fail | on_failure paths | Graceful degradation |
+| **Entry Points** | Single entry | Multiple entry points | Resume from different pause points |
+
+---
+
+### Proposed Architecture Changes
+
+#### 1. SubAgentGoal Class
+```python
+@dataclass
+class SubAgentGoal:
+    id: str
+    name: str
+    description: str
+    success_criteria: list[SuccessCriterion]
+    constraints: list[Constraint]
+
+@dataclass
+class SuccessCriterion:
+    id: str
+    description: str
+    metric: str  # e.g., "accuracy", "completeness"
+    target: str  # e.g., ">=0.9", "100%"
+    weight: float  # For weighted scoring
+```
+
+#### 2. SubAgentNode Class
+```python
+@dataclass
+class SubAgentNode:
+    id: str
+    name: str
+    node_type: Literal["llm_generate", "llm_tool_use", "router", "function"]
+    input_keys: list[str]
+    output_keys: list[str]
+    system_prompt: Optional[str]
+    tools: list[str]  # For llm_tool_use
+    input_schema: Optional[dict]  # For validation
+    output_schema: Optional[dict]  # For validation
+    max_retries: int = 3
+```
+
+#### 3. SubAgentEdge Class
+```python
+@dataclass
+class SubAgentEdge:
+    id: str
+    source: str  # Node ID
+    target: str  # Node ID
+    condition: EdgeCondition  # ON_SUCCESS, ON_FAILURE, ALWAYS, CONDITIONAL
+    condition_expr: Optional[str]  # Python expression for CONDITIONAL
+    priority: int = 1
+
+class EdgeCondition(Enum):
+    ON_SUCCESS = "on_success"
+    ON_FAILURE = "on_failure"
+    ALWAYS = "always"
+    CONDITIONAL = "conditional"
+```
+
+#### 4. SubAgentGraph Class
+```python
+@dataclass
+class SubAgentGraph:
+    id: str
+    goal: SubAgentGoal
+    nodes: list[SubAgentNode]
+    edges: list[SubAgentEdge]
+    entry_node: str
+    entry_points: dict[str, str]  # {"start": "node-id", "pause_resume": "resume-node"}
+    pause_nodes: list[str]
+    terminal_nodes: list[str]
+```
+
+#### 5. SubAgentExecutor (with Pause/Resume)
+```python
+class SubAgentExecutor:
+    async def run(self, graph: SubAgentGraph, context: dict, session_state: dict = None) -> SubAgentResult:
+        # Execute node graph with pause/resume support
+        pass
+
+    async def resume(self, entry_point: str, context: dict, session_state: dict) -> SubAgentResult:
+        # Resume from pause node
+        pass
+```
+
+#### 6. OutputCleaner Integration
+```python
+class OutputCleaner:
+    async def validate_and_clean(self, output: dict, schema: dict) -> dict:
+        # Validate output against schema
+        # Auto-clean if malformed (using fast LLM)
+        pass
+```
+
+---
+
+### Anti-Patterns to Avoid (from Hive)
+
+1. **❌ Don't rely on export_graph** — Write files immediately, not at end
+2. **❌ Don't hide state in session** — Make progress visible to user
+3. **❌ Don't batch everything** — Write incrementally with feedback
+4. **❌ Don't assume tools exist** — Always validate before use
+5. **❌ Don't use wrong entry_points format** — Must be `{"start": "node-id"}`
+
+---
+
+### Files Changed
+
+None (analysis only)
+
+### Commits
+
+None (analysis only)
+
+### Findings
+
+- Hive's goal-driven architecture enables objective sub-agent evaluation
+- Node-based workflows provide structured execution vs freeform
+- Pause/resume pattern essential for multi-turn sub-agent conversations
+- OutputCleaner significantly improves reliability (1.8-2.2x)
+- Tool discovery before execution prevents runtime failures
+- Fallback edges enable graceful degradation
+
+### Issues
+
+- Full implementation would be significant refactor of SubAgentOrchestrator
+- Need to maintain backward compatibility with existing sub-agent roles
+
+### Checkpoint
+**Status:** CONTINUE — Analysis complete, tasks to be added.
+
+### Next
+- Add tasks for sub-agent improvements to tasks.md
+- Prioritize based on impact vs complexity
+- Begin incremental implementation
 
 ---

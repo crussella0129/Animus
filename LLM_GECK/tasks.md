@@ -1,6 +1,6 @@
 # Tasks — ANIMUS
 
-**Last Updated:** 2026-01-26
+**Last Updated:** 2026-01-26 (Phase 11 added)
 
 ## Legend
 
@@ -173,6 +173,69 @@
   - [ ] Markdown-aware chunking (preserve headers, lists)
   - [ ] Configurable overlap strategies
 
+### Phase 11: Sub-Agent Architecture Improvements (from Hive building-agents skills)
+
+**Goal:** Transform sub-agents from simple role-based prompts to goal-driven workflow agents.
+
+**Inspiration:** Hive's building-agents-core, building-agents-construction, building-agents-patterns skills.
+
+**Tasks:**
+- [ ] **SubAgentGoal Class** (`src/subagents/goal.py`)
+  - [ ] Create `SubAgentGoal` dataclass (id, name, description)
+  - [ ] Create `SuccessCriterion` (id, description, metric, target, weight)
+  - [ ] Create `Constraint` (id, description, constraint_type, category)
+  - [ ] Success criteria weights should sum to 1.0
+  - [ ] Constraint types: hard (must satisfy), soft (prefer to satisfy)
+- [ ] **SubAgentNode Class** (`src/subagents/node.py`)
+  - [ ] Create `SubAgentNode` dataclass (id, name, node_type, input_keys, output_keys)
+  - [ ] Node types: `llm_generate`, `llm_tool_use`, `router`, `function`
+  - [ ] System prompt with input key interpolation
+  - [ ] Tools list (only for `llm_tool_use` nodes)
+  - [ ] Input/output schema validation (optional)
+  - [ ] Max retries configuration
+- [ ] **SubAgentEdge Class** (`src/subagents/edge.py`)
+  - [ ] Create `SubAgentEdge` dataclass (id, source, target, condition, priority)
+  - [ ] Edge conditions: `on_success`, `on_failure`, `always`, `conditional`
+  - [ ] Conditional expressions for routing decisions
+  - [ ] Priority for edge ordering when multiple match
+- [ ] **SubAgentGraph Class** (`src/subagents/graph.py`)
+  - [ ] Create `SubAgentGraph` dataclass (id, goal, nodes, edges, entry_node)
+  - [ ] Entry points dict: `{"start": "first-node-id"}`
+  - [ ] Terminal nodes list (where execution ends)
+  - [ ] Pause nodes list (where execution waits for user input)
+  - [ ] Graph validation (all edges reference valid nodes, entry node exists)
+- [ ] **SubAgentExecutor** (`src/subagents/executor.py`)
+  - [ ] Execute graph from entry point to terminal/pause
+  - [ ] Context propagation between nodes (output → next input)
+  - [ ] Parallel edge execution when multiple edges match
+  - [ ] Retry logic per node with exponential backoff
+  - [ ] Execution result with success, steps_executed, output, error
+- [ ] **Pause/Resume Support** (`src/subagents/session.py`)
+  - [ ] Session state persistence (memory, paused_at, context)
+  - [ ] Resume entry points: `{pause_node}_resume` → next node
+  - [ ] Session state passed separately from input_data on resume
+  - [ ] Storage in `~/.animus/sessions/`
+- [ ] **OutputCleaner Integration** (`src/subagents/cleaner.py`)
+  - [ ] Validate node output matches next node's input schema
+  - [ ] Detect JSON parsing trap (entire response in one key)
+  - [ ] Auto-clean malformed output using fast LLM
+  - [ ] Log cleaning events for debugging
+- [ ] **Tool Discovery & Validation**
+  - [ ] Verify tools exist before adding to nodes
+  - [ ] Never assume tool names, always discover dynamically
+  - [ ] Inform user if requested tool unavailable
+- [ ] **Update SubAgentOrchestrator** (`src/subagents/orchestrator.py`)
+  - [ ] Accept SubAgentGraph instead of just SubAgentRole
+  - [ ] Use SubAgentExecutor for graph-based sub-agents
+  - [ ] Backward compatibility with role-based sub-agents
+- [ ] **Tests** (`tests/test_subagent_graph.py`)
+  - [ ] Test goal validation (criteria weights sum to 1.0)
+  - [ ] Test node type behavior (llm_generate vs llm_tool_use)
+  - [ ] Test edge conditions (on_success, on_failure, conditional)
+  - [ ] Test graph execution flow
+  - [ ] Test pause/resume with session state
+  - [ ] Test output cleaning
+
 ---
 
 ## Backlog (Prioritized)
@@ -279,6 +342,14 @@
 - [ ] Hybrid search (BM25 + vector) for better RAG
 - [ ] SQLite-vec persistent storage
 - [ ] Tree-sitter AST-aware code chunking
+
+### Sub-Agent Architecture (Phase 11)
+- [ ] Goal-driven sub-agents with success criteria
+- [ ] Node-based workflows (llm_generate, llm_tool_use, router, function)
+- [ ] Edge conditions for routing (on_success, on_failure, conditional)
+- [ ] Pause/resume for multi-turn sub-agent conversations
+- [ ] OutputCleaner for I/O validation between nodes
+- [ ] Tool discovery before node creation
 
 ---
 
