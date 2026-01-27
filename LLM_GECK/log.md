@@ -524,3 +524,176 @@ Fixed critical issues discovered during QUICKSTART testing: Windows 11 detection
 - Consider adding more flexible tool call parsing if needed
 
 ---
+
+## Entry #10 — 2026-01-26
+
+### Summary
+Analyzed `C:\Users\charl\hive` (Aden Agent Framework) and `C:\Users\charl\clawdbot` (Personal AI Assistant Platform) to identify functionality that could benefit Animus.
+
+---
+
+### Repository Analysis: Hive (Aden Agent Framework)
+
+**What it is:** Open-source Python framework for building goal-driven, self-improving AI agents.
+
+**Key Innovations:**
+
+| Feature | Description | Animus Benefit |
+|---------|-------------|----------------|
+| **Decision Recording** | Logs reasoning (options, pros/cons, chosen, outcome) not just actions | Enables meaningful agent improvement; Builder can understand WHY |
+| **Triangulated Verification** | Rule-based → LLM fallback → Human escalation | More reliable output validation than single method |
+| **Self-Improving Loop** | Failure → BuilderQuery analysis → Graph evolution → Redeploy | Automatic agent improvement without manual intervention |
+| **Goal-Driven Development** | LLM generates agent graph from natural language goals | Reduces manual workflow design |
+| **HybridJudge** | Combines deterministic rules + LLM evaluation | Fast for clear cases, smart for ambiguous |
+| **Node-Based Architecture** | Structured workflow with typed edges (always/on_success/on_failure/conditional/llm_decide) | Better orchestration than linear execution |
+| **MCP Server Integration** | Model Context Protocol for tool exposure | Standard protocol for cross-tool communication |
+| **Safe Code Sandbox** | Whitelist-based `safe_eval()` and `safe_exec()` | Secure dynamic code execution |
+
+**Key Files to Study:**
+- `core/framework/schemas/decision.py` — Decision recording schema
+- `core/framework/graph/judge.py` — HybridJudge implementation
+- `core/framework/builder/query.py` — BuilderQuery for run analysis
+- `core/framework/graph/executor.py` — Graph execution engine
+- `core/framework/graph/hitl.py` — Human-in-the-loop protocol
+
+---
+
+### Repository Analysis: Clawdbot (Personal AI Assistant Platform)
+
+**What it is:** TypeScript-based local-first multi-channel AI gateway connecting Claude to WhatsApp, Telegram, Slack, Discord, etc.
+
+**Key Innovations:**
+
+| Feature | Description | Animus Benefit |
+|---------|-------------|----------------|
+| **Session Compaction** | Auto-summarizes old turns to fit context window | Prevents context overflow, maintains continuity |
+| **SQLite-vec Hybrid Search** | BM25 keyword + vector semantic search combined | Better RAG retrieval than pure vector |
+| **Lane-Based Queueing** | Serializes commands per session/lane | Prevents interleaving of concurrent runs |
+| **Auth Profile Rotation** | Cooldown tracking + failover ordering for API keys | Graceful degradation on auth failures |
+| **Error Classification** | Categorizes: context_overflow, auth_failure, rate_limit, timeout | Appropriate retry/recovery strategies |
+| **Media Pipeline** | Download → mime-sniff → store (5MB cap, 2min TTL) | Robust media handling |
+| **Plugin System with Gating** | Dynamic tool loading + per-channel allowlists | Fine-grained tool access control |
+| **Skills Platform** | 200+ markdown skills with install specs (brew, node, pip, etc.) | Extensible capability system |
+| **Browser Control** | Playwright/CDP multi-profile wrapper | Web automation capability |
+| **Thinking Level Integration** | Model-aware capability detection (thinking: off/minimal/low/medium/high) | Leverage Claude's extended thinking |
+
+**Key Files to Study:**
+- `src/memory/manager.ts` — SQLite-vec hybrid search
+- `src/process/command-queue.ts` — Lane-based queueing
+- `src/agents/auth-profiles.ts` — Auth rotation with cooldowns
+- `src/agents/pi-embedded-runner/run.ts` — Session compaction logic
+- `src/plugins/loader.ts` — Dynamic plugin discovery
+
+---
+
+### Feature Prioritization for Animus
+
+#### **High Priority (Core Agent Improvements)**
+
+1. **Decision Recording** (from Hive)
+   - Current: Animus logs tool calls but not reasoning
+   - Needed: Record intent, options considered, chosen action, outcome
+   - Value: Enables self-improvement and debugging
+
+2. **Session Compaction** (from Clawdbot)
+   - Current: Animus has `max_context_messages` but no summarization
+   - Needed: Auto-summarize old turns when approaching context limit
+   - Value: Maintains conversation continuity, prevents truncation
+
+3. **Hybrid Search (BM25 + Vector)** (from Clawdbot)
+   - Current: Animus uses pure vector search (InMemoryVectorStore)
+   - Needed: Combine keyword (BM25) + semantic (vector) search
+   - Value: Better retrieval for mixed queries (exact + conceptual)
+
+4. **Error Classification** (from Clawdbot)
+   - Current: Generic exception handling
+   - Needed: Categorize errors (context_overflow, auth, rate_limit, timeout)
+   - Value: Appropriate recovery strategies per error type
+
+5. **Triangulated Verification** (from Hive)
+   - Current: Tool output passed directly to LLM
+   - Needed: Rule check → LLM fallback → Human escalation
+   - Value: More reliable output validation
+
+#### **Medium Priority (Enhanced Functionality)**
+
+6. **Builder Query Pattern** (from Hive)
+   - Analyze past runs for patterns, failures, improvements
+   - Generate suggestions for agent evolution
+
+7. **Auth Profile Rotation** (from Clawdbot)
+   - Multiple API keys with cooldown tracking
+   - Automatic failover on auth failures
+
+8. **Skills Platform** (from Clawdbot)
+   - Markdown-based skills with YAML frontmatter
+   - Install specs for dependencies
+   - Eligibility checks (OS, binaries, env vars)
+
+9. **Lane-Based Queueing** (from Clawdbot)
+   - Serialize commands per session
+   - Prevent interleaving of concurrent agent runs
+
+10. **Media Pipeline** (from Clawdbot)
+    - Robust file handling with TTL
+    - MIME detection and size limits
+
+#### **Lower Priority (Nice to Have)**
+
+11. **Browser Control** (from Clawdbot) — Playwright/CDP integration
+12. **Multi-Channel Support** (from Clawdbot) — WhatsApp, Telegram, etc.
+13. **MCP Server** (from Hive) — Model Context Protocol
+14. **Goal-Driven Development** (from Hive) — Generate graphs from goals
+15. **Canvas/A2UI** (from Clawdbot) — Visual UI rendering
+
+---
+
+### Goals Evolution
+
+**Original Goals (from LLM_init.md):**
+- Local-First inference
+- Self-Contained (no Ollama dependency) ✓ Achieved
+- Universal Ingestion (RAG)
+- Orchestration (sub-agents)
+- Hardware Aware (Jetson, Apple Silicon, etc.)
+
+**New Goals (from analysis):**
+- **Self-Improving**: Learn from failures, evolve agent behavior automatically
+- **Decision-Transparent**: Record reasoning, not just actions
+- **Context-Resilient**: Session compaction to handle long conversations
+- **Hybrid-Retrieval**: Combined BM25 + vector search for better RAG
+- **Error-Resilient**: Classified errors with appropriate recovery strategies
+- **Skill-Extensible**: Markdown-based skills with install management
+
+---
+
+### Files Changed
+
+None (analysis only)
+
+### Commits
+
+None (analysis only)
+
+### Findings
+
+- **Hive** is architecturally sophisticated with focus on self-improvement and observability
+- **Clawdbot** is production-hardened with robust error handling and multi-channel support
+- Both repos solve problems Animus will face as it matures
+- Decision recording is the highest-impact feature—enables everything else
+
+### Issues
+
+- Implementing all features would be a major undertaking
+- Need to prioritize based on immediate value vs complexity
+- Some features (multi-channel, browser control) may be out of scope for CLI-focused tool
+
+### Checkpoint
+**Status:** CONTINUE — Analysis complete, tasks need to be added.
+
+### Next
+- Add prioritized tasks to tasks.md
+- Reorganize task checklist with new phases
+- Begin implementation of high-priority features
+
+---
