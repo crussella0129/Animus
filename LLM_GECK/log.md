@@ -697,3 +697,79 @@ None (analysis only)
 - Begin implementation of high-priority features
 
 ---
+
+## Entry #11 — 2026-01-26
+
+### Summary
+Implemented Phase 7 & 9 fixes: improved JSON tool parsing, added error classification, stopping cadence configuration, and working directory tracking.
+
+### Actions
+
+**1. Fixed JSON Tool Call Parsing** (`src/core/agent.py`)
+- Rewrote `_extract_json_objects()` with proper bracket matching
+- Handles nested braces, multiline JSON, escaped strings
+- Parses JSON from markdown code blocks
+- Added deduplication to prevent multiple identical tool calls
+- Supports three formats: JSON, function-style, command-style
+
+**2. Added Error Classification System** (`src/core/errors.py`)
+- Created `ErrorCategory` enum: context_overflow, auth_failure, rate_limit, timeout, tool_failure, etc.
+- Created `RecoveryStrategy` dataclass with retry logic, backoff, compaction, fallback options
+- Created `classify_error()` function with pattern matching
+- Added Animus-specific exceptions: `ContextOverflowError`, `AuthenticationError`, `RateLimitError`, `ToolExecutionError`
+- Integrated error classification into Agent `_call_tool()` method
+
+**3. Added Stopping Cadence Configuration** (`src/core/config.py`)
+- Created `AgentBehaviorConfig` class with:
+  - `auto_execute_tools`: Tools that run without confirmation
+  - `safe_shell_commands`: Read-only commands that auto-execute
+  - `blocked_commands`: Dangerous commands that are always blocked
+  - `require_confirmation`: Actions requiring user approval
+  - `track_working_directory`: Enable/disable directory change detection
+  - `max_autonomous_turns`: Max turns before human check-in
+- Added `agent` field to `AnimusConfig`
+
+**4. Working Directory Tracking** (`src/core/agent.py`)
+- Added `_is_directory_change()` to detect cd/pushd commands
+- Added `_is_path_change_significant()` to detect project changes
+- Added `_is_blocked_command()` for dangerous command detection
+- Agent now tracks `_current_working_dir` and `_initial_working_dir`
+- Significant directory changes require confirmation
+
+**5. Added Comprehensive Tests**
+- `tests/test_errors.py`: 17 tests for error classification
+- `tests/test_agent_behavior.py`: 22 tests for agent behavior
+- Total: 138 tests (39 new), all passing
+
+### Files Changed
+
+- `src/core/agent.py` — Improved JSON parsing, directory tracking, error integration
+- `src/core/config.py` — Added AgentBehaviorConfig class
+- `src/core/errors.py` — NEW: Error classification system
+- `src/core/__init__.py` — Export new classes
+- `tests/test_errors.py` — NEW: Error classification tests
+- `tests/test_agent_behavior.py` — NEW: Agent behavior tests
+
+### Commits
+
+- (pending)
+
+### Findings
+
+- Bracket-matching approach to JSON parsing is more robust than regex
+- Error classification enables appropriate recovery strategies (retry, fallback, compact)
+- Stopping cadences can be configured per-deployment via config.yaml
+
+### Issues
+
+None — All 138 tests pass.
+
+### Checkpoint
+**Status:** CONTINUE — Core fixes implemented, ready for commit.
+
+### Next
+- Commit and push changes
+- Begin Phase 8 (Decision Recording) or Phase 9 (Session Compaction)
+- Integration test with actual LLM
+
+---

@@ -1,6 +1,6 @@
 """Core module - Main loop, configuration, and detection."""
 
-from src.core.config import ConfigManager, AnimusConfig
+from src.core.config import ConfigManager, AnimusConfig, AgentBehaviorConfig
 from src.core.detection import detect_environment, SystemInfo
 from src.core.agent import Agent, AgentConfig, Turn
 from src.core.subagent import (
@@ -9,11 +9,23 @@ from src.core.subagent import (
     SubAgentScope,
     SubAgentResult,
 )
+from src.core.errors import (
+    ErrorCategory,
+    ClassifiedError,
+    RecoveryStrategy,
+    classify_error,
+    AnimusError,
+    ContextOverflowError,
+    AuthenticationError,
+    RateLimitError,
+    ToolExecutionError,
+)
 
 __all__ = [
     # Config
     "ConfigManager",
     "AnimusConfig",
+    "AgentBehaviorConfig",
     # Detection
     "detect_environment",
     "SystemInfo",
@@ -26,4 +38,14 @@ __all__ = [
     "SubAgentRole",
     "SubAgentScope",
     "SubAgentResult",
+    # Errors
+    "ErrorCategory",
+    "ClassifiedError",
+    "RecoveryStrategy",
+    "classify_error",
+    "AnimusError",
+    "ContextOverflowError",
+    "AuthenticationError",
+    "RateLimitError",
+    "ToolExecutionError",
 ]

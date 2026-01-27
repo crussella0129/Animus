@@ -54,19 +54,81 @@ class MemoryConfig(BaseModel):
     chunk_overlap: int = Field(default=50, description="Overlap between chunks")
 
 
+class AgentBehaviorConfig(BaseModel):
+    """Agent behavior and stopping cadence configuration."""
+
+    # Tools that execute immediately without confirmation (read-only)
+    auto_execute_tools: list[str] = Field(
+        default=["read_file", "list_dir"],
+        description="Tools that execute without confirmation"
+    )
+
+    # Shell commands that are safe to auto-execute (read-only operations)
+    safe_shell_commands: list[str] = Field(
+        default=[
+            "ls", "dir", "cat", "type", "pwd", "cd", "echo",
+            "git status", "git log", "git diff", "git branch", "git remote",
+            "python --version", "python3 --version", "pip list", "pip show",
+            "node --version", "npm list", "which", "where", "whoami",
+            "date", "time", "hostname", "uname", "env", "printenv",
+        ],
+        description="Shell commands that auto-execute without confirmation"
+    )
+
+    # Shell command patterns that are always blocked (dangerous)
+    blocked_commands: list[str] = Field(
+        default=[
+            "rm -rf /", "rm -rf /*", "rm -rf ~",
+            "del /s /q c:\\", "format c:",
+            ":(){:|:&};:", "dd if=/dev/zero",
+            "mkfs", "fdisk", "parted",
+            "> /dev/sda", "chmod -R 777 /",
+        ],
+        description="Shell commands that are always blocked"
+    )
+
+    # Stopping cadences - actions that always require confirmation
+    require_confirmation: list[str] = Field(
+        default=[
+            "create_file",      # Creating new files
+            "modify_file",      # Editing existing files
+            "delete_file",      # Deleting files
+            "change_directory", # Changing working directory to different project
+            "git_push",         # Pushing to remote
+            "git_commit",       # Creating commits
+            "install_package",  # Installing dependencies
+            "security_warning", # Any identified security issues
+        ],
+        description="Actions that always require user confirmation"
+    )
+
+    # Working directory tracking
+    track_working_directory: bool = Field(
+        default=True,
+        description="Track and confirm working directory changes"
+    )
+
+    # Maximum turns before requiring human check-in
+    max_autonomous_turns: int = Field(
+        default=10,
+        description="Max consecutive turns before pausing for human check-in"
+    )
+
+
 class AnimusConfig(BaseModel):
     """Main Animus configuration."""
     model: ModelConfig = Field(default_factory=ModelConfig)
     ollama: OllamaConfig = Field(default_factory=OllamaConfig)
     native: NativeConfig = Field(default_factory=NativeConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
+    agent: AgentBehaviorConfig = Field(default_factory=AgentBehaviorConfig)
 
     # Paths
     data_dir: Path = Field(default=Path.home() / ".animus" / "data")
     cache_dir: Path = Field(default=Path.home() / ".animus" / "cache")
     logs_dir: Path = Field(default=Path.home() / ".animus" / "logs")
 
-    # Behavior
+    # Behavior (deprecated - use agent.* instead)
     confirm_destructive: bool = Field(default=True, description="Require confirmation for destructive operations")
     max_context_turns: int = Field(default=10, description="Maximum conversation turns to keep in context")
 

@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator, Callable, Optional, Awaitable
+from typing import Any, AsyncIterator, Callable, Optional, Awaitable, Union
 from pathlib import Path
 
 from src.llm.base import ModelProvider, Message, GenerationConfig, GenerationResult
 from src.tools.base import Tool, ToolRegistry, ToolResult
 from src.tools import create_default_registry
 from src.memory import Ingester
+from src.core.config import AnimusConfig, AgentBehaviorConfig
+from src.core.errors import classify_error, ClassifiedError, ErrorCategory
 
 
 @dataclass
@@ -26,10 +29,8 @@ class AgentConfig:
     require_tool_confirmation: bool = True
     auto_confirm_safe_tools: bool = True
 
-    # Auto-execute these tools without confirmation (read-only operations)
+    # These can be overridden by AnimusConfig.agent settings
     auto_execute_tools: tuple = ("read_file", "list_dir")
-
-    # Safe shell commands that don't need confirmation (read-only)
     safe_shell_commands: tuple = (
         "ls", "dir", "cat", "type", "pwd", "cd", "echo",
         "git status", "git log", "git diff", "git branch", "git remote",
@@ -37,10 +38,18 @@ class AgentConfig:
         "node --version", "npm list", "which", "where", "whoami",
         "date", "time", "hostname", "uname", "env", "printenv",
     )
+    blocked_commands: tuple = (
+        "rm -rf /", "rm -rf /*", "rm -rf ~",
+        "del /s /q c:\\", "format c:",
+    )
 
     # Memory settings
     use_memory: bool = True
     memory_search_k: int = 5
+
+    # Working directory tracking
+    track_working_directory: bool = True
+    initial_working_directory: Optional[str] = None
 
 
 @dataclass
@@ -129,6 +138,7 @@ class Agent:
         self,
         provider: ModelProvider,
         config: Optional[AgentConfig] = None,
+        animus_config: Optional[AnimusConfig] = None,
         tool_registry: Optional[ToolRegistry] = None,
         memory: Optional[Ingester] = None,
         confirm_callback: Optional[Callable[[str, str], Awaitable[bool]]] = None,
@@ -138,7 +148,8 @@ class Agent:
 
         Args:
             provider: LLM provider for generation.
-            config: Agent configuration.
+            config: Agent configuration (legacy, prefer animus_config).
+            animus_config: Full Animus configuration with agent behavior settings.
             tool_registry: Registry of available tools.
             memory: Memory/RAG system for context retrieval.
             confirm_callback: Callback for tool confirmation.
@@ -146,12 +157,33 @@ class Agent:
         """
         self.provider = provider
         self.config = config or AgentConfig()
+        self.animus_config = animus_config
         self.tool_registry = tool_registry or create_default_registry()
         self.memory = memory
         self.confirm_callback = confirm_callback
 
+        # Merge animus_config.agent settings into config if provided
+        if animus_config:
+            self._apply_animus_config(animus_config.agent)
+
         self.history: list[Turn] = []
         self._current_turn = 0
+
+        # Working directory tracking
+        self._initial_working_dir = self.config.initial_working_directory or os.getcwd()
+        self._current_working_dir = self._initial_working_dir
+
+        # Error tracking
+        self._last_error: Optional[ClassifiedError] = None
+        self._consecutive_errors = 0
+
+    def _apply_animus_config(self, agent_config: AgentBehaviorConfig) -> None:
+        """Apply AgentBehaviorConfig settings to AgentConfig."""
+        self.config.auto_execute_tools = tuple(agent_config.auto_execute_tools)
+        self.config.safe_shell_commands = tuple(agent_config.safe_shell_commands)
+        self.config.blocked_commands = tuple(agent_config.blocked_commands)
+        self.config.track_working_directory = agent_config.track_working_directory
+        self.config.max_turns = agent_config.max_autonomous_turns
 
     @property
     def system_prompt(self) -> str:
@@ -207,6 +239,63 @@ class Agent:
                 return True
         return False
 
+    def _is_blocked_command(self, command: str) -> bool:
+        """Check if a shell command is blocked (dangerous/destructive)."""
+        command_lower = command.lower().strip()
+        for blocked in self.config.blocked_commands:
+            if blocked.lower() in command_lower:
+                return True
+        return False
+
+    def _is_directory_change(self, command: str) -> tuple[bool, Optional[str]]:
+        """
+        Check if command changes working directory.
+
+        Returns:
+            Tuple of (is_change, new_directory)
+        """
+        command = command.strip()
+
+        # Check for cd command
+        if command.lower().startswith("cd "):
+            new_dir = command[3:].strip().strip('"').strip("'")
+            return True, new_dir
+
+        # Check for pushd command (Windows/bash)
+        if command.lower().startswith("pushd "):
+            new_dir = command[6:].strip().strip('"').strip("'")
+            return True, new_dir
+
+        return False, None
+
+    def _resolve_path(self, path: str) -> str:
+        """Resolve a path relative to current working directory."""
+        if os.path.isabs(path):
+            return os.path.normpath(path)
+        return os.path.normpath(os.path.join(self._current_working_dir, path))
+
+    def _is_path_change_significant(self, new_dir: str) -> bool:
+        """
+        Check if directory change is significant (different project/root).
+
+        A significant change is when moving to a different top-level directory
+        or outside the initial working directory tree.
+        """
+        resolved_new = self._resolve_path(new_dir)
+        initial_parts = Path(self._initial_working_dir).parts
+        new_parts = Path(resolved_new).parts
+
+        # If new path is outside initial directory tree, it's significant
+        if len(new_parts) < len(initial_parts):
+            return True
+
+        # Check if first N parts match (where N is depth of initial dir)
+        for i, part in enumerate(initial_parts):
+            if i >= len(new_parts) or new_parts[i] != part:
+                return True
+
+        return False
+
     async def _call_tool(self, tool_name: str, arguments: dict) -> ToolResult:
         """Call a tool with confirmation if needed."""
         tool = self.tool_registry.get(tool_name)
@@ -217,6 +306,36 @@ class Agent:
                 output="",
                 error=f"Unknown tool: {tool_name}",
             )
+
+        # Special handling for shell commands
+        if tool_name == "run_shell" and "command" in arguments:
+            command = arguments["command"]
+
+            # Check for blocked commands first
+            if self._is_blocked_command(command):
+                return ToolResult(
+                    success=False,
+                    output="",
+                    error=f"BLOCKED: This command is potentially destructive and has been blocked for safety.",
+                )
+
+            # Check for directory changes
+            is_dir_change, new_dir = self._is_directory_change(command)
+            if is_dir_change and self.config.track_working_directory:
+                if new_dir and self._is_path_change_significant(new_dir):
+                    # Significant directory change requires confirmation
+                    if self.confirm_callback:
+                        description = f"Change working directory to: {new_dir}"
+                        confirmed = await self.confirm_callback("change_directory", description)
+                        if not confirmed:
+                            return ToolResult(
+                                success=False,
+                                output="",
+                                error="User declined directory change.",
+                            )
+                # Update tracked working directory
+                if new_dir:
+                    self._current_working_dir = self._resolve_path(new_dir)
 
         # Determine if confirmation is needed based on tool type and configuration
         needs_confirm = False
@@ -246,13 +365,78 @@ class Agent:
                 )
 
         try:
-            return await tool.execute(**arguments)
+            result = await tool.execute(**arguments)
+            self._consecutive_errors = 0  # Reset error count on success
+            return result
         except Exception as e:
+            # Classify the error
+            classified = classify_error(e)
+            self._last_error = classified
+            self._consecutive_errors += 1
+
             return ToolResult(
                 success=False,
                 output="",
-                error=f"Tool execution error: {e}",
+                error=f"Tool execution error ({classified.category.value}): {classified.message}",
+                metadata={"error_category": classified.category.value}
             )
+
+    def _extract_json_objects(self, content: str) -> list[dict]:
+        """
+        Extract all valid JSON objects from content using bracket matching.
+
+        This handles nested braces, multiline content, and arrays properly.
+        Only extracts top-level objects (not nested ones).
+        """
+        objects = []
+        found_ranges = []  # Track which character ranges we've already extracted
+        i = 0
+
+        while i < len(content):
+            # Skip if this position is inside an already-extracted range
+            if any(start <= i < end for start, end in found_ranges):
+                i += 1
+                continue
+
+            # Find start of potential JSON object
+            if content[i] == '{':
+                # Track brace depth to find matching close
+                depth = 0
+                start = i
+                in_string = False
+                escape_next = False
+
+                j = i
+                while j < len(content):
+                    char = content[j]
+
+                    if escape_next:
+                        escape_next = False
+                    elif char == '\\' and in_string:
+                        escape_next = True
+                    elif char == '"' and not escape_next:
+                        in_string = not in_string
+                    elif not in_string:
+                        if char == '{':
+                            depth += 1
+                        elif char == '}':
+                            depth -= 1
+                            if depth == 0:
+                                # Found complete object
+                                candidate = content[start:j+1]
+                                try:
+                                    obj = json.loads(candidate)
+                                    if isinstance(obj, dict):
+                                        objects.append(obj)
+                                        # Mark this range as processed to skip nested objects
+                                        found_ranges.append((start, j+1))
+                                except json.JSONDecodeError:
+                                    pass
+                                break
+                    j += 1
+            i += 1
+
+        return objects
 
     async def _parse_tool_calls(self, content: str) -> list[dict]:
         """
@@ -262,32 +446,59 @@ class Agent:
         1. JSON: {"tool": "tool_name", "arguments": {...}}
         2. Function-style: tool_name(arg1, arg2)
         3. Command-style: tool_name "arg1" "arg2"
+        4. Markdown code blocks with JSON
         """
         tool_calls = []
         import re
 
-        # Pattern 1: JSON format - {"tool": "name", "arguments": {...}}
-        # Use a more permissive pattern that can handle nested braces
-        json_matches = re.findall(r'\{[^{}]*"tool"\s*:\s*"[^"]+"\s*,\s*"arguments"\s*:\s*\{[^{}]*\}[^{}]*\}', content, re.DOTALL)
-        for match in json_matches:
-            try:
-                data = json.loads(match)
-                if "tool" in data and "arguments" in data:
-                    tool_calls.append({
-                        "name": data["tool"],
-                        "arguments": data["arguments"],
-                    })
-            except json.JSONDecodeError:
-                continue
+        # First, extract JSON from markdown code blocks if present
+        code_block_pattern = r'```(?:json)?\s*(\{[\s\S]*?\})\s*```'
+        code_blocks = re.findall(code_block_pattern, content)
+
+        # Also check for inline JSON objects
+        all_json_sources = code_blocks + [content]
+
+        for source in all_json_sources:
+            for obj in self._extract_json_objects(source):
+                # Check for tool call format
+                if "tool" in obj and "arguments" in obj:
+                    tool_call = {
+                        "name": obj["tool"],
+                        "arguments": obj["arguments"] if isinstance(obj["arguments"], dict) else {},
+                    }
+                    # Avoid duplicates
+                    if tool_call not in tool_calls:
+                        tool_calls.append(tool_call)
+                # Also check for "name" format (alternative)
+                elif "name" in obj and "arguments" in obj:
+                    tool_call = {
+                        "name": obj["name"],
+                        "arguments": obj["arguments"] if isinstance(obj["arguments"], dict) else {},
+                    }
+                    if tool_call not in tool_calls:
+                        tool_calls.append(tool_call)
 
         # If no JSON calls found, try natural language patterns
         if not tool_calls:
-            # Pattern 2: Function-style - read_file("path") or read_file('path')
-            # Pattern 3: Command-style - read_file "path"
             available_tools = ["read_file", "write_file", "list_dir", "run_shell"]
 
+            def is_duplicate(name: str, args: dict) -> bool:
+                """Check if this tool call already exists."""
+                for c in tool_calls:
+                    if c["name"] != name:
+                        continue
+                    # Check if arguments match
+                    if c["arguments"] == args:
+                        return True
+                    # Check specific keys for partial match
+                    for key in ["path", "command"]:
+                        if key in args and key in c["arguments"]:
+                            if args[key] == c["arguments"][key]:
+                                return True
+                return False
+
             for tool_name in available_tools:
-                # Function style: tool_name("arg1", "arg2")
+                # Function style: tool_name("arg1", "arg2") or tool_name('arg1')
                 func_pattern = rf'{tool_name}\s*\(\s*["\']([^"\']+)["\'](?:\s*,\s*["\']([^"\']+)["\'])?\s*\)'
                 for match in re.finditer(func_pattern, content):
                     args = {}
@@ -301,22 +512,12 @@ class Agent:
                         args["path"] = match.group(1)
                     elif tool_name == "run_shell":
                         args["command"] = match.group(1)
-                    if args:
+                    if args and not is_duplicate(tool_name, args):
                         tool_calls.append({"name": tool_name, "arguments": args})
 
                 # Command style: tool_name "arg1" "arg2"
                 cmd_pattern = rf'{tool_name}\s+["\']([^"\']+)["\'](?:\s+["\']([^"\']+)["\'])?'
                 for match in re.finditer(cmd_pattern, content):
-                    # Skip if we already found this via function pattern
-                    path_or_cmd = match.group(1)
-                    existing = any(
-                        c["name"] == tool_name and
-                        (c["arguments"].get("path") == path_or_cmd or c["arguments"].get("command") == path_or_cmd)
-                        for c in tool_calls
-                    )
-                    if existing:
-                        continue
-
                     args = {}
                     if tool_name == "read_file":
                         args["path"] = match.group(1)
@@ -328,7 +529,7 @@ class Agent:
                         args["path"] = match.group(1)
                     elif tool_name == "run_shell":
                         args["command"] = match.group(1)
-                    if args:
+                    if args and not is_duplicate(tool_name, args):
                         tool_calls.append({"name": tool_name, "arguments": args})
 
         return tool_calls

@@ -91,10 +91,11 @@
 - [x] Create `auto_execute_tools` configuration for read-only tools
 - [x] Create `safe_shell_commands` configuration for safe commands
 - [x] Update `_call_tool` to auto-execute safe operations
-- [x] Improve `_parse_tool_calls` to handle multiple formats
+- [x] Improve `_parse_tool_calls` to handle multiple formats (JSON, function-style, command-style)
+- [x] Add stopping cadence configuration to config.yaml (`AgentBehaviorConfig`)
+- [x] Implement path change detection and confirmation
+- [x] Add blocked command detection
 - [ ] Integration test with actual LLM to verify tool execution
-- [ ] Add stopping cadence configuration to config.yaml
-- [ ] Implement path change detection and confirmation
 
 ---
 
@@ -139,11 +140,11 @@
   - [ ] Auto-trigger when approaching context limit
   - [ ] Preserve recent turns + summary of older turns
   - [ ] Add compaction to Agent class
-- [ ] **Error Classification** (`src/core/errors.py`)
-  - [ ] Define error categories: `context_overflow`, `auth_failure`, `rate_limit`, `timeout`, `tool_failure`
-  - [ ] Implement error-specific recovery strategies
-  - [ ] Add retry logic with exponential backoff
-  - [ ] Create error event logging
+- [x] **Error Classification** (`src/core/errors.py`) ✓
+  - [x] Define error categories: `context_overflow`, `auth_failure`, `rate_limit`, `timeout`, `tool_failure`
+  - [x] Implement error-specific recovery strategies
+  - [x] Add retry logic with exponential backoff
+  - [x] Create error event logging
 - [ ] **Context Window Management**
   - [ ] Track token usage per turn
   - [ ] Warn before overflow (soft limit)
@@ -258,9 +259,10 @@
 - [x] Windows 11 correctly identified (not Windows 10)
 
 ### Autonomy (In Progress)
-- [ ] Agent executes tools autonomously (doesn't ask user to run commands)
-- [ ] Proper stopping cadences for file creation/modification/deletion
-- [ ] Path change detection and confirmation
+- [ ] Agent executes tools autonomously (doesn't ask user to run commands) — needs LLM integration test
+- [x] Proper stopping cadences for file creation/modification/deletion
+- [x] Path change detection and confirmation
+- [x] Blocked command detection
 
 ### Self-Improvement (Phase 8)
 - [ ] Decisions recorded with reasoning, not just actions
@@ -270,8 +272,8 @@
 
 ### Resilience (Phase 9)
 - [ ] Session compaction prevents context overflow
-- [ ] Error classification enables appropriate recovery
-- [ ] Retry logic with exponential backoff
+- [x] Error classification enables appropriate recovery
+- [x] Retry logic with exponential backoff
 
 ### Retrieval (Phase 10)
 - [ ] Hybrid search (BM25 + vector) for better RAG
