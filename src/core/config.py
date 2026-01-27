@@ -29,10 +29,15 @@ class OllamaConfig(BaseModel):
         return f"http://{self.host}:{self.port}"
 
 
+def _default_models_dir() -> Path:
+    """Get default models directory."""
+    return Path.home() / ".animus" / "models"
+
+
 class NativeConfig(BaseModel):
     """Native model loading configuration (llama-cpp-python)."""
     models_dir: Path = Field(
-        default=Path.home() / ".animus" / "models",
+        default_factory=_default_models_dir,
         description="Directory for storing downloaded models"
     )
     n_ctx: int = Field(default=4096, description="Context window size")
@@ -75,7 +80,7 @@ class AgentBehaviorConfig(BaseModel):
         description="Shell commands that auto-execute without confirmation"
     )
 
-    # Shell command patterns that are always blocked (dangerous)
+    # Shell command patterns that always trigger a 'STOP, Warn + Explain Risk, then Allow' (dangerous)
     blocked_commands: list[str] = Field(
         default=[
             "rm -rf /", "rm -rf /*", "rm -rf ~",
@@ -84,7 +89,7 @@ class AgentBehaviorConfig(BaseModel):
             "mkfs", "fdisk", "parted",
             "> /dev/sda", "chmod -R 777 /",
         ],
-        description="Shell commands that are always blocked"
+        description="Shell commands that always trigger a 'STOP, Warn + Explain Risk, then Allow'"
     )
 
     # Stopping cadences - actions that always require confirmation
@@ -115,6 +120,21 @@ class AgentBehaviorConfig(BaseModel):
     )
 
 
+def _default_data_dir() -> Path:
+    """Get default data directory."""
+    return Path.home() / ".animus" / "data"
+
+
+def _default_cache_dir() -> Path:
+    """Get default cache directory."""
+    return Path.home() / ".animus" / "cache"
+
+
+def _default_logs_dir() -> Path:
+    """Get default logs directory."""
+    return Path.home() / ".animus" / "logs"
+
+
 class AnimusConfig(BaseModel):
     """Main Animus configuration."""
     model: ModelConfig = Field(default_factory=ModelConfig)
@@ -123,10 +143,10 @@ class AnimusConfig(BaseModel):
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     agent: AgentBehaviorConfig = Field(default_factory=AgentBehaviorConfig)
 
-    # Paths
-    data_dir: Path = Field(default=Path.home() / ".animus" / "data")
-    cache_dir: Path = Field(default=Path.home() / ".animus" / "cache")
-    logs_dir: Path = Field(default=Path.home() / ".animus" / "logs")
+    # Paths - use default_factory so they're evaluated at instantiation, not import
+    data_dir: Path = Field(default_factory=_default_data_dir)
+    cache_dir: Path = Field(default_factory=_default_cache_dir)
+    logs_dir: Path = Field(default_factory=_default_logs_dir)
 
     # Behavior (deprecated - use agent.* instead)
     confirm_destructive: bool = Field(default=True, description="Require confirmation for destructive operations")
@@ -190,6 +210,9 @@ class ConfigManager:
                 data["cache_dir"] = Path(data["cache_dir"])
             if "logs_dir" in data:
                 data["logs_dir"] = Path(data["logs_dir"])
+            # Handle nested Path in native config
+            if "native" in data and "models_dir" in data["native"]:
+                data["native"]["models_dir"] = Path(data["native"]["models_dir"])
 
             return AnimusConfig(**data)
         except (yaml.YAMLError, ValueError) as e:
@@ -217,6 +240,9 @@ class ConfigManager:
         data["data_dir"] = str(data["data_dir"])
         data["cache_dir"] = str(data["cache_dir"])
         data["logs_dir"] = str(data["logs_dir"])
+        # Handle nested Path in native config
+        if "native" in data and "models_dir" in data["native"]:
+            data["native"]["models_dir"] = str(data["native"]["models_dir"])
 
         with open(self.config_path, "w", encoding="utf-8") as f:
             yaml.dump(data, f, default_flow_style=False, sort_keys=False)

@@ -77,6 +77,23 @@ class SubAgentResult:
     error: Optional[str] = None
 
 
+# Common tool calling instructions for all sub-agents
+TOOL_CALLING_INSTRUCTIONS = """
+## How to Call Tools
+
+IMPORTANT: To use a tool, output a JSON object in this exact format:
+{"tool": "tool_name", "arguments": {"arg1": "value1", "arg2": "value2"}}
+
+Examples:
+{"tool": "read_file", "arguments": {"path": "/path/to/file.py"}}
+{"tool": "list_dir", "arguments": {"path": "/path/to/dir"}}
+{"tool": "write_file", "arguments": {"path": "/path/to/file.py", "content": "code here"}}
+{"tool": "run_shell", "arguments": {"command": "pytest tests/"}}
+
+Execute tools directly - do NOT ask the user to run commands for you.
+Do NOT hallucinate file contents - always use read_file to get actual contents.
+"""
+
 # Role-specific system prompts
 ROLE_PROMPTS = {
     SubAgentRole.CODER: """You are a specialized coding sub-agent. Your task is to write or modify code according to the given requirements.
@@ -89,7 +106,7 @@ Focus on:
 
 You have access to: {tools}
 Scope: {scope}
-""",
+""" + TOOL_CALLING_INSTRUCTIONS,
 
     SubAgentRole.REVIEWER: """You are a code review sub-agent. Your task is to review code and provide feedback.
 
@@ -97,12 +114,12 @@ Focus on:
 - Code quality and readability
 - Potential bugs or issues
 - Performance considerations
-- Security concerns
+- Operational Security Concerns
 - Adherence to best practices
 
 Provide constructive feedback with specific suggestions.
 You have access to: {tools}
-""",
+""" + TOOL_CALLING_INSTRUCTIONS,
 
     SubAgentRole.TESTER: """You are a testing sub-agent. Your task is to write or run tests.
 
@@ -113,7 +130,7 @@ Focus on:
 - Clear test descriptions
 
 You have access to: {tools}
-""",
+""" + TOOL_CALLING_INSTRUCTIONS,
 
     SubAgentRole.DOCUMENTER: """You are a documentation sub-agent. Your task is to write or improve documentation.
 
@@ -124,7 +141,7 @@ Focus on:
 - README and guide content
 
 You have access to: {tools}
-""",
+""" + TOOL_CALLING_INSTRUCTIONS,
 
     SubAgentRole.REFACTORER: """You are a refactoring sub-agent. Your task is to improve code structure without changing behavior.
 
@@ -135,7 +152,7 @@ Focus on:
 - Maintaining existing tests
 
 You have access to: {tools}
-""",
+""" + TOOL_CALLING_INSTRUCTIONS,
 
     SubAgentRole.DEBUGGER: """You are a debugging sub-agent. Your task is to find and fix bugs.
 
@@ -146,7 +163,7 @@ Focus on:
 - Verifying the fix works
 
 You have access to: {tools}
-""",
+""" + TOOL_CALLING_INSTRUCTIONS,
 
     SubAgentRole.RESEARCHER: """You are a research sub-agent. Your task is to gather information and analyze code.
 
@@ -157,7 +174,7 @@ Focus on:
 - Summarizing findings
 
 You have access to: {tools}
-""",
+""" + TOOL_CALLING_INSTRUCTIONS,
 }
 
 
@@ -291,16 +308,24 @@ class SubAgentOrchestrator:
                 if turn.role == "assistant":
                     final_output = turn.content
 
-                # Track file operations from tool results
-                if turn.tool_results:
-                    for result in turn.tool_results:
-                        if result.success and result.metadata:
-                            path = result.metadata.get("path")
-                            if path:
-                                if "read" in str(result.metadata):
-                                    files_read.append(path)
-                                elif "write" in str(result.metadata):
-                                    files_written.append(path)
+                # Track file operations from tool calls and results
+                if turn.tool_calls and turn.tool_results:
+                    for call, result in zip(turn.tool_calls, turn.tool_results):
+                        if not result.success:
+                            continue
+
+                        tool_name = call.get("name", "")
+                        args = call.get("arguments", {})
+                        path = args.get("path")
+
+                        if path:
+                            # Track based on tool name, not metadata string matching
+                            if tool_name == "read_file":
+                                files_read.append(path)
+                            elif tool_name == "write_file":
+                                files_written.append(path)
+                            elif tool_name == "list_dir":
+                                files_read.append(path)  # Directory listing is a read operation
 
             if len(turns) >= scope.max_turns:
                 status = "max_turns_reached"

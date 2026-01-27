@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional, Any
@@ -150,10 +151,12 @@ def classify_error(error: Exception) -> ClassifiedError:
             strategy=DEFAULT_STRATEGIES[ErrorCategory.AUTH_FAILURE],
         )
 
-    # Rate limit patterns
+    # Rate limit patterns (including billing/quota issues)
     rate_patterns = [
         "rate limit", "rate_limit", "too many requests",
-        "429", "throttle", "quota exceeded", "capacity"
+        "429", "throttle", "quota exceeded", "capacity",
+        "insufficient_quota", "billing", "payment required",
+        "quota_exceeded", "usage limit"
     ]
     if any(p in error_str for p in rate_patterns):
         # Try to extract retry-after if present
@@ -229,8 +232,8 @@ def classify_error(error: Exception) -> ClassifiedError:
             strategy=DEFAULT_STRATEGIES[ErrorCategory.PERMISSION_DENIED],
         )
 
-    # Check for specific exception types
-    if error_type in ("PermissionError", "OSError"):
+    # Check for specific exception types using isinstance for reliability
+    if isinstance(error, PermissionError):
         return ClassifiedError(
             category=ErrorCategory.PERMISSION_DENIED,
             original_error=error,
@@ -238,7 +241,7 @@ def classify_error(error: Exception) -> ClassifiedError:
             strategy=DEFAULT_STRATEGIES[ErrorCategory.PERMISSION_DENIED],
         )
 
-    if error_type in ("TimeoutError", "asyncio.TimeoutError"):
+    if isinstance(error, (TimeoutError, asyncio.TimeoutError)):
         return ClassifiedError(
             category=ErrorCategory.TIMEOUT,
             original_error=error,
@@ -246,12 +249,20 @@ def classify_error(error: Exception) -> ClassifiedError:
             strategy=DEFAULT_STRATEGIES[ErrorCategory.TIMEOUT],
         )
 
-    if error_type in ("ConnectionError", "ConnectionRefusedError"):
+    if isinstance(error, (ConnectionError, ConnectionRefusedError)):
         return ClassifiedError(
             category=ErrorCategory.NETWORK_ERROR,
             original_error=error,
             message="Connection failed",
             strategy=DEFAULT_STRATEGIES[ErrorCategory.NETWORK_ERROR],
+        )
+
+    if isinstance(error, OSError) and "permission" in error_str:
+        return ClassifiedError(
+            category=ErrorCategory.PERMISSION_DENIED,
+            original_error=error,
+            message="Permission denied",
+            strategy=DEFAULT_STRATEGIES[ErrorCategory.PERMISSION_DENIED],
         )
 
     # Unknown/unclassified

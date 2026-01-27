@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import platform
 import subprocess
 import sys
@@ -9,6 +10,13 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Optional
+
+# Try to import sched_getaffinity for accurate CPU count
+try:
+    from os import sched_getaffinity
+    _HAS_SCHED_GETAFFINITY = True
+except ImportError:
+    _HAS_SCHED_GETAFFINITY = False
 
 
 class OperatingSystem(str, Enum):
@@ -243,6 +251,30 @@ def _detect_gpu() -> Optional[GPUInfo]:
         except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
             pass
 
+    # Check for AMD ROCm (Linux)
+    if Path("/opt/rocm").exists():
+        try:
+            result = subprocess.run(
+                ["rocm-smi", "--showproductname"],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            if result.returncode == 0:
+                gpu.vendor = "AMD"
+                gpu.name = "AMD GPU (ROCm)"
+                # Try to parse GPU name from output
+                for line in result.stdout.split("\n"):
+                    if "GPU" in line and ":" in line:
+                        gpu.name = line.split(":")[-1].strip()
+                        break
+                return gpu
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+            # ROCm installed but rocm-smi not available or failed
+            gpu.vendor = "AMD"
+            gpu.name = "AMD GPU (ROCm detected)"
+            return gpu
+
     return None
 
 
@@ -257,11 +289,14 @@ def detect_environment() -> SystemInfo:
     architecture = _detect_architecture()
     hardware_type = _detect_hardware_type(os_type, architecture)
 
-    try:
-        cpu_count = len(__import__("os").sched_getaffinity(0))
-    except (AttributeError, OSError):
-        import os as os_module
-        cpu_count = os_module.cpu_count() or 1
+    # Get CPU count - prefer sched_getaffinity for accurate count in containers
+    if _HAS_SCHED_GETAFFINITY:
+        try:
+            cpu_count = len(sched_getaffinity(0))
+        except OSError:
+            cpu_count = os.cpu_count() or 1
+    else:
+        cpu_count = os.cpu_count() or 1
 
     return SystemInfo(
         os=os_type,
