@@ -1,6 +1,6 @@
 # Animus
 
-A high-performance, cross-platform CLI coding agent that runs locally. Animus leverages local LLM inference or cloud APIs to provide an intelligent coding assistant with file manipulation, shell execution, RAG-based knowledge retrieval, and sub-agent orchestration.
+A high-performance, cross-platform CLI coding agent that runs locally. Animus leverages *local* LLM inference to provide an intelligent coding assistant with file manipulation, shell execution, RAG-based knowledge retrieval, and sub-agent orchestration.
 
 ## Features
 
