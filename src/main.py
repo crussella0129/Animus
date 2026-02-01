@@ -789,6 +789,17 @@ def chat(
         "--no-confirm",
         help="Skip tool confirmation prompts.",
     ),
+    max_context: Optional[int] = typer.Option(
+        None,
+        "--max-context",
+        "-c",
+        help="Maximum context window size in tokens (default: 8192).",
+    ),
+    show_tokens: bool = typer.Option(
+        False,
+        "--show-tokens",
+        help="Show token usage after each turn.",
+    ),
 ) -> None:
     """Start an interactive chat session with the agent."""
     import asyncio
@@ -797,6 +808,7 @@ def chat(
     from src.llm import get_default_provider
     from src.core import Agent, AgentConfig
     from src.core.config import ConfigManager
+    from src.core.context import ContextWindow, ContextConfig, ContextStatus
 
     async def run_chat() -> None:
         config = ConfigManager().config
@@ -827,7 +839,15 @@ def chat(
             confirm_callback=confirm_tool,
         )
 
+        # Initialize context window tracking
+        context_config = ContextConfig(max_tokens=max_context or 8192)
+        context_window = ContextWindow(config=context_config)
+        context_window.set_system_prompt(agent.system_prompt)
+        turn_number = 0
+
         console.print("[bold blue]Animus Chat[/bold blue]")
+        if max_context:
+            console.print(f"[dim]Max context: {max_context} tokens[/dim]")
         console.print("Type your message. Use [cyan]exit[/cyan] or [cyan]quit[/cyan] to end.\n")
 
         while True:
@@ -841,16 +861,35 @@ def chat(
                 if not user_input.strip():
                     continue
 
+                # Track user input tokens
+                turn_number += 1
+                context_window.add_turn(turn_number, "user", user_input)
+
+                # Check context status before generating
+                if context_window.status == ContextStatus.WARNING:
+                    console.print(f"[yellow]Warning: Context at {context_window.usage_ratio:.0%} capacity[/yellow]")
+                elif context_window.needs_compaction():
+                    console.print(f"[red]Context full ({context_window.usage_ratio:.0%}). Consider starting a new session.[/red]")
+
                 console.print()
 
                 async for turn in agent.run(user_input):
                     if turn.role == "assistant":
+                        # Track assistant response tokens
+                        turn_number += 1
+                        context_window.add_turn(turn_number, "assistant", turn.content)
+
                         console.print("[bold blue]Animus[/bold blue]")
                         # Render as markdown
                         console.print(Markdown(turn.content))
 
                         if turn.tool_calls:
                             console.print(f"\n[dim]Executed {len(turn.tool_calls)} tool(s)[/dim]")
+
+                        # Show token usage if requested
+                        if show_tokens:
+                            stats = context_window.get_stats()
+                            console.print(f"[dim]Tokens: {stats['total_tokens']}/{stats['max_tokens']} ({stats['usage_ratio']:.0%})[/dim]")
 
                 console.print()
 

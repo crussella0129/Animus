@@ -1,6 +1,6 @@
 # Tasks — ANIMUS
 
-**Last Updated:** 2026-01-27 (Windows systests reviewed)
+**Last Updated:** 2026-01-31 (Phase 8-9 foundational work complete)
 
 ## Legend
 
@@ -113,16 +113,20 @@
 **Inspiration:** Hive's decision recording and BuilderQuery patterns.
 
 **Tasks:**
-- [ ] **Decision Recording Schema** (`src/core/decision.py`)
-  - [ ] Create `Decision` dataclass (intent, options, chosen, reasoning)
-  - [ ] Create `Option` dataclass (id, description, pros, cons)
-  - [ ] Create `Outcome` dataclass (decision_id, success, result, summary)
-  - [ ] Add decision recording to Agent class
-- [ ] **Run Persistence** (`src/core/run.py`)
-  - [ ] Create `Run` dataclass (id, goal, decisions, metrics, status)
-  - [ ] Create `RunMetrics` (tokens_used, latency, success_rate)
-  - [ ] Implement JSON-based run storage (~/.animus/runs/)
-  - [ ] Add run indexing by goal, status, date
+- [x] **Decision Recording Schema** (`src/core/decision.py`) ✓
+  - [x] Create `Decision` dataclass (intent, options, chosen, reasoning)
+  - [x] Create `Option` dataclass (id, description, pros, cons)
+  - [x] Create `Outcome` dataclass (decision_id, success, result, summary)
+  - [x] Add decision recording to Agent class
+  - [x] Add DecisionRecorder class for session management
+  - [x] Add tests (27 new tests in test_decision.py)
+- [x] **Run Persistence** (`src/core/run.py`) ✓
+  - [x] Create `Run` dataclass (id, goal, decisions, metrics, status)
+  - [x] Create `RunMetrics` (tokens_used, latency, success_rate)
+  - [x] Implement JSON-based run storage (~/.animus/runs/)
+  - [x] Add run indexing by goal, status, date
+  - [x] Add RunStore class with find/filter methods
+  - [x] Add tests (17 new tests in test_run.py)
 - [ ] **BuilderQuery Interface** (`src/core/builder.py`)
   - [ ] Analyze runs for patterns and failures
   - [ ] Generate improvement suggestions
@@ -140,21 +144,25 @@
 **Inspiration:** Clawdbot's session compaction and error classification.
 
 **Tasks:**
-- [ ] **Session Compaction** (`src/core/compaction.py`)
-  - [ ] Implement conversation summarization
-  - [ ] Auto-trigger when approaching context limit
-  - [ ] Preserve recent turns + summary of older turns
-  - [ ] Add compaction to Agent class
+- [x] **Session Compaction** (`src/core/compaction.py`) ✓
+  - [x] Implement conversation summarization
+  - [x] Auto-trigger when approaching context limit
+  - [x] Preserve recent turns + summary of older turns
+  - [x] Multiple strategies: truncate, sliding, summarize, hybrid
+  - [ ] Add compaction to Agent class (integration pending)
 - [x] **Error Classification** (`src/core/errors.py`) ✓
   - [x] Define error categories: `context_overflow`, `auth_failure`, `rate_limit`, `timeout`, `tool_failure`
   - [x] Implement error-specific recovery strategies
   - [x] Add retry logic with exponential backoff
   - [x] Create error event logging
-- [ ] **Context Window Management**
-  - [ ] Track token usage per turn
-  - [ ] Warn before overflow (soft limit)
-  - [ ] Auto-compact on overflow (hard limit)
-  - [ ] Add `--max-context` CLI option
+- [x] **Context Window Management** (`src/core/context.py`) ✓
+  - [x] Track token usage per turn
+  - [x] Warn before overflow (soft limit)
+  - [x] Auto-compact on overflow (hard limit)
+  - [x] Add `--max-context` CLI option
+  - [x] Add `--show-tokens` CLI option
+  - [x] Add TokenEstimator for character-based token estimation
+  - [x] Add tests (22 new tests in test_context.py)
 
 ### Phase 10: Enhanced Retrieval (from both analyses)
 

@@ -20,6 +20,37 @@ from src.core.errors import (
     RateLimitError,
     ToolExecutionError,
 )
+from src.core.decision import (
+    Decision,
+    DecisionType,
+    Option,
+    Outcome,
+    OutcomeStatus,
+    DecisionRecord,
+    DecisionRecorder,
+)
+from src.core.run import (
+    Run,
+    RunStatus,
+    RunMetrics,
+    RunStore,
+)
+from src.core.context import (
+    ContextWindow,
+    ContextConfig,
+    ContextStatus,
+    TokenEstimator,
+    TokenUsage,
+    get_context_config,
+    CONTEXT_PRESETS,
+)
+from src.core.compaction import (
+    SessionCompactor,
+    CompactionConfig,
+    CompactionStrategy,
+    CompactionResult,
+    compact_conversation,
+)
 
 __all__ = [
     # Config
@@ -48,4 +79,31 @@ __all__ = [
     "AuthenticationError",
     "RateLimitError",
     "ToolExecutionError",
+    # Decision Recording
+    "Decision",
+    "DecisionType",
+    "Option",
+    "Outcome",
+    "OutcomeStatus",
+    "DecisionRecord",
+    "DecisionRecorder",
+    # Run Persistence
+    "Run",
+    "RunStatus",
+    "RunMetrics",
+    "RunStore",
+    # Context Management
+    "ContextWindow",
+    "ContextConfig",
+    "ContextStatus",
+    "TokenEstimator",
+    "TokenUsage",
+    "get_context_config",
+    "CONTEXT_PRESETS",
+    # Session Compaction
+    "SessionCompactor",
+    "CompactionConfig",
+    "CompactionStrategy",
+    "CompactionResult",
+    "compact_conversation",
 ]

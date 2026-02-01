@@ -19,6 +19,14 @@ from src.tools import create_default_registry
 from src.memory import Ingester
 from src.core.config import AnimusConfig, AgentBehaviorConfig
 from src.core.errors import classify_error, ClassifiedError, ErrorCategory
+from src.core.decision import (
+    Decision,
+    DecisionType,
+    Option,
+    Outcome,
+    OutcomeStatus,
+    DecisionRecorder,
+)
 
 
 @dataclass
@@ -201,6 +209,9 @@ class Agent:
         self._last_error: Optional[ClassifiedError] = None
         self._consecutive_errors = 0
 
+        # Decision recording
+        self._decision_recorder = DecisionRecorder()
+
     def _apply_animus_config(self, agent_config: AgentBehaviorConfig) -> None:
         """Apply AgentBehaviorConfig settings to AgentConfig."""
         self.config.auto_execute_tools = tuple(agent_config.auto_execute_tools)
@@ -332,11 +343,57 @@ class Agent:
         tool = self.tool_registry.get(tool_name)
 
         if tool is None:
+            # Record failed tool selection decision
+            decision = Decision.create(
+                decision_type=DecisionType.TOOL_SELECTION,
+                intent=f"Execute tool: {tool_name}",
+                context=f"Arguments: {arguments}",
+                options=[
+                    Option.create(
+                        description=f"Use tool '{tool_name}'",
+                        cons=["Tool does not exist"],
+                    ),
+                ],
+                chosen_option_id=None,
+                reasoning="Tool not found in registry",
+                turn_number=self._current_turn,
+            )
+            self._decision_recorder.record_decision(decision)
+            outcome = Outcome.create(
+                decision_id=decision.id,
+                status=OutcomeStatus.FAILURE,
+                result="Tool not found",
+                summary=f"Unknown tool: {tool_name}",
+                error=f"Unknown tool: {tool_name}",
+            )
+            self._decision_recorder.record_outcome(outcome)
+
             return ToolResult(
                 success=False,
                 output="",
                 error=f"Unknown tool: {tool_name}",
             )
+
+        # Record tool selection decision
+        tool_decision = Decision.create(
+            decision_type=DecisionType.TOOL_SELECTION,
+            intent=f"Execute tool: {tool_name}",
+            context=f"Arguments: {arguments}",
+            options=[
+                Option.create(
+                    description=f"Use tool '{tool_name}'",
+                    pros=["Matches required action"],
+                    confidence=0.9,
+                ),
+            ],
+            chosen_option_id=None,  # Will be set after we have the option
+            reasoning=f"Selected {tool_name} to accomplish task",
+            turn_number=self._current_turn,
+        )
+        # Set chosen option to the first (and only) option
+        if tool_decision.options:
+            tool_decision.chosen_option_id = tool_decision.options[0].id
+        self._decision_recorder.record_decision(tool_decision)
 
         # Special handling for shell commands
         if tool_name == "run_shell" and "command" in arguments:
@@ -398,12 +455,33 @@ class Agent:
         try:
             result = await tool.execute(**arguments)
             self._consecutive_errors = 0  # Reset error count on success
+
+            # Record successful outcome
+            outcome = Outcome.create(
+                decision_id=tool_decision.id,
+                status=OutcomeStatus.SUCCESS if result.success else OutcomeStatus.FAILURE,
+                result=result.output[:500] if result.output else "",
+                summary=f"Tool {tool_name} {'succeeded' if result.success else 'failed'}",
+                error=result.error if not result.success else None,
+            )
+            self._decision_recorder.record_outcome(outcome)
+
             return result
         except Exception as e:
             # Classify the error
             classified = classify_error(e)
             self._last_error = classified
             self._consecutive_errors += 1
+
+            # Record failed outcome
+            outcome = Outcome.create(
+                decision_id=tool_decision.id,
+                status=OutcomeStatus.FAILURE,
+                result="",
+                summary=f"Tool {tool_name} threw exception",
+                error=f"{classified.category.value}: {classified.message}",
+            )
+            self._decision_recorder.record_outcome(outcome)
 
             return ToolResult(
                 success=False,
@@ -708,7 +786,27 @@ class Agent:
         """Reset the agent state."""
         self.history = []
         self._current_turn = 0
+        self._decision_recorder.clear()
 
     def get_history(self) -> list[Turn]:
         """Get conversation history."""
         return self.history.copy()
+
+    def get_decisions(self) -> list[Decision]:
+        """Get all recorded decisions."""
+        return self._decision_recorder.decisions.copy()
+
+    def get_decision_records(self) -> list:
+        """Get all decision records with outcomes."""
+        return self._decision_recorder.get_records()
+
+    def get_decision_success_rate(self, decision_type: Optional[DecisionType] = None) -> float:
+        """Get success rate for decisions.
+
+        Args:
+            decision_type: Filter by type, or None for all.
+
+        Returns:
+            Success rate as float (0.0 to 1.0).
+        """
+        return self._decision_recorder.get_success_rate(decision_type)

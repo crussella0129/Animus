@@ -1074,3 +1074,87 @@ None (analysis only)
 - Begin incremental implementation
 
 ---
+
+## Entry #14 — 2026-01-31
+
+### Summary
+Implemented foundational Phase 8 and Phase 9 features: Decision Recording Schema, Run Persistence, Context Window Management, and Session Compaction.
+
+### Actions
+
+**1. Decision Recording Schema** (`src/core/decision.py`)
+- Created `Decision` dataclass with intent, options, chosen, reasoning
+- Created `Option` dataclass with id, description, pros, cons, confidence
+- Created `Outcome` dataclass with decision_id, status, result, summary
+- Created `DecisionRecord` linking decision to outcome
+- Created `DecisionRecorder` for session-level decision management
+- Added `DecisionType` enum: tool_selection, strategy, delegation, etc.
+- Added `OutcomeStatus` enum: success, partial, failure, unknown
+
+**2. Run Persistence** (`src/core/run.py`)
+- Created `Run` dataclass with full lifecycle management (start, complete, fail, cancel)
+- Created `RunMetrics` with tokens, turns, tool calls, success rate
+- Created `RunStore` with JSON-based storage in ~/.animus/runs/
+- Added find methods: by_status, by_goal, by_date, by_tag
+- Added get_recent and get_stats for analytics
+
+**3. Context Window Management** (`src/core/context.py`)
+- Created `ContextWindow` for tracking token usage
+- Created `ContextConfig` with soft/critical limits
+- Created `TokenEstimator` for character-based token estimation
+- Added `ContextStatus` enum: ok, warning, critical, overflow
+- Added presets for common model sizes (4K, 8K, 16K, 32K, 128K)
+
+**4. Session Compaction** (`src/core/compaction.py`)
+- Created `SessionCompactor` with multiple strategies
+- Implemented truncate, sliding_window, summarize, hybrid strategies
+- Created `CompactionConfig` with keep_recent_turns, summary_max_tokens
+- Added LLM-based summarization for context reduction
+
+**5. Agent Integration**
+- Integrated DecisionRecorder into Agent class
+- Agent now records tool selection decisions and outcomes
+- Added get_decisions(), get_decision_records(), get_decision_success_rate() methods
+
+**6. CLI Updates** (`src/main.py`)
+- Added `--max-context` option to chat command
+- Added `--show-tokens` option to display token usage
+
+### Files Changed
+
+- `src/core/decision.py` — NEW: Decision recording schema
+- `src/core/run.py` — NEW: Run persistence with JSON storage
+- `src/core/context.py` — NEW: Context window management
+- `src/core/compaction.py` — NEW: Session compaction
+- `src/core/agent.py` — Added decision recording integration
+- `src/core/__init__.py` — Export new classes
+- `src/main.py` — Added --max-context and --show-tokens options
+- `tests/test_decision.py` — NEW: 27 decision recording tests
+- `tests/test_run.py` — NEW: 17 run persistence tests
+- `tests/test_context.py` — NEW: 22 context management tests
+
+### Commits
+
+- (pending)
+
+### Findings
+
+- 204 tests now passing (66 new tests added)
+- Token estimation uses ~4 chars/token for text, ~3 for code
+- Decision recording adds minimal overhead to tool execution
+- Compaction strategies allow flexibility based on use case
+
+### Issues
+
+None — All tests pass.
+
+### Checkpoint
+**Status:** CONTINUE — Phase 8-9 foundational work complete. Ready for BuilderQuery and full Agent integration.
+
+### Next
+- Implement BuilderQuery for run analysis
+- Add Triangulated Verification (HybridJudge)
+- Integrate compaction into Agent class for automatic triggering
+- Begin Phase 10 (Hybrid Search) or Phase 11 (Sub-Agent Architecture)
+
+---
