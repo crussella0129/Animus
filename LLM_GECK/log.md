@@ -1158,3 +1158,327 @@ None — All tests pass.
 - Begin Phase 10 (Hybrid Search) or Phase 11 (Sub-Agent Architecture)
 
 ---
+
+## Entry #15 — 2026-02-01
+
+### Summary
+Comprehensive analysis of 32 external repositories to identify features and patterns that would benefit Animus. Identified major feature categories: Memory Systems, Web/Browser Automation, Multi-Agent Orchestration, MCP/Tool Integration, Security/Observability, Workflow Automation, and Skills/Plugin Systems.
+
+### Repositories Analyzed
+
+| Repository | Stars | Purpose | Key Value for Animus |
+|------------|-------|---------|---------------------|
+| **potpie-ai/potpie** | - | Code intelligence with knowledge graphs | Knowledge graph for codebase understanding, multi-agent with specialist roles |
+| **firecrawl/firecrawl** | - | Web data extraction for AI | Multi-format output (markdown, HTML, JSON), async job queuing, anti-bot handling |
+| **bluewave-labs/Checkmate** | 9K | Infrastructure monitoring | BullMQ distributed job queues, centralized error handling, real-time status |
+| **openclaw/openclaw** | - | Personal AI assistant platform | WebSocket gateway, session lanes, tool policies, sandboxing |
+| **pranshuparmar/witr** | 12K | Process diagnostics | Cross-platform CLI patterns, hierarchical detection, safe read-only operations |
+| **anomalyco/opencode** | 94K | AI coding agent | Permission system (allow/deny/ask), MCP/LSP integration, multi-agent with explore/plan |
+| **memvid/memvid** | - | AI memory layer | Smart Frames (append-only), hybrid search (BM25+vector), time-travel debugging |
+| **C4illin/ConvertX** | - | File conversion service | Modular converter architecture, 1000+ formats |
+| **itsOwen/CyberScraper-2077** | - | AI-powered web scraping | LLM-based content understanding, stealth mode, Tor support |
+| **browseros-ai/BrowserOS** | 9K | AI browser agent | Browser as MCP server (31 tools), local-first execution, workflow builder |
+| **metorial/metorial** | - | MCP integration platform | 600+ MCP integrations, OAuth session management, monitoring |
+| **eigent-ai/eigent** | - | AI workforce desktop | Multi-agent with dynamic task decomposition, MCP tools, human-in-the-loop |
+| **mxrch/GHunt** | - | Google OSINT framework | Async architecture, JSON export, browser extension integration |
+| **charmbracelet/crush** | - | Agentic CLI | LSP integration, MCP support, session management, agent skills standard |
+| **yashab-cyber/nmap-ai** | - | AI-powered network scanning | ML-optimized scanning, natural language interface, multi-format reports |
+| **lemonade-sdk/lemonade** | - | Local LLM inference server | OpenAI-compatible API, multi-backend (GGUF, ONNX), hardware abstraction |
+| **yashab-cyber/metasploit-ai** | - | AI penetration testing | Intelligent exploit ranking, multi-interface (CLI/Web/Desktop/API) |
+| **assafelovic/gpt-researcher** | - | Autonomous research agent | Planner-executor pattern, parallel crawlers, multi-source verification |
+| **jesseduffield/lazygit** | - | Git TUI | Undo/redo with reflog, line-level staging, interactive rebasing |
+| **janhq/jan** | 40K | Local AI assistant | OpenAI-compatible local API, MCP integration, extension system |
+| **QwenLM/Qwen3-Coder** | - | Code generation model | 256K context (1M with Yarn), 358 language support, FIM capability |
+| **FlowiseAI/Flowise** | - | Visual AI workflow builder | Drag-and-drop agent design, multi-agent collaboration, RAG integration |
+| **aquasecurity/tracee** | 4K | Runtime security | eBPF for kernel introspection, behavioral detection patterns |
+| **n8n-io/n8n** | - | Workflow automation | 400+ integrations, hybrid code/visual, LangChain AI integration |
+| **logpai/loghub** | - | Log datasets for AI | 16+ datasets for log analysis research, parsing benchmarks |
+| **anthropics/claude-code-action** | 5K | GitHub Action for Claude | Context-aware activation, progress tracking, structured outputs |
+| **lizTheDeveloper/ai_village** | - | AI simulation game | ECS architecture, 211 systems, multiverse forking, LLM-driven behavior |
+| **browseros-ai/moltyflow** | - | Agent Q&A platform | Agent-to-agent collaboration, karma system, auto-expiring questions |
+| **Legato666/katana** | - | Web crawling framework | Dual-mode crawling (standard/headless), scope control, resume capability |
+| **anthropics/claude-code** | 63K | Agentic CLI | Codebase understanding, git workflow automation, plugin architecture |
+| **anthropics/skills** | 60K | Agent skills system | SKILL.md format, dynamic capability extension, production document skills |
+| **anthropics/claude-cookbooks** | 32K | Implementation examples | RAG patterns, tool use, sub-agents, vision, prompt caching |
+
+---
+
+### Feature Categories Identified
+
+#### 1. **Memory & Knowledge Systems**
+
+| Feature | Source | Description | Priority |
+|---------|--------|-------------|----------|
+| **Knowledge Graph for Code** | potpie | Neo4j-based semantic graph of functions, classes, calls | High |
+| **Smart Frames (Append-Only Memory)** | memvid | Immutable memory units with timestamps, checksums | High |
+| **Time-Travel Debugging** | memvid | Rewind/replay/branch memory states | Medium |
+| **Hybrid Search (BM25 + Vector)** | memvid, opencode | Combine keyword and semantic search | High |
+| **SQLite-vec Backend** | opencode | Persistent vector storage without ChromaDB | High |
+| **Memory Capsules (.mv2)** | memvid | Self-contained, shareable memory files | Medium |
+
+**Sample Code (memvid Smart Frames):**
+```rust
+let mut mem = Memvid::create("knowledge.mv2")?;
+let opts = PutOptions::builder()
+    .title("Code Analysis")
+    .tag("project", "animus")
+    .build();
+mem.put_bytes_with_options(content, opts)?;
+mem.commit()?;
+
+// Search with sub-5ms local access
+let response = mem.search(SearchRequest {
+    query: "error handling".into(),
+    top_k: 10,
+    ..Default::default()
+})?;
+```
+
+#### 2. **Web & Browser Automation**
+
+| Feature | Source | Description | Priority |
+|---------|--------|-------------|----------|
+| **Browser as MCP Server** | BrowserOS | 31 tools for browser control via MCP | High |
+| **AI-Powered Scraping** | CyberScraper | LLM understands page structure, not CSS selectors | Medium |
+| **Multi-Format Output** | firecrawl | Markdown, HTML, JSON, screenshots simultaneously | High |
+| **Async Job Queuing** | firecrawl | BullMQ for non-blocking web operations | High |
+| **Anti-Bot Handling** | firecrawl, CyberScraper | Stealth mode, proxy rotation, Tor support | Medium |
+| **Dual-Mode Crawling** | katana | Standard (fast) + Headless (JS rendering) | Medium |
+
+**Sample Pattern (firecrawl async jobs):**
+```python
+# Non-blocking crawl
+job_id = client.start_crawl(url)
+# Poll or WebSocket for updates
+async for result in client.watch_crawl(job_id):
+    process(result.document)
+```
+
+#### 3. **Multi-Agent Orchestration**
+
+| Feature | Source | Description | Priority |
+|---------|--------|-------------|----------|
+| **Specialist Agents** | potpie, opencode | Dedicated agents: QnA, Debug, Test, Explore, Plan | High |
+| **Planner-Executor Pattern** | gpt-researcher | Planning agent generates questions, executors gather info | High |
+| **Dynamic Task Decomposition** | eigent | Activate multiple agents in parallel | Medium |
+| **Agent-to-Agent Q&A** | moltyflow | Agents ask other agents instead of humans | Medium |
+| **Karma/Reputation System** | moltyflow | Track agent reliability (+15 accepted, -2 downvote) | Low |
+| **Multiverse Forking** | ai_village | Branch universes for "what-if" scenarios | Low |
+
+**Sample Pattern (opencode multi-agent):**
+```typescript
+// Specialist agent definitions
+const agents = {
+  build: { mode: "primary", permission: fullAccess },
+  plan: { mode: "primary", permission: readOnly },  // No edits
+  explore: { mode: "subagent", tools: ["grep", "glob", "read"] },
+  general: { mode: "subagent", tools: allTools }
+}
+```
+
+#### 4. **MCP & Tool Integration**
+
+| Feature | Source | Description | Priority |
+|---------|--------|-------------|----------|
+| **MCP Server Support** | opencode, BrowserOS, metorial | Model Context Protocol for tool exposure | High |
+| **600+ Pre-built Integrations** | metorial | Ready-to-use MCP servers | Medium |
+| **OAuth Session Management** | metorial, opencode | Handle auth flows for external APIs | High |
+| **Tool Discovery Before Use** | opencode, potpie | Validate tools exist before node creation | High |
+| **Dynamic Tool Updates** | opencode | ToolListChangedNotification pushes new tools | Medium |
+
+**Sample Pattern (MCP integration):**
+```typescript
+// Connect to MCP server with OAuth
+const client = new MCPClient({
+  transport: new StreamableHTTPClientTransport(url),
+  oauth: { handleCallback: true }
+});
+// Convert MCP tools to agent tools
+const tools = mcpToolsToVercelAI(await client.listTools());
+```
+
+#### 5. **Permission & Security Systems**
+
+| Feature | Source | Description | Priority |
+|---------|--------|-------------|----------|
+| **Three-Tier Permissions** | opencode | allow / deny / ask with pattern matching | High |
+| **Tool Policy Layers** | openclaw | Profile → Rules → Sandbox scope | High |
+| **Sandbox Execution** | openclaw | Docker isolation for non-main sessions | Medium |
+| **Safe Code Sandbox** | (backlog) | Whitelist-based safe_eval/safe_exec | Medium |
+| **eBPF Runtime Security** | tracee | Kernel-level behavioral detection | Low |
+
+**Sample Pattern (opencode permissions):**
+```typescript
+const permission = {
+  read: [
+    { pattern: "**/*", action: "allow" },
+    { pattern: "**/.env*", action: "deny" }  // Never read secrets
+  ],
+  edit: { action: "ask" },  // Always confirm edits
+  bash: { action: "ask" }
+}
+```
+
+#### 6. **Session & Context Management**
+
+| Feature | Source | Description | Priority |
+|---------|--------|-------------|----------|
+| **Session Lanes/Queuing** | openclaw | Serialize commands per session | High |
+| **Pause/Resume Sessions** | openclaw, opencode | Multi-turn with state persistence | High |
+| **Block Chunking for Streaming** | openclaw | Send partial responses at paragraph boundaries | Medium |
+| **Device Pairing** | openclaw | Public key auth, no shared passwords | Low |
+| **256K-1M Context Support** | Qwen3-Coder | Extended context for repository-scale work | Medium |
+
+#### 7. **Workflow & Automation**
+
+| Feature | Source | Description | Priority |
+|---------|--------|-------------|----------|
+| **Visual Workflow Builder** | Flowise, eigent | Drag-and-drop agent design | Low |
+| **Hybrid Code/Visual** | n8n | Write code or use visual interface | Medium |
+| **400+ Integrations** | n8n | Pre-built automation nodes | Low |
+| **Scheduled Tasks/Webhooks** | openclaw | Cron-based automation | Medium |
+| **GitHub Action Integration** | claude-code-action | CI/CD with Claude | High |
+
+#### 8. **Skills & Plugin Systems**
+
+| Feature | Source | Description | Priority |
+|---------|--------|-------------|----------|
+| **SKILL.md Format** | anthropic/skills | YAML frontmatter + markdown instructions | High |
+| **Dynamic Capability Extension** | anthropic/skills | Load skills at runtime | High |
+| **Agent Skills Standard** | crush | Cross-platform skill interoperability (agentskills.io) | Medium |
+| **Plugin Marketplace** | anthropic/skills | One-click installation via Claude Code | Medium |
+| **Document Skills** | anthropic/skills | Production-grade docx, pdf, pptx, xlsx | Medium |
+
+**Sample Pattern (SKILL.md format):**
+```yaml
+---
+name: code-reviewer
+description: Reviews code for bugs, security issues, and style
+---
+
+# Code Reviewer
+
+## Instructions
+1. Analyze the provided code for:
+   - Logic errors and edge cases
+   - Security vulnerabilities
+   - Style consistency
+2. Provide specific, actionable feedback
+
+## Examples
+- "The null check on line 42 is missing..."
+```
+
+#### 9. **CLI & UX Patterns**
+
+| Feature | Source | Description | Priority |
+|---------|--------|-------------|----------|
+| **Undo/Redo for Git** | lazygit | Reflog-based reversible operations | Medium |
+| **Line-Level Staging** | lazygit | Select individual lines to commit | Low |
+| **Cross-Platform Detection** | witr | Build tags for platform-specific code | Medium |
+| **Read-Only Safety Model** | witr | Never modify system state | High |
+| **Progress Tracking** | claude-code-action | Dynamic checkbox updates in comments | Medium |
+| **OpenAI-Compatible Local API** | jan, lemonade | localhost:1337 for integration | High |
+
+#### 10. **Research & Analysis**
+
+| Feature | Source | Description | Priority |
+|---------|--------|-------------|----------|
+| **Multi-Source Verification** | gpt-researcher | Aggregate 20+ sources for objectivity | Medium |
+| **Extended Reports (2000+ words)** | gpt-researcher | Comprehensive research documents | Low |
+| **Log Analysis Datasets** | loghub | 16+ datasets for debugging research | Low |
+| **AI-Generated Imagery** | gpt-researcher | Inline illustrations via Gemini | Low |
+
+---
+
+### High-Priority Features for Animus
+
+Based on analysis, these features would provide the most value:
+
+#### Immediate (Phase 12-13)
+
+1. **MCP Server Integration**
+   - Expose Animus tools via MCP protocol
+   - Enable cross-tool communication
+   - Connect to external MCP servers (BrowserOS, etc.)
+
+2. **Skills System (SKILL.md)**
+   - Adopt Anthropic's SKILL.md format
+   - Enable dynamic capability loading
+   - Create initial skills: code-review, test-gen, refactor
+
+3. **Hybrid Search Enhancement**
+   - Add BM25 keyword search to existing vector search
+   - Configurable weighting
+   - Use memvid-style Smart Frames for memory
+
+4. **Three-Tier Permission System**
+   - Replace binary confirm with allow/deny/ask
+   - Pattern-based file access control
+   - Per-agent permission profiles
+
+5. **OpenAI-Compatible Local API**
+   - Add `animus serve` command (localhost:1337)
+   - Enable integration with Jan, VS Code, etc.
+
+#### Near-Term (Phase 14-15)
+
+6. **Specialist Sub-Agents**
+   - Explore agent (fast codebase search)
+   - Plan agent (read-only analysis)
+   - Build agent (full capabilities)
+
+7. **Browser Integration via MCP**
+   - Connect to BrowserOS MCP server
+   - Enable web research without built-in browser
+
+8. **GitHub Action Mode**
+   - `animus action` for CI/CD use
+   - Structured outputs for workflows
+   - Progress tracking in PR comments
+
+9. **Session Lanes**
+   - Serialize commands per session
+   - Prevent concurrent interleaving
+   - Support pause/resume
+
+10. **Knowledge Graph for Code**
+    - Build semantic graph of codebase
+    - Track function calls, class relationships
+    - Enable "blast radius" analysis for changes
+
+---
+
+### Files Changed
+
+None (analysis only)
+
+### Commits
+
+None (analysis only)
+
+### Findings
+
+- **MCP is the de facto standard** for tool integration across Claude Code, OpenCode, BrowserOS, and metorial
+- **Skills/SKILL.md format** enables modular capability extension without code changes
+- **Hybrid search (BM25 + vector)** is consistently recommended over pure vector search
+- **Three-tier permissions (allow/deny/ask)** provides better UX than binary confirmation
+- **Specialist agents** (explore, plan, build) reduce context pollution and improve focus
+- **OpenAI-compatible API** enables ecosystem integration with minimal effort
+- **Knowledge graphs** provide superior code understanding vs flat text
+
+### Issues
+
+- Implementing all features would be a multi-month undertaking
+- Some features (visual workflow, browser control) may be out of scope for CLI focus
+- MCP server implementation requires careful security consideration
+
+### Checkpoint
+**Status:** CONTINUE — Analysis complete, ready to update tasks with new phases.
+
+### Next
+- Update tasks.md with new Phase 12-15 tasks
+- Prioritize MCP integration and Skills system
+- Begin implementation of high-priority features
+
+---

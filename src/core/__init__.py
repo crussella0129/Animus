@@ -51,6 +51,18 @@ from src.core.compaction import (
     CompactionResult,
     compact_conversation,
 )
+from src.core.permission import (
+    PermissionAction,
+    PermissionCategory,
+    PermissionRule,
+    PermissionRuleset,
+    PermissionProfile,
+    PermissionRequest,
+    PermissionManager,
+    get_explore_agent_profile,
+    get_plan_agent_profile,
+    get_build_agent_profile,
+)
 
 __all__ = [
     # Config
@@ -106,4 +118,15 @@ __all__ = [
     "CompactionStrategy",
     "CompactionResult",
     "compact_conversation",
+    # Permissions
+    "PermissionAction",
+    "PermissionCategory",
+    "PermissionRule",
+    "PermissionRuleset",
+    "PermissionProfile",
+    "PermissionRequest",
+    "PermissionManager",
+    "get_explore_agent_profile",
+    "get_plan_agent_profile",
+    "get_build_agent_profile",
 ]

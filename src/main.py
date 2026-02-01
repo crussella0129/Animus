@@ -684,6 +684,190 @@ def model_remove(
     console.print(f"[green]Deleted:[/green] {model_path.name}")
 
 
+# Skills subcommand group
+skill_app = typer.Typer(
+    name="skill",
+    help="Manage Animus skills for extending capabilities.",
+    no_args_is_help=True,
+)
+app.add_typer(skill_app, name="skill")
+
+
+@skill_app.command("list")
+def skill_list(
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed info."),
+) -> None:
+    """List available skills."""
+    from pathlib import Path
+    from src.skills import SkillRegistry
+
+    registry = SkillRegistry()
+    registry.discover(Path.cwd())
+    skills = registry.list_enabled()
+
+    if not skills:
+        console.print("[yellow]No skills found.[/yellow]")
+        console.print("\nCreate a skill with: [cyan]animus skill create <name>[/cyan]")
+        console.print("Or install one: [cyan]animus skill install <url>[/cyan]")
+        return
+
+    table = Table(title="Available Skills")
+    table.add_column("Name", style="cyan")
+    table.add_column("Description", style="white")
+    if verbose:
+        table.add_column("Version", style="dim")
+        table.add_column("Tags", style="yellow")
+        table.add_column("Source", style="dim")
+
+    for skill in skills:
+        if verbose:
+            source = str(skill.source_path.parent.name) if skill.source_path else "unknown"
+            tags = ", ".join(skill.metadata.tags) if skill.metadata.tags else "-"
+            table.add_row(
+                skill.name,
+                skill.description[:50] + "..." if len(skill.description) > 50 else skill.description,
+                skill.metadata.version,
+                tags,
+                source,
+            )
+        else:
+            table.add_row(
+                skill.name,
+                skill.description[:60] + "..." if len(skill.description) > 60 else skill.description,
+            )
+
+    console.print(table)
+    console.print(f"\n[dim]Found {len(skills)} skill(s)[/dim]")
+
+
+@skill_app.command("show")
+def skill_show(
+    name: str = typer.Argument(..., help="Name of the skill to show."),
+) -> None:
+    """Show details of a specific skill."""
+    from pathlib import Path
+    from src.skills import SkillRegistry
+
+    registry = SkillRegistry()
+    registry.discover(Path.cwd())
+    skill = registry.get(name)
+
+    if not skill:
+        console.print(f"[red]Skill not found:[/red] {name}")
+        console.print("\nAvailable skills:")
+        for s in registry.list():
+            console.print(f"  - {s.name}")
+        raise typer.Exit(1)
+
+    console.print(f"[bold cyan]{skill.name}[/bold cyan] v{skill.metadata.version}")
+    console.print(f"\n{skill.description}")
+
+    if skill.metadata.author:
+        console.print(f"\n[dim]Author:[/dim] {skill.metadata.author}")
+
+    if skill.metadata.tags:
+        console.print(f"[dim]Tags:[/dim] {', '.join(skill.metadata.tags)}")
+
+    if skill.metadata.requires:
+        console.print(f"[dim]Requires:[/dim] {', '.join(skill.metadata.requires)}")
+
+    if skill.source_path:
+        console.print(f"[dim]Source:[/dim] {skill.source_path}")
+
+    console.print(f"\n[bold]Instructions:[/bold]")
+    console.print(Panel(skill.instructions[:500] + "..." if len(skill.instructions) > 500 else skill.instructions))
+
+
+@skill_app.command("create")
+def skill_create(
+    name: str = typer.Argument(..., help="Name for the new skill."),
+    description: str = typer.Option("A custom Animus skill", "--description", "-d", help="Skill description."),
+    project: bool = typer.Option(False, "--project", "-p", help="Create in project directory instead of user."),
+) -> None:
+    """Create a new skill from template."""
+    from pathlib import Path
+    from src.skills import SkillRegistry
+
+    target_dir = Path.cwd() / "skills" if project else None
+    registry = SkillRegistry()
+
+    try:
+        skill_path = registry.create(name, description, target_dir)
+        console.print(f"[green]Skill created:[/green] {skill_path}")
+        console.print(f"\nEdit [cyan]{skill_path}[/cyan] to customize your skill.")
+    except Exception as e:
+        console.print(f"[red]Failed to create skill:[/red] {e}")
+        raise typer.Exit(1)
+
+
+@skill_app.command("install")
+def skill_install(
+    url: str = typer.Argument(..., help="URL to skill (GitHub repo or raw SKILL.md)."),
+) -> None:
+    """Install a skill from URL."""
+    from src.skills import SkillRegistry
+
+    registry = SkillRegistry()
+
+    console.print(f"[bold]Installing skill from:[/bold] {url}")
+
+    try:
+        skill = registry.install_from_url(url)
+        console.print(f"[green]Installed:[/green] {skill.name} v{skill.metadata.version}")
+        console.print(f"[dim]Location:[/dim] {skill.source_path}")
+    except Exception as e:
+        console.print(f"[red]Installation failed:[/red] {e}")
+        raise typer.Exit(1)
+
+
+@skill_app.command("run")
+def skill_run(
+    name: str = typer.Argument(..., help="Name of the skill to run."),
+    prompt: str = typer.Argument(..., help="Prompt to run with the skill."),
+) -> None:
+    """Run a skill with a prompt."""
+    from pathlib import Path
+    from src.skills import SkillLoader
+    from src.llm import get_default_provider
+    from src.core.config import ConfigManager
+    import asyncio
+
+    async def run_with_skill() -> None:
+        config = ConfigManager().config
+        provider = get_default_provider(config)
+
+        if not provider.is_available:
+            console.print("[red]No LLM provider available.[/red]")
+            raise typer.Exit(1)
+
+        loader = SkillLoader()
+        loader.discover_all(Path.cwd())
+        skill = loader.load_skill(name)
+
+        if not skill:
+            console.print(f"[red]Skill not found:[/red] {name}")
+            raise typer.Exit(1)
+
+        console.print(f"[bold]Running skill:[/bold] {skill.name}")
+        console.print()
+
+        # Create enhanced prompt with skill
+        from src.llm.base import Message
+        messages = [
+            Message(role="system", content=skill.to_prompt()),
+            Message(role="user", content=prompt),
+        ]
+
+        try:
+            result = await provider.generate(messages)
+            console.print(result.text)
+        finally:
+            if hasattr(provider, 'close'):
+                await provider.close()
+
+    asyncio.run(run_with_skill())
+
+
 @model_app.command("info")
 def model_info(
     model_name: str = typer.Argument(..., help="Name of the model to inspect."),
@@ -903,6 +1087,97 @@ def chat(
             await provider.close()
 
     asyncio.run(run_chat())
+
+
+# MCP subcommand group
+mcp_app = typer.Typer(
+    name="mcp",
+    help="Model Context Protocol server and client.",
+    no_args_is_help=True,
+)
+app.add_typer(mcp_app, name="mcp")
+
+
+@mcp_app.command("server")
+def mcp_server(
+    transport: str = typer.Option("stdio", "--transport", "-t", help="Transport type: stdio or http."),
+    port: int = typer.Option(8338, "--port", "-p", help="Port for HTTP transport."),
+) -> None:
+    """Start the MCP server to expose Animus tools."""
+    import asyncio
+    from src.mcp import MCPServer
+
+    server = MCPServer(name="animus", version="1.0.0")
+    server.register_animus_tools()
+
+    tools = list(server._tools.keys())
+    console.print(f"[bold blue]Animus MCP Server[/bold blue]")
+    console.print(f"Transport: [cyan]{transport}[/cyan]")
+    console.print(f"Tools: [cyan]{len(tools)}[/cyan]")
+
+    if transport == "stdio":
+        console.print("\n[dim]Reading from stdin, writing to stdout...[/dim]")
+        asyncio.run(server.run_stdio())
+    elif transport == "http":
+        console.print(f"Running on [cyan]http://localhost:{port}[/cyan]")
+        asyncio.run(server.run_http(port=port))
+    else:
+        console.print(f"[red]Unknown transport: {transport}[/red]")
+        raise typer.Exit(1)
+
+
+@mcp_app.command("tools")
+def mcp_tools() -> None:
+    """List tools that would be exposed via MCP."""
+    from src.mcp import MCPServer
+
+    server = MCPServer()
+    server.register_animus_tools()
+
+    table = Table(title="MCP Tools")
+    table.add_column("Name", style="cyan")
+    table.add_column("Description", style="white")
+
+    for name, tool in server._tools.items():
+        desc = tool.description[:60] + "..." if len(tool.description) > 60 else tool.description
+        table.add_row(name, desc)
+
+    console.print(table)
+    console.print(f"\n[dim]{len(server._tools)} tool(s) available[/dim]")
+
+
+@app.command()
+def serve(
+    host: str = typer.Option("localhost", "--host", "-h", help="Host to bind to."),
+    port: int = typer.Option(8337, "--port", "-p", help="Port to listen on."),
+    api_key: Optional[str] = typer.Option(None, "--api-key", "-k", help="API key for authentication."),
+) -> None:
+    """Start the OpenAI-compatible API server."""
+    from src.api import create_app
+    from http.server import HTTPServer
+
+    handler = create_app(api_key)
+    server = HTTPServer((host, port), handler)
+
+    console.print(f"[bold blue]Animus API Server[/bold blue]")
+    console.print(f"Running on [cyan]http://{host}:{port}[/cyan]")
+    console.print()
+    console.print("[dim]Endpoints:[/dim]")
+    console.print("  GET  /v1/models")
+    console.print("  POST /v1/chat/completions")
+    console.print("  POST /v1/embeddings")
+    console.print("  POST /v1/agent/chat")
+    console.print("  POST /v1/agent/search")
+    console.print("  GET  /health")
+    console.print()
+    console.print("Press [yellow]Ctrl+C[/yellow] to stop")
+    console.print()
+
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        console.print("\n[dim]Shutting down...[/dim]")
+        server.shutdown()
 
 
 if __name__ == "__main__":

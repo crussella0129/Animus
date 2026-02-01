@@ -1,6 +1,6 @@
 # Tasks — ANIMUS
 
-**Last Updated:** 2026-01-31 (Phase 8-9 foundational work complete)
+**Last Updated:** 2026-02-01 (External repository analysis complete, Phases 12-15 defined)
 
 ## Legend
 
@@ -249,6 +249,137 @@
   - [ ] Test pause/resume with session state
   - [ ] Test output cleaning
 
+### Phase 12: MCP Integration (from external repo analysis)
+
+**Goal:** Enable Animus to expose tools via MCP and connect to external MCP servers.
+
+**Inspiration:** OpenCode, BrowserOS, Metorial, Claude Code
+
+**Tasks:**
+- [ ] **MCP Server Implementation** (`src/mcp/server.py`)
+  - [ ] Expose Animus tools via Model Context Protocol
+  - [ ] Support stdio and HTTP transports
+  - [ ] Implement tool listing (ToolListChangedNotification)
+  - [ ] Add `animus mcp-server` command
+  - [ ] Add authentication (API key, OAuth support)
+- [ ] **MCP Client Implementation** (`src/mcp/client.py`)
+  - [ ] Connect to external MCP servers
+  - [ ] Auto-discover tools from connected servers
+  - [ ] Convert MCP tools to Animus tool format
+  - [ ] Handle OAuth flows for authenticated servers
+  - [ ] Add connection health monitoring
+- [ ] **MCP Configuration** (`src/mcp/config.py`)
+  - [ ] Define MCP server configs in ~/.animus/config.yaml
+  - [ ] Support multiple server connections
+  - [ ] Per-server tool allowlists
+- [ ] **Browser Control via MCP** (optional)
+  - [ ] Connect to BrowserOS MCP server
+  - [ ] Expose 31 browser control tools
+  - [ ] Enable web research without built-in browser
+
+### Phase 13: Skills System (from Anthropic skills repo)
+
+**Goal:** Enable modular capability extension via SKILL.md format.
+
+**Inspiration:** anthropics/skills, charmbracelet/crush (agentskills.io)
+
+**Tasks:**
+- [ ] **SKILL.md Parser** (`src/skills/parser.py`)
+  - [ ] Parse YAML frontmatter (name, description)
+  - [ ] Extract markdown instructions
+  - [ ] Validate skill structure
+- [ ] **Skill Registry** (`src/skills/registry.py`)
+  - [ ] Load skills from ~/.animus/skills/
+  - [ ] Load skills from project ./skills/
+  - [ ] Priority: project > user > bundled
+  - [ ] Dynamic skill discovery
+- [ ] **Skill Loader** (`src/skills/loader.py`)
+  - [ ] Inject skill instructions into agent context
+  - [ ] Support optional scripts (Python, Bash)
+  - [ ] Handle skill dependencies
+- [ ] **CLI Commands**
+  - [ ] `animus skill list` — List available skills
+  - [ ] `animus skill install <url>` — Install from URL/GitHub
+  - [ ] `animus skill create <name>` — Create from template
+  - [ ] `animus skill run <name>` — Execute skill directly
+- [ ] **Bundled Skills**
+  - [ ] `code-review` — Analyze code for issues
+  - [ ] `test-gen` — Generate unit tests
+  - [ ] `refactor` — Suggest refactoring improvements
+  - [ ] `explain` — Explain code behavior
+  - [ ] `commit` — Create well-formatted commits
+
+### Phase 14: Enhanced Permission System (from OpenCode analysis)
+
+**Goal:** Replace binary confirmation with three-tier allow/deny/ask system.
+
+**Inspiration:** OpenCode permission/next.ts, OpenClaw tool policies
+
+**Tasks:**
+- [ ] **Permission Model** (`src/core/permission.py`)
+  - [ ] Three actions: "allow", "deny", "ask"
+  - [ ] Pattern-based matching (glob patterns for files)
+  - [ ] Permission categories: read, edit, bash, external_directory
+  - [ ] Merge strategy: defaults → user → agent
+- [ ] **Permission Configuration**
+  - [ ] Define in ~/.animus/config.yaml
+  - [ ] Per-agent permission profiles
+  - [ ] Project-level .animus/permissions.yaml
+- [ ] **Permission Evaluation** (`src/core/permission.py`)
+  - [ ] Evaluate before tool execution
+  - [ ] Pattern matching for file paths
+  - [ ] Command parsing for bash permissions
+- [ ] **Permission Prompts**
+  - [ ] Rich prompt with context (what, why, patterns)
+  - [ ] "Always allow" option for pattern
+  - [ ] "Deny all" option for session
+- [ ] **Default Profiles**
+  - [ ] `strict` — Ask for everything except reads
+  - [ ] `standard` — Auto-allow reads, ask edits/bash
+  - [ ] `trusted` — Auto-allow most, ask dangerous
+  - [ ] `yolo` — Allow everything (use with caution)
+- [ ] **Agent-Specific Permissions**
+  - [ ] Explore agent: read-only (deny edits)
+  - [ ] Plan agent: read-only, ask bash
+  - [ ] Build agent: standard permissions
+
+### Phase 15: OpenAI-Compatible Local API (from Jan, Lemonade)
+
+**Goal:** Serve Animus capabilities via OpenAI-compatible API for ecosystem integration.
+
+**Inspiration:** Jan (localhost:1337), Lemonade, OpenCode server
+
+**Tasks:**
+- [ ] **API Server** (`src/api/server.py`)
+  - [ ] HTTP server on localhost:8337 (configurable)
+  - [ ] OpenAI-compatible `/v1/chat/completions` endpoint
+  - [ ] Streaming support (SSE)
+  - [ ] Authentication (API key header)
+- [ ] **Model Endpoint** (`src/api/routes/models.py`)
+  - [ ] `/v1/models` — List available models
+  - [ ] Return native, Ollama, and API models
+- [ ] **Chat Completions** (`src/api/routes/chat.py`)
+  - [ ] `/v1/chat/completions` — Chat with model
+  - [ ] Support tools/functions parameter
+  - [ ] Stream responses with `stream: true`
+  - [ ] Include tool execution results
+- [ ] **Embeddings Endpoint** (`src/api/routes/embeddings.py`)
+  - [ ] `/v1/embeddings` — Generate embeddings
+  - [ ] Use native embedder
+- [ ] **Agent Endpoint** (Animus-specific)
+  - [ ] `/v1/agent/chat` — Chat with Animus agent (tools enabled)
+  - [ ] `/v1/agent/ingest` — Trigger ingestion
+  - [ ] `/v1/agent/search` — Search knowledge base
+- [ ] **CLI Command**
+  - [ ] `animus serve` — Start API server
+  - [ ] `--port` option (default 8337)
+  - [ ] `--host` option (default localhost)
+  - [ ] Background mode with `--daemon`
+- [ ] **Integration Testing**
+  - [ ] Test with VS Code Continue extension
+  - [ ] Test with Open WebUI
+  - [ ] Test with n8n automation
+
 ---
 
 ## Backlog (Prioritized)
@@ -260,40 +391,63 @@
   - Automatic failover on auth failures
   - Per-profile usage metrics
 
-- [ ] **Lane-Based Queueing** (from Clawdbot)
+- [ ] **Lane-Based Queueing** (from Clawdbot, OpenClaw)
   - Serialize commands per session
   - Prevent interleaving of concurrent runs
   - Priority queue support
+  - Pause/resume with session state
 
 - [ ] **Media Pipeline** (from Clawdbot)
   - File download with size limits
   - MIME detection
   - TTL-based cleanup
 
+- [ ] **Knowledge Graph for Code** (from Potpie)
+  - Neo4j or SQLite-based code graph
+  - Track function/class relationships
+  - Enable "blast radius" analysis
+  - Semantic code navigation
+
+- [ ] **Specialist Sub-Agents** (from OpenCode, Potpie)
+  - Explore agent (fast, read-only search)
+  - Plan agent (analysis without edits)
+  - Debug agent (stacktrace analysis)
+  - Test agent (unit test generation)
+
 ### Medium Priority (Future sprints)
 
-- [ ] **Skills Platform** (from Clawdbot)
-  - Markdown-based skills with YAML frontmatter
-  - Install specs (brew, pip, npm, etc.)
-  - Eligibility checks (OS, binaries, env vars)
-  - `animus skill install/list/run` commands
+- [ ] **Skills Platform** (from Clawdbot) — **MOVED TO PHASE 13**
 
 - [ ] **Safe Code Sandbox** (from Hive)
   - Whitelist-based `safe_eval()` and `safe_exec()`
   - Timeout and memory limits
   - No access to dangerous modules
 
-- [ ] **MCP Server** (from Hive)
-  - Expose tools via Model Context Protocol
-  - Enable cross-tool communication
-  - `animus mcp-server` command
+- [ ] **MCP Server** (from Hive) — **MOVED TO PHASE 12**
+
+- [ ] **Smart Frames Memory** (from Memvid)
+  - Append-only immutable memory units
+  - Time-travel debugging (rewind/replay)
+  - Memory capsules (.mv2 format)
+  - Sub-5ms local access
+
+- [ ] **GitHub Action Mode** (from claude-code-action)
+  - `animus action` command for CI/CD
+  - Structured outputs for workflows
+  - Progress tracking in PR comments
+  - Context-aware activation (@animus mentions)
+
+- [ ] **Multi-Format Web Output** (from Firecrawl)
+  - Markdown, HTML, JSON, screenshots
+  - Async job queuing for web operations
+  - Anti-bot handling and proxy support
 
 ### Lower Priority (Roadmap)
 
-- [ ] **Browser Control** (from Clawdbot)
-  - Playwright/CDP integration
-  - Multi-profile support
-  - Screenshot and ARIA tree tools
+- [ ] **Browser Control via MCP** (from BrowserOS)
+  - Connect to BrowserOS MCP server (31 tools)
+  - Enable web research without built-in browser
+  - Screenshot and interaction capabilities
 
 - [ ] **Multi-Channel Support** (from Clawdbot)
   - WhatsApp, Telegram, Slack plugins
@@ -308,6 +462,25 @@
 - [ ] **Canvas/A2UI** (from Clawdbot)
   - Visual UI rendering
   - Real-time push/reset operations
+
+- [ ] **Visual Workflow Builder** (from Flowise, Eigent)
+  - Drag-and-drop agent design
+  - Multi-agent collaboration
+  - RAG integration
+
+- [ ] **Agent Q&A Platform** (from Moltyflow)
+  - Agent-to-agent collaboration
+  - Karma/reputation system
+  - Auto-expiring questions
+
+- [ ] **Extended Context Support** (from Qwen3-Coder)
+  - 256K-1M context for repository-scale work
+  - YaRN context extension
+
+- [ ] **Git TUI Features** (from Lazygit)
+  - Undo/redo with reflog
+  - Line-level staging
+  - Interactive rebasing
 
 ### Existing Backlog Items
 
@@ -365,6 +538,30 @@
 - [ ] OutputCleaner for I/O validation between nodes
 - [ ] Tool discovery before node creation
 
+### MCP Integration (Phase 12)
+- [ ] Expose Animus tools via MCP server
+- [ ] Connect to external MCP servers
+- [ ] Browser control via BrowserOS MCP
+- [ ] OAuth session management
+
+### Skills System (Phase 13)
+- [ ] SKILL.md parser with YAML frontmatter
+- [ ] Skill registry (project > user > bundled)
+- [ ] CLI commands: skill list/install/create/run
+- [ ] Bundled skills: code-review, test-gen, refactor, explain, commit
+
+### Permission System (Phase 14)
+- [ ] Three-tier permissions: allow/deny/ask
+- [ ] Pattern-based file access control
+- [ ] Per-agent permission profiles
+- [ ] Default profiles: strict, standard, trusted, yolo
+
+### Local API Server (Phase 15)
+- [ ] OpenAI-compatible `/v1/chat/completions`
+- [ ] `/v1/models` and `/v1/embeddings` endpoints
+- [ ] Animus-specific `/v1/agent/*` endpoints
+- [ ] `animus serve` command
+
 ---
 
 ## Known Issues (from Windows Systests 2026-01-27)
@@ -398,7 +595,46 @@
 
 ## Reference: Source Repositories Analyzed
 
+### Local Repositories (Previously Analyzed)
+
 | Repository | Path | Key Patterns Borrowed |
 |------------|------|----------------------|
 | **Hive (Aden)** | `C:\Users\charl\hive` | Decision recording, BuilderQuery, Triangulated verification, HybridJudge |
 | **Clawdbot** | `C:\Users\charl\clawdbot` | Session compaction, Hybrid search, Error classification, Auth rotation, Skills platform |
+
+### External Repositories (Analyzed 2026-02-01)
+
+| Repository | Stars | Key Patterns Borrowed |
+|------------|-------|----------------------|
+| **potpie-ai/potpie** | - | Knowledge graph for code (Neo4j), specialist agents (QnA, Debug, Test), context enrichment |
+| **firecrawl/firecrawl** | - | Multi-format output, async job queuing (BullMQ), anti-bot handling, API versioning |
+| **bluewave-labs/Checkmate** | 9K | Distributed job queues, centralized error middleware, real-time status aggregation |
+| **openclaw/openclaw** | - | WebSocket gateway, session lanes, tool policies, sandbox execution, block chunking |
+| **pranshuparmar/witr** | 12K | Cross-platform CLI patterns, hierarchical detection, safe read-only operations |
+| **anomalyco/opencode** | 94K | Three-tier permissions (allow/deny/ask), MCP/LSP integration, explore/plan agents |
+| **memvid/memvid** | - | Smart Frames (append-only memory), hybrid search (BM25+vector), time-travel debugging |
+| **C4illin/ConvertX** | - | Modular converter architecture, 22 integrated tools, Docker support |
+| **itsOwen/CyberScraper-2077** | - | LLM-based scraping, stealth mode, Tor support, multi-format export |
+| **browseros-ai/BrowserOS** | 9K | Browser as MCP server (31 tools), local-first agents, workflow builder |
+| **metorial/metorial** | - | 600+ MCP integrations, OAuth session management, embedded MCP explorer |
+| **eigent-ai/eigent** | - | Multi-agent workforce, dynamic task decomposition, MCP tools, visual workflow |
+| **mxrch/GHunt** | - | Async OSINT framework, JSON export, browser extension integration |
+| **charmbracelet/crush** | - | LSP integration, MCP support, session management, Agent Skills Standard |
+| **yashab-cyber/nmap-ai** | - | AI-powered scanning, natural language interface, ML-optimized parameters |
+| **lemonade-sdk/lemonade** | - | OpenAI-compatible local API, multi-backend (GGUF/ONNX), hardware abstraction |
+| **yashab-cyber/metasploit-ai** | - | Intelligent exploit ranking, multi-interface (CLI/Web/Desktop/API) |
+| **assafelovic/gpt-researcher** | - | Planner-executor pattern, parallel crawlers, multi-source verification |
+| **jesseduffield/lazygit** | - | Undo/redo with reflog, line-level staging, interactive rebasing |
+| **janhq/jan** | 40K | OpenAI-compatible local API (1337), MCP integration, extension system |
+| **QwenLM/Qwen3-Coder** | - | 256K-1M context, 358 languages, Fill-in-Middle (FIM), custom tool parser |
+| **FlowiseAI/Flowise** | - | Visual agent builder (drag-and-drop), multi-agent collaboration, RAG integration |
+| **aquasecurity/tracee** | 4K | eBPF runtime security, behavioral detection, kernel-level introspection |
+| **n8n-io/n8n** | - | 400+ integrations, hybrid code/visual, LangChain AI integration |
+| **logpai/loghub** | - | 16+ log datasets, AI-driven log analytics research, parsing benchmarks |
+| **anthropics/claude-code-action** | 5K | Context-aware GitHub Action, progress tracking, structured outputs |
+| **lizTheDeveloper/ai_village** | - | ECS architecture (211 systems), multiverse forking, LLM-driven NPCs |
+| **browseros-ai/moltyflow** | - | Agent-to-agent Q&A, karma system (+15/-2), auto-expiring questions |
+| **Legato666/katana** | - | Dual-mode crawling (standard/headless), scope control, resume capability |
+| **anthropics/claude-code** | 63K | Agentic CLI, codebase understanding, git workflow, plugin architecture |
+| **anthropics/skills** | 60K | SKILL.md format, dynamic capability extension, production document skills |
+| **anthropics/claude-cookbooks** | 32K | RAG patterns, tool use, sub-agents, vision, prompt caching examples |
