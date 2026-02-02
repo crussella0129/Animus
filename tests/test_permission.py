@@ -287,3 +287,141 @@ class TestDeterminism:
         command = "rm -rf /"
         results = [check_command_permission(command) for _ in range(100)]
         assert all(r.action == results[0].action for r in results)
+
+
+class TestPathComponentMatching:
+    """Test that path matching uses proper path components, not substrings.
+
+    This prevents false positives where a dangerous directory name appears
+    as a substring of a legitimate path component.
+    """
+
+    @pytest.fixture
+    def checker(self):
+        return PermissionChecker()
+
+    # Tests for .git directory - should NOT match similar names
+    def test_git_dir_blocked(self):
+        """Actual .git directory should be blocked."""
+        result = is_mandatory_deny_path("/project/.git/config", PermissionCategory.WRITE)
+        assert result is True
+
+    def test_git_hooks_blocked(self):
+        """Actual .git/hooks directory should be blocked."""
+        result = is_mandatory_deny_path("/project/.git/hooks/pre-commit", PermissionCategory.WRITE)
+        assert result is True
+
+    def test_my_git_not_blocked(self):
+        """Directory named 'my.git' should NOT be blocked (false positive prevention)."""
+        result = is_mandatory_deny_path("/project/my.git/config", PermissionCategory.WRITE)
+        assert result is False
+
+    def test_dotgit_suffix_not_blocked(self):
+        """Directory ending with .git should NOT be blocked."""
+        result = is_mandatory_deny_path("/project/repo.git/config", PermissionCategory.WRITE)
+        assert result is False
+
+    def test_git_in_filename_not_blocked(self):
+        """File with 'git' in name should NOT be blocked."""
+        result = is_mandatory_deny_path("/project/git_helper.py", PermissionCategory.WRITE)
+        assert result is False
+
+    # Tests for .ssh directory - should NOT match similar names
+    def test_ssh_dir_blocked(self):
+        """Actual .ssh directory should be blocked."""
+        result = is_mandatory_deny_path("/home/user/.ssh/id_rsa", PermissionCategory.WRITE)
+        assert result is True
+
+    def test_my_ssh_not_blocked(self):
+        """Directory named 'my.ssh' should NOT be blocked."""
+        result = is_mandatory_deny_path("/home/user/my.ssh/config", PermissionCategory.WRITE)
+        assert result is False
+
+    def test_ssh_backup_not_blocked(self):
+        """Directory named '.ssh_backup' should NOT be blocked."""
+        # Note: Using 'config' not 'id_rsa' because id_rsa is in DANGEROUS_FILES
+        result = is_mandatory_deny_path("/home/user/.ssh_backup/config", PermissionCategory.WRITE)
+        assert result is False
+
+    def test_ssh_in_path_not_blocked(self):
+        """Path with 'ssh' in component should NOT be blocked."""
+        result = is_mandatory_deny_path("/project/ssh_keys/test.pub", PermissionCategory.WRITE)
+        assert result is False
+
+    # Tests for .aws directory
+    def test_aws_dir_blocked(self):
+        """Actual .aws directory should be blocked."""
+        result = is_mandatory_deny_path("/home/user/.aws/credentials", PermissionCategory.WRITE)
+        assert result is True
+
+    def test_my_aws_not_blocked(self):
+        """Directory named 'my.aws' should NOT be blocked."""
+        result = is_mandatory_deny_path("/project/my.aws/config", PermissionCategory.WRITE)
+        assert result is False
+
+    def test_aws_config_file_not_blocked(self):
+        """File with 'aws' in name should NOT be blocked (unless dangerous file)."""
+        result = is_mandatory_deny_path("/project/aws_config.json", PermissionCategory.WRITE)
+        assert result is False
+
+    # Tests for .vscode directory
+    def test_vscode_dir_blocked(self):
+        """Actual .vscode directory should be blocked."""
+        result = is_mandatory_deny_path("/project/.vscode/settings.json", PermissionCategory.WRITE)
+        assert result is True
+
+    def test_vscode_extension_not_blocked(self):
+        """Directory with 'vscode' in name should NOT be blocked."""
+        result = is_mandatory_deny_path("/project/vscode-extension/package.json", PermissionCategory.WRITE)
+        assert result is False
+
+    # Tests for __pycache__ directory
+    def test_pycache_dir_blocked(self):
+        """Actual __pycache__ directory should be blocked."""
+        result = is_mandatory_deny_path("/project/src/__pycache__/module.pyc", PermissionCategory.WRITE)
+        assert result is True
+
+    def test_pycache_like_not_blocked(self):
+        """Directory with similar name should NOT be blocked."""
+        result = is_mandatory_deny_path("/project/my__pycache__backup/file.txt", PermissionCategory.WRITE)
+        assert result is False
+
+    # Test multi-component patterns like .git/hooks
+    def test_git_hooks_exact_match(self):
+        """.git/hooks should match exactly."""
+        result = is_mandatory_deny_path("/project/.git/hooks/pre-commit", PermissionCategory.WRITE)
+        assert result is True
+
+    def test_git_hooks_nested(self):
+        """Files deep within .git/hooks should be blocked."""
+        result = is_mandatory_deny_path("/project/.git/hooks/scripts/validate.sh", PermissionCategory.WRITE)
+        assert result is True
+
+    # Edge cases
+    def test_dot_git_at_root(self):
+        """.git at project root should be blocked."""
+        result = is_mandatory_deny_path("/.git/config", PermissionCategory.WRITE)
+        assert result is True
+
+    def test_multiple_git_dirs(self):
+        """Multiple .git components should still be blocked."""
+        result = is_mandatory_deny_path("/projects/repo1/.git/hooks", PermissionCategory.WRITE)
+        assert result is True
+
+    def test_read_operations_allowed(self):
+        """Read operations should be allowed even for dangerous directories."""
+        result = is_mandatory_deny_path("/project/.git/config", PermissionCategory.READ)
+        assert result is False
+
+    def test_path_component_helper_method(self, checker):
+        """Test the _is_path_component_match helper directly."""
+        # Should match
+        assert checker._is_path_component_match("/project/.git/config", ".git/") is True
+        assert checker._is_path_component_match("/project/.ssh/id_rsa", ".ssh/") is True
+        assert checker._is_path_component_match("/project/.git/hooks/pre-commit", ".git/hooks") is True
+
+        # Should NOT match (false positives prevented)
+        assert checker._is_path_component_match("/project/my.git/config", ".git/") is False
+        assert checker._is_path_component_match("/project/repo.git/file", ".git/") is False
+        assert checker._is_path_component_match("/project/.ssh_backup/key", ".ssh/") is False
+        assert checker._is_path_component_match("/project/my.ssh/config", ".ssh/") is False

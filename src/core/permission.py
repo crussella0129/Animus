@@ -278,6 +278,42 @@ class PermissionChecker:
         """Get path components for pattern matching."""
         return list(path.parts)
 
+    def _is_path_component_match(self, path_str: str, dangerous_pattern: str) -> bool:
+        """Check if a dangerous pattern matches as a proper path component.
+
+        This prevents false positives like ".git" matching "my.git" or
+        ".ssh" matching "my.ssh_backup".
+
+        Args:
+            path_str: Normalized path string with forward slashes.
+            dangerous_pattern: Pattern to check (e.g., ".git/", ".ssh/").
+
+        Returns:
+            True if the pattern matches as a proper path component.
+        """
+        # Normalize the pattern (remove trailing slash for comparison)
+        pattern = dangerous_pattern.rstrip("/")
+
+        # Split path into components
+        path_parts = [p for p in path_str.split("/") if p]
+
+        # Check each path component
+        for i, part in enumerate(path_parts):
+            # Exact match of component
+            if part == pattern:
+                return True
+
+            # Check for pattern at start of component followed by / (e.g., ".git/hooks")
+            # This handles cases like ".git/hooks" where we check ".git/hooks"
+            if "/" in dangerous_pattern:
+                # Multi-component pattern like ".git/hooks"
+                pattern_parts = [p for p in dangerous_pattern.rstrip("/").split("/") if p]
+                if len(pattern_parts) <= len(path_parts) - i:
+                    if path_parts[i:i + len(pattern_parts)] == pattern_parts:
+                        return True
+
+        return False
+
     def check_path_mandatory_deny(
         self,
         path: Union[str, Path],
@@ -300,10 +336,9 @@ class PermissionChecker:
 
         # For write/execute operations, check dangerous files and directories
         if operation in (PermissionCategory.WRITE, PermissionCategory.EXECUTE):
-            # Check dangerous directories
+            # Check dangerous directories using proper path component matching
             for dangerous_dir in DANGEROUS_DIRECTORIES:
-                # Check if path is within or is the dangerous directory
-                if dangerous_dir in path_str or path_str.endswith(dangerous_dir.rstrip("/")):
+                if self._is_path_component_match(path_str, dangerous_dir):
                     return PermissionResult(
                         action=PermissionAction.DENY,
                         reason=f"MANDATORY DENY: Path is within protected directory '{dangerous_dir}'",
@@ -312,7 +347,7 @@ class PermissionChecker:
                         is_mandatory=True,
                     )
 
-            # Check dangerous files
+            # Check dangerous files (exact filename match)
             if filename in DANGEROUS_FILES:
                 return PermissionResult(
                     action=PermissionAction.DENY,
