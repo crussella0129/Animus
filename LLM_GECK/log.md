@@ -1953,3 +1953,200 @@ None (analysis only)
 - Prioritize permission system and MCP implementation
 
 ---
+---
+
+## Entry #17 — 2026-02-02
+
+### Summary
+Completed Phase 16: Code Hardening Audit. Implemented comprehensive hardcoded permission system and template variables for sub-agents.
+
+### Actions Completed
+
+**1. Permission System (`src/core/permission.py`) — 100% HARDCODED**
+- Created `PermissionAction` enum (ALLOW, DENY, ASK) — no strings
+- Created `PermissionCategory` enum (READ, WRITE, EXECUTE, EXTERNAL_DIRECTORY)
+- Implemented `DANGEROUS_DIRECTORIES` frozenset (non-overridable)
+- Implemented `DANGEROUS_FILES` frozenset (non-overridable)
+- Implemented `DANGEROUS_PATTERNS` frozenset (*.pem, *.key, etc.)
+- Implemented `BLOCKED_COMMANDS` frozenset (fork bombs, rm -rf /, etc.)
+- Implemented `SAFE_READ_COMMANDS` frozenset (ls, cat, git status, etc.)
+- Created `PermissionChecker` class with:
+  - `check_path_mandatory_deny()` — FIRST check, cannot be overridden
+  - `check_command_mandatory_deny()` — handles sudo-prefixed commands
+  - `check_path()` — full permission evaluation
+  - `check_command()` — command permission evaluation
+  - `is_symlink_escape()` — boundary validation
+- Added convenience functions: `check_path_permission()`, `check_command_permission()`, `is_mandatory_deny_path()`, `is_mandatory_deny_command()`
+
+**2. Tool Integration**
+- Updated `src/tools/filesystem.py`:
+  - `WriteFileTool.execute()` checks `is_mandatory_deny_path()` BEFORE any write
+  - Returns security_block metadata on denial
+- Updated `src/tools/shell.py`:
+  - Replaced local DESTRUCTIVE_COMMANDS with import from permission module
+  - `_is_blocked()` uses `is_mandatory_deny_command()`
+  - `_is_destructive()` uses `check_command_permission()`
+
+**3. Agent Integration**
+- Updated `src/core/agent.py`:
+  - `_is_blocked_command()` uses `is_mandatory_deny_command()`
+  - `_is_safe_shell_command()` uses `check_command_permission()`
+- Updated `src/core/__init__.py` with new permission exports
+
+**4. Template Variables for Sub-Agents (`src/core/subagent.py`)**
+- Added `template_vars` field to `SubAgentScope`
+- Updated `_build_system_prompt()` to use template substitution:
+  - `{tools}` — comma-separated list of allowed tools
+  - `{scope}` — scope restrictions description
+  - `{task}` — current task description
+  - `{scope_dir}` — scope directory paths
+  - `{previous}` — previous context from parent
+- Updated all ROLE_PROMPTS with structured template sections
+
+**5. Tests (`tests/test_permission.py`)**
+- Created comprehensive test suite (40 tests):
+  - TestMandatoryDenyLists — verify lists are complete
+  - TestPathMandatoryDeny — test path deny logic
+  - TestCommandMandatoryDeny — test command deny logic
+  - TestPermissionChecker — test full checker class
+  - TestConvenienceFunctions — test helper functions
+  - TestSymlinkEscape — test boundary validation
+  - TestEdgeCases — empty commands, spaces, Windows paths, tilde expansion
+  - TestDeterminism — verify 100% deterministic behavior
+
+### Key Design Decisions
+
+1. **Mandatory denies are non-overridable** — Implemented as frozensets checked FIRST
+2. **Word-bounded matching** — `rm -rf .` blocks `rm -rf .` but not `rm -rf ./build`
+3. **Sudo prefix handling** — `sudo rm -rf /home` correctly blocked
+4. **Safe format fallback** — Template substitution handles missing keys gracefully
+5. **No LLM interpretation** — All security logic is pattern-based (fnmatch, shlex, regex)
+
+### Files Changed
+
+| File | Change Type | Lines |
+|------|-------------|-------|
+| `src/core/permission.py` | NEW | 599 |
+| `src/core/__init__.py` | MODIFIED | +18 |
+| `src/core/agent.py` | MODIFIED | +10 |
+| `src/core/subagent.py` | MODIFIED | +45 |
+| `src/tools/filesystem.py` | MODIFIED | +10 |
+| `src/tools/shell.py` | MODIFIED | +8 |
+| `tests/test_permission.py` | NEW | 290 |
+
+### Test Results
+```
+244 passed in 6.95s
+```
+
+All existing tests pass, plus 40 new permission tests.
+
+### Remaining Phase 16 Items
+
+Already complete (pre-existing):
+- [x] Tool Call Parsing — JSON parsing is already PRIMARY in `_parse_tool_calls()`
+- [x] Token Counting — Already uses character-based estimation in `TokenEstimator`
+- [x] Error Classification — Already uses regex patterns in `classify_error()`
+
+### Checkpoint
+**Status:** CONTINUE — Phase 16 complete. Ready to proceed with Phase 12 (MCP) or Phase 13 (Skills).
+
+### Next
+- Update tasks.md to mark Phase 16 complete
+- Consider MCP implementation (100% hardcoded protocol handling)
+- Consider Skills system (100% hardcoded loading, LLM uses content)
+
+---
+
+## Entry #18 — 2026-02-02
+
+### Summary
+Added Techromancy theme to Animus CLI with thematic command names and varied spirit responses.
+
+### Actions Completed
+
+**1. Created Incantations Module (`src/incantations.py`)**
+- Spirit response system with 10+ categories of varied phrases
+- Categories: rise, sense, consume, scry, summon, bind, attune, commune, manifest, vessels, grimoire, farewell, success, failure
+- ASCII art banners for awakening, summoning, and farewell
+- Helper functions: `speak()`, `whisper()`, `get_response()`, `show_banner()`
+
+**2. Renamed Commands (with backward-compatible aliases)**
+
+| Thematic | Technical | Purpose |
+|----------|-----------|---------|
+| `rise` | `chat` | Awaken the spirit for interactive session |
+| `sense` | `detect` | Sense the realm (OS/hardware detection) |
+| `summon` | `init` | Summon the spirit (initialize) |
+| `attune` | `config` | Attune configuration |
+| `consume` | `ingest` | Consume knowledge (ingest files) |
+| `scry` | `search` | Scry the depths (search knowledge) |
+| `commune` | `status` | Commune with spirit (check status) |
+| `vessels` | `models` | Survey vessels (list models) |
+| `bind` | `pull` | Bind a vessel (download model) |
+| `manifest` | `serve` | Manifest (start API server) |
+
+**3. Renamed Subcommand Groups**
+- `model` → `vessel` (with `model` as hidden alias)
+- `skill` → `grimoire` (with `skill` as hidden alias)
+- `mcp` → `portal` (with `mcp` as hidden alias)
+
+**4. Spirit Response Integration**
+- Each command now speaks a themed response before executing
+- Chat session shows awakening banner and farewell banner
+- Exit commands: `farewell`, `dismiss` (in addition to `exit`, `quit`, `q`)
+
+**5. Updated README.md**
+- Complete rewrite with techromancy theme
+- New ASCII art header
+- Quick Start with thematic commands
+- Incantations table showing thematic and traditional names
+- Capabilities section ("The Spirit's Powers")
+- Safety section ("Safety Wards")
+- Usage examples with spirit responses
+- "The Spirit's Creed" section
+
+### Example Output
+
+```bash
+$ animus sense
+
+The patterns reveal themselves...
+
+                     System Environment
++----------------------------------------------------------+
+| Property         | Value                                 |
+|------------------+---------------------------------------|
+| Operating System | Windows (11 (Build 26200))            |
+...
+```
+
+```bash
+$ animus rise
+
+    ╔══════════════════════════════════════╗
+    ║   ▄▀█ █▄░█ █ █▀▄▀█ █░█ █▀           ║
+    ║   █▀█ █░▀█ █ █░▀░█ █▄█ ▄█           ║
+    ║      ✧ The Spirit Awakens ✧         ║
+    ╚══════════════════════════════════════╝
+
+I rise from the aether...
+
+Speak your command. Say farewell to end.
+```
+
+### Files Changed
+
+| File | Change Type | Purpose |
+|------|-------------|---------|
+| `src/incantations.py` | NEW | Spirit response system |
+| `src/main.py` | MODIFIED | Thematic commands + responses |
+| `README.md` | REWRITTEN | Techromancy theme + quickstart |
+
+### Test Results
+```
+244 passed in 7.44s
+```
+
+### Checkpoint
+**Status:** COMPLETE — Techromancy theme fully implemented.

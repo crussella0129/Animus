@@ -7,6 +7,12 @@ from typing import Any, Optional
 import os
 
 from src.tools.base import Tool, ToolParameter, ToolResult, ToolCategory
+from src.core.permission import (
+    PermissionCategory,
+    PermissionAction,
+    check_path_permission,
+    is_mandatory_deny_path,
+)
 
 
 class ReadFileTool(Tool):
@@ -167,6 +173,16 @@ class WriteFileTool(Tool):
         """Write content to file."""
         try:
             file_path = Path(path).resolve()
+
+            # HARDCODED SECURITY CHECK: Check mandatory deny FIRST
+            if is_mandatory_deny_path(file_path, PermissionCategory.WRITE):
+                perm_result = check_path_permission(file_path, PermissionCategory.WRITE)
+                return ToolResult(
+                    success=False,
+                    output="",
+                    error=f"BLOCKED: {perm_result.reason}",
+                    metadata={"security_block": True, "pattern": perm_result.pattern_matched},
+                )
 
             if create_dirs:
                 file_path.parent.mkdir(parents=True, exist_ok=True)

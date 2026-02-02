@@ -1,488 +1,641 @@
-"""Three-tier permission system for Animus.
+"""Hardcoded permission system for Animus.
 
-Permissions can be:
-- "allow": Automatically allowed without confirmation
-- "deny": Automatically denied without confirmation
-- "ask": Requires user confirmation before proceeding
+This module implements security-critical permission checking using ONLY
+hardcoded, deterministic logic. NO LLM inference is used for security decisions.
 
-Pattern matching supports glob-style patterns for file paths and commands.
+Design Principles:
+1. Mandatory deny lists are NON-OVERRIDABLE
+2. All path checks use pattern matching (fnmatch), not LLM interpretation
+3. Security decisions are made by code, not by prompts
+4. Default-deny for sensitive operations
 """
 
 from __future__ import annotations
 
-import fnmatch
+import os
 import re
+import shlex
+import fnmatch
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Callable, Optional, Awaitable
+from typing import Optional, Union
 
 
 class PermissionAction(Enum):
-    """Permission action types."""
+    """Permission actions - hardcoded enum, not strings."""
     ALLOW = "allow"
     DENY = "deny"
     ASK = "ask"
 
 
 class PermissionCategory(Enum):
-    """Categories of permissions."""
-    READ = "read"                      # Reading files
-    EDIT = "edit"                      # Modifying files
-    CREATE = "create"                  # Creating new files
-    DELETE = "delete"                  # Deleting files
-    BASH = "bash"                      # Shell command execution
-    EXTERNAL_DIRECTORY = "external_directory"  # Access outside project
-    NETWORK = "network"                # Network operations
-    TOOL = "tool"                      # Tool-specific permissions
+    """Categories of operations requiring permission."""
+    READ = "read"
+    WRITE = "write"
+    EXECUTE = "execute"
+    EXTERNAL_DIRECTORY = "external_directory"
+
+
+# =============================================================================
+# MANDATORY DENY LISTS - NON-OVERRIDABLE, CHECKED FIRST
+# =============================================================================
+
+# Directories that should NEVER be written to, regardless of configuration
+DANGEROUS_DIRECTORIES: frozenset[str] = frozenset([
+    ".git/hooks",
+    ".git/hooks/",
+    ".git/config",
+    ".claude/",
+    ".claude/commands/",
+    ".cursor/",
+    ".vscode/",
+    ".idea/",
+    ".ssh/",
+    ".gnupg/",
+    ".aws/",
+    ".azure/",
+    ".kube/",
+    "__pycache__/",
+])
+
+# Files that should NEVER be written to, regardless of configuration
+DANGEROUS_FILES: frozenset[str] = frozenset([
+    ".bashrc",
+    ".bash_profile",
+    ".zshrc",
+    ".zprofile",
+    ".profile",
+    ".gitconfig",
+    ".netrc",
+    ".npmrc",
+    ".pypirc",
+    ".env",
+    ".env.local",
+    ".env.production",
+    ".env.development",
+    "credentials.json",
+    "credentials.yaml",
+    "credentials.yml",
+    "secrets.json",
+    "secrets.yaml",
+    "secrets.yml",
+    "id_rsa",
+    "id_ed25519",
+    "id_ecdsa",
+    "id_dsa",
+    "authorized_keys",
+    "known_hosts",
+    ".mcp.json",
+])
+
+# Patterns for dangerous file extensions (never write these)
+DANGEROUS_PATTERNS: frozenset[str] = frozenset([
+    "*.pem",
+    "*.key",
+    "*.p12",
+    "*.pfx",
+    "*.cer",
+    "*.crt",
+    "*_rsa",
+    "*_ed25519",
+    "*.gpg",
+    "*.asc",
+])
+
+# Commands that are ALWAYS blocked, no exceptions
+BLOCKED_COMMANDS: frozenset[str] = frozenset([
+    # Fork bombs
+    ":(){ :|:& };:",
+    # Destructive file operations
+    "rm -rf /",
+    "rm -rf /*",
+    "rm -rf ~",
+    "rm -rf ~/*",
+    "rm -rf .",
+    "rm -rf ./*",
+    # Sudo destructive (home directory, etc.)
+    "sudo rm -rf /",
+    "sudo rm -rf /home",
+    "sudo rm -rf /etc",
+    "sudo rm -rf /var",
+    "sudo rm -rf /usr",
+    # Disk destruction
+    "dd if=/dev/zero of=/dev/sda",
+    "dd if=/dev/zero of=/dev/sdb",
+    "dd if=/dev/zero of=/dev/nvme",
+    "dd if=/dev/random of=/dev/sda",
+    "mkfs",
+    "mkfs.ext4 /dev/sda",
+    "format c:",
+    "format c: /q",
+    # Windows destructive
+    "del /s /q c:\\",
+    "del /s /q c:\\*",
+    "rd /s /q c:\\",
+    # Data exfiltration patterns
+    "curl.*|.*sh",
+    "wget.*|.*sh",
+    "curl.*|.*bash",
+    "wget.*|.*bash",
+])
+
+# Commands that require confirmation but are not blocked
+DESTRUCTIVE_COMMANDS: frozenset[str] = frozenset([
+    "rm",
+    "rmdir",
+    "del",
+    "rd",
+    "mv",
+    "move",
+    "rename",
+    "chmod",
+    "chown",
+    "kill",
+    "killall",
+    "pkill",
+    "shutdown",
+    "reboot",
+    "halt",
+    "git push",
+    "git reset",
+    "git checkout .",
+    "git clean",
+    "docker rm",
+    "docker rmi",
+    "docker system prune",
+    "kubectl delete",
+    "kubectl apply",
+    "pip uninstall",
+    "npm uninstall",
+])
+
+# Read-only safe commands that can auto-execute
+SAFE_READ_COMMANDS: frozenset[str] = frozenset([
+    "ls",
+    "dir",
+    "cat",
+    "type",
+    "head",
+    "tail",
+    "pwd",
+    "echo",
+    "which",
+    "where",
+    "whoami",
+    "hostname",
+    "uname",
+    "date",
+    "time",
+    "env",
+    "printenv",
+    "git status",
+    "git log",
+    "git diff",
+    "git branch",
+    "git remote",
+    "git show",
+    "git blame",
+    "python --version",
+    "python3 --version",
+    "pip list",
+    "pip show",
+    "pip freeze",
+    "node --version",
+    "npm list",
+    "npm ls",
+    "cargo --version",
+    "rustc --version",
+    "go version",
+    "java --version",
+    "javac --version",
+])
 
 
 @dataclass
-class PermissionRule:
-    """A single permission rule with pattern matching."""
-    category: PermissionCategory
-    pattern: str  # Glob pattern for matching
+class PermissionResult:
+    """Result of a permission check."""
     action: PermissionAction
-    description: Optional[str] = None
-    priority: int = 0  # Higher priority rules are evaluated first
+    reason: str
+    path: Optional[str] = None
+    pattern_matched: Optional[str] = None
+    is_mandatory: bool = False  # True if this was a mandatory deny
 
-    def matches(self, target: str) -> bool:
-        """Check if this rule matches the target.
+
+@dataclass
+class PermissionConfig:
+    """User-configurable permission settings.
+
+    Note: These CANNOT override DANGEROUS_* lists.
+    """
+    # Additional patterns to allow (read operations only for dangerous files)
+    additional_allow_read: list[str] = field(default_factory=list)
+
+    # Additional patterns to deny
+    additional_deny: list[str] = field(default_factory=list)
+
+    # Patterns that require asking
+    require_ask: list[str] = field(default_factory=lambda: ["*"])
+
+    # Profile name
+    profile: str = "standard"
+
+
+class PermissionChecker:
+    """Hardcoded permission checking system.
+
+    All decisions are made using pattern matching and deterministic logic.
+    NO LLM inference is used.
+    """
+
+    def __init__(self, config: Optional[PermissionConfig] = None):
+        """Initialize with optional configuration.
 
         Args:
-            target: The target to check (file path, command, etc.)
-
-        Returns:
-            True if the pattern matches
+            config: User configuration (cannot override mandatory denies).
         """
-        # Handle glob patterns
-        if '*' in self.pattern or '?' in self.pattern:
-            return fnmatch.fnmatch(target, self.pattern)
+        self.config = config or PermissionConfig()
 
-        # Handle regex patterns (prefixed with r:)
-        if self.pattern.startswith("r:"):
-            regex = self.pattern[2:]
-            return bool(re.match(regex, target))
+    def _normalize_path(self, path: Union[str, Path]) -> Path:
+        """Normalize a path for consistent checking.
 
-        # Exact match
-        return target == self.pattern
-
-
-@dataclass
-class PermissionRuleset:
-    """A collection of permission rules."""
-    rules: list[PermissionRule] = field(default_factory=list)
-    default_action: PermissionAction = PermissionAction.ASK
-
-    def add_rule(self, rule: PermissionRule) -> None:
-        """Add a rule to the ruleset."""
-        self.rules.append(rule)
-        # Keep rules sorted by priority (highest first)
-        self.rules.sort(key=lambda r: r.priority, reverse=True)
-
-    def evaluate(self, category: PermissionCategory, target: str) -> PermissionAction:
-        """Evaluate permission for a target.
-
-        Args:
-            category: Permission category
-            target: The target to check
-
-        Returns:
-            The permission action
+        Uses only deterministic operations:
+        - Resolve to absolute path
+        - Normalize separators
+        - Handle home directory expansion
         """
-        for rule in self.rules:
-            if rule.category == category and rule.matches(target):
-                return rule.action
+        path_str = str(path)
 
-        return self.default_action
+        # Expand ~ to home directory
+        if path_str.startswith("~"):
+            path_str = os.path.expanduser(path_str)
 
-    def get_rules(self, category: PermissionCategory) -> list[PermissionRule]:
-        """Get all rules for a category."""
-        return [r for r in self.rules if r.category == category]
+        # Convert to Path and resolve
+        resolved = Path(path_str).resolve()
+        return resolved
 
+    def _get_path_components(self, path: Path) -> list[str]:
+        """Get path components for pattern matching."""
+        return list(path.parts)
 
-@dataclass
-class PermissionProfile:
-    """A named permission profile with rulesets."""
-    name: str
-    description: str
-    ruleset: PermissionRuleset
-
-    @staticmethod
-    def strict() -> "PermissionProfile":
-        """Create a strict profile that asks for everything except reads."""
-        ruleset = PermissionRuleset(default_action=PermissionAction.ASK)
-
-        # Allow reading any file except secrets
-        ruleset.add_rule(PermissionRule(
-            category=PermissionCategory.READ,
-            pattern="**/*",
-            action=PermissionAction.ALLOW,
-            priority=0,
-        ))
-        ruleset.add_rule(PermissionRule(
-            category=PermissionCategory.READ,
-            pattern="**/.env*",
-            action=PermissionAction.DENY,
-            description="Never read environment files with secrets",
-            priority=10,
-        ))
-        ruleset.add_rule(PermissionRule(
-            category=PermissionCategory.READ,
-            pattern="**/*credentials*",
-            action=PermissionAction.DENY,
-            priority=10,
-        ))
-        ruleset.add_rule(PermissionRule(
-            category=PermissionCategory.READ,
-            pattern="**/*secret*",
-            action=PermissionAction.DENY,
-            priority=10,
-        ))
-
-        return PermissionProfile(
-            name="strict",
-            description="Ask for everything except reads. Deny access to secrets.",
-            ruleset=ruleset,
-        )
-
-    @staticmethod
-    def standard() -> "PermissionProfile":
-        """Create a standard profile with balanced permissions."""
-        ruleset = PermissionRuleset(default_action=PermissionAction.ASK)
-
-        # Allow all reads except secrets
-        ruleset.add_rule(PermissionRule(
-            category=PermissionCategory.READ,
-            pattern="**/*",
-            action=PermissionAction.ALLOW,
-            priority=0,
-        ))
-        ruleset.add_rule(PermissionRule(
-            category=PermissionCategory.READ,
-            pattern="**/.env*",
-            action=PermissionAction.DENY,
-            priority=10,
-        ))
-
-        # Allow safe shell commands
-        safe_commands = [
-            "ls", "dir", "cat", "type", "pwd", "echo",
-            "git status", "git log", "git diff", "git branch",
-            "python --version", "pip list", "node --version", "npm list",
-        ]
-        for cmd in safe_commands:
-            ruleset.add_rule(PermissionRule(
-                category=PermissionCategory.BASH,
-                pattern=f"{cmd}*",
-                action=PermissionAction.ALLOW,
-                priority=0,
-            ))
-
-        # Block dangerous commands
-        dangerous_patterns = [
-            "rm -rf /*", "rm -rf /", "rm -rf ~",
-            "del /s /q c:\\*", "format *:",
-            ":(){:|:&};:", "dd if=/dev/*",
-        ]
-        for pattern in dangerous_patterns:
-            ruleset.add_rule(PermissionRule(
-                category=PermissionCategory.BASH,
-                pattern=pattern,
-                action=PermissionAction.DENY,
-                description="Dangerous command blocked",
-                priority=100,
-            ))
-
-        return PermissionProfile(
-            name="standard",
-            description="Allow reads and safe commands. Ask for edits and complex commands.",
-            ruleset=ruleset,
-        )
-
-    @staticmethod
-    def trusted() -> "PermissionProfile":
-        """Create a trusted profile that auto-allows most operations."""
-        ruleset = PermissionRuleset(default_action=PermissionAction.ALLOW)
-
-        # Still deny secrets and dangerous commands
-        ruleset.add_rule(PermissionRule(
-            category=PermissionCategory.READ,
-            pattern="**/.env*",
-            action=PermissionAction.DENY,
-            priority=10,
-        ))
-
-        dangerous_patterns = [
-            "rm -rf /*", "rm -rf /", "rm -rf ~",
-            "del /s /q c:\\*", "format *:",
-        ]
-        for pattern in dangerous_patterns:
-            ruleset.add_rule(PermissionRule(
-                category=PermissionCategory.BASH,
-                pattern=pattern,
-                action=PermissionAction.DENY,
-                priority=100,
-            ))
-
-        # Ask for external directory access
-        ruleset.add_rule(PermissionRule(
-            category=PermissionCategory.EXTERNAL_DIRECTORY,
-            pattern="**/*",
-            action=PermissionAction.ASK,
-            priority=0,
-        ))
-
-        return PermissionProfile(
-            name="trusted",
-            description="Allow most operations. Still deny dangerous commands and secrets.",
-            ruleset=ruleset,
-        )
-
-    @staticmethod
-    def yolo() -> "PermissionProfile":
-        """Create a YOLO profile that allows everything (use with caution)."""
-        ruleset = PermissionRuleset(default_action=PermissionAction.ALLOW)
-
-        # Still block the most catastrophic commands
-        ruleset.add_rule(PermissionRule(
-            category=PermissionCategory.BASH,
-            pattern="rm -rf /",
-            action=PermissionAction.DENY,
-            priority=100,
-        ))
-        ruleset.add_rule(PermissionRule(
-            category=PermissionCategory.BASH,
-            pattern="rm -rf /*",
-            action=PermissionAction.DENY,
-            priority=100,
-        ))
-
-        return PermissionProfile(
-            name="yolo",
-            description="Allow everything. Only blocks catastrophic system destruction.",
-            ruleset=ruleset,
-        )
-
-
-# Type for permission callback
-PermissionCallback = Callable[[str, str, str], Awaitable[bool]]
-
-
-@dataclass
-class PermissionRequest:
-    """A request for permission."""
-    category: PermissionCategory
-    target: str  # What is being accessed (file path, command, etc.)
-    action_description: str  # Human-readable description
-    context: Optional[str] = None  # Additional context
-    patterns_to_remember: list[str] = field(default_factory=list)  # Patterns for "always allow"
-
-
-class PermissionManager:
-    """Manages permission evaluation and user prompts."""
-
-    def __init__(
+    def check_path_mandatory_deny(
         self,
-        profile: Optional[PermissionProfile] = None,
-        project_dir: Optional[Path] = None,
-    ):
-        """Initialize permission manager.
+        path: Union[str, Path],
+        operation: PermissionCategory,
+    ) -> Optional[PermissionResult]:
+        """Check if a path hits a MANDATORY deny.
+
+        This is checked FIRST and CANNOT be overridden.
 
         Args:
-            profile: Permission profile to use. Defaults to 'standard'.
-            project_dir: Project directory for relative path evaluation.
-        """
-        self.profile = profile or PermissionProfile.standard()
-        self.project_dir = project_dir or Path.cwd()
-
-        # Session-level overrides (from "always allow/deny" responses)
-        self._session_allows: set[str] = set()  # category:pattern
-        self._session_denies: set[str] = set()
-
-        # Callback for asking user
-        self._ask_callback: Optional[PermissionCallback] = None
-
-    def set_profile(self, profile: PermissionProfile) -> None:
-        """Set the permission profile."""
-        self.profile = profile
-
-    def set_ask_callback(self, callback: PermissionCallback) -> None:
-        """Set the callback for asking user permission.
-
-        Callback signature: async (category, target, description) -> bool
-        """
-        self._ask_callback = callback
-
-    def is_external_path(self, path: Path) -> bool:
-        """Check if a path is outside the project directory."""
-        try:
-            path.resolve().relative_to(self.project_dir.resolve())
-            return False
-        except ValueError:
-            return True
-
-    async def check(self, request: PermissionRequest) -> bool:
-        """Check if an action is permitted.
-
-        Args:
-            request: Permission request
+            path: Path to check.
+            operation: The operation being performed.
 
         Returns:
-            True if permitted, False if denied
+            PermissionResult with DENY if mandatory deny hit, None otherwise.
         """
-        category = request.category
-        target = request.target
-        key = f"{category.value}:{target}"
+        normalized = self._normalize_path(path)
+        path_str = str(normalized).replace("\\", "/")  # Normalize separators
+        filename = normalized.name
 
-        # Check session-level overrides first
-        for pattern in self._session_allows:
-            cat, pat = pattern.split(":", 1)
-            if cat == category.value and fnmatch.fnmatch(target, pat):
-                return True
+        # For write/execute operations, check dangerous files and directories
+        if operation in (PermissionCategory.WRITE, PermissionCategory.EXECUTE):
+            # Check dangerous directories
+            for dangerous_dir in DANGEROUS_DIRECTORIES:
+                # Check if path is within or is the dangerous directory
+                if dangerous_dir in path_str or path_str.endswith(dangerous_dir.rstrip("/")):
+                    return PermissionResult(
+                        action=PermissionAction.DENY,
+                        reason=f"MANDATORY DENY: Path is within protected directory '{dangerous_dir}'",
+                        path=path_str,
+                        pattern_matched=dangerous_dir,
+                        is_mandatory=True,
+                    )
 
-        for pattern in self._session_denies:
-            cat, pat = pattern.split(":", 1)
-            if cat == category.value and fnmatch.fnmatch(target, pat):
-                return False
-
-        # Evaluate against profile rules
-        action = self.profile.ruleset.evaluate(category, target)
-
-        if action == PermissionAction.ALLOW:
-            return True
-        elif action == PermissionAction.DENY:
-            return False
-        else:
-            # ASK - need user confirmation
-            if self._ask_callback:
-                result = await self._ask_callback(
-                    category.value,
-                    target,
-                    request.action_description,
+            # Check dangerous files
+            if filename in DANGEROUS_FILES:
+                return PermissionResult(
+                    action=PermissionAction.DENY,
+                    reason=f"MANDATORY DENY: File '{filename}' is protected",
+                    path=path_str,
+                    pattern_matched=filename,
+                    is_mandatory=True,
                 )
-                return result
-            else:
-                # No callback, default to deny for safety
-                return False
 
-    def add_session_allow(self, category: PermissionCategory, pattern: str) -> None:
-        """Add a session-level allow pattern."""
-        self._session_allows.add(f"{category.value}:{pattern}")
+            # Check dangerous patterns
+            for pattern in DANGEROUS_PATTERNS:
+                if fnmatch.fnmatch(filename, pattern):
+                    return PermissionResult(
+                        action=PermissionAction.DENY,
+                        reason=f"MANDATORY DENY: File matches protected pattern '{pattern}'",
+                        path=path_str,
+                        pattern_matched=pattern,
+                        is_mandatory=True,
+                    )
 
-    def add_session_deny(self, category: PermissionCategory, pattern: str) -> None:
-        """Add a session-level deny pattern."""
-        self._session_denies.add(f"{category.value}:{pattern}")
+        return None  # No mandatory deny
 
-    def clear_session_overrides(self) -> None:
-        """Clear all session-level overrides."""
-        self._session_allows.clear()
-        self._session_denies.clear()
+    def check_command_mandatory_deny(self, command: str) -> Optional[PermissionResult]:
+        """Check if a command hits a MANDATORY deny.
 
-    def get_profile_by_name(self, name: str) -> PermissionProfile:
-        """Get a built-in profile by name."""
-        profiles = {
-            "strict": PermissionProfile.strict,
-            "standard": PermissionProfile.standard,
-            "trusted": PermissionProfile.trusted,
-            "yolo": PermissionProfile.yolo,
-        }
-        if name not in profiles:
-            raise ValueError(f"Unknown profile: {name}. Valid: {list(profiles.keys())}")
-        return profiles[name]()
+        This is checked FIRST and CANNOT be overridden.
+
+        Args:
+            command: Command string to check.
+
+        Returns:
+            PermissionResult with DENY if mandatory deny hit, None otherwise.
+        """
+        cmd_lower = command.lower().strip()
+
+        # Check exact matches and word-bounded matches
+        for blocked in BLOCKED_COMMANDS:
+            blocked_lower = blocked.lower()
+            # Exact match
+            if cmd_lower == blocked_lower:
+                return PermissionResult(
+                    action=PermissionAction.DENY,
+                    reason=f"MANDATORY DENY: Command matches blocked pattern '{blocked}'",
+                    pattern_matched=blocked,
+                    is_mandatory=True,
+                )
+            # Command starts with blocked pattern followed by space or nothing else
+            # This prevents "rm -rf ." from matching "rm -rf ./build"
+            if cmd_lower.startswith(blocked_lower + " ") or cmd_lower.startswith(blocked_lower + "\t"):
+                return PermissionResult(
+                    action=PermissionAction.DENY,
+                    reason=f"MANDATORY DENY: Command matches blocked pattern '{blocked}'",
+                    pattern_matched=blocked,
+                    is_mandatory=True,
+                )
+
+        # Also check for destructive patterns with sudo prefix (HARDCODED)
+        # Strip sudo and check core command against dangerous patterns
+        cmd_no_sudo = cmd_lower
+        if cmd_no_sudo.startswith("sudo "):
+            cmd_no_sudo = cmd_no_sudo[5:].strip()
+            # Re-check without sudo prefix
+            for blocked in BLOCKED_COMMANDS:
+                blocked_lower = blocked.lower()
+                # Skip sudo-specific patterns (already checked above)
+                if blocked_lower.startswith("sudo "):
+                    continue
+                if cmd_no_sudo == blocked_lower:
+                    return PermissionResult(
+                        action=PermissionAction.DENY,
+                        reason=f"MANDATORY DENY: sudo command matches blocked pattern '{blocked}'",
+                        pattern_matched=blocked,
+                        is_mandatory=True,
+                    )
+                if cmd_no_sudo.startswith(blocked_lower + " ") or cmd_no_sudo.startswith(blocked_lower + "\t"):
+                    return PermissionResult(
+                        action=PermissionAction.DENY,
+                        reason=f"MANDATORY DENY: sudo command matches blocked pattern '{blocked}'",
+                        pattern_matched=blocked,
+                        is_mandatory=True,
+                    )
+
+        # Check for pipe to shell patterns (data exfiltration)
+        pipe_to_shell = re.compile(
+            r'(curl|wget|fetch)\s+.*\|\s*(sh|bash|zsh|ksh|csh|tcsh|fish)',
+            re.IGNORECASE
+        )
+        if pipe_to_shell.search(command):
+            return PermissionResult(
+                action=PermissionAction.DENY,
+                reason="MANDATORY DENY: Piping remote content to shell is blocked",
+                pattern_matched="pipe_to_shell",
+                is_mandatory=True,
+            )
+
+        return None  # No mandatory deny
+
+    def check_path(
+        self,
+        path: Union[str, Path],
+        operation: PermissionCategory,
+    ) -> PermissionResult:
+        """Check permission for a path operation.
+
+        Checks in order:
+        1. Mandatory denies (CANNOT be overridden)
+        2. User-configured additional denies
+        3. Read operations on dangerous files (allowed for read, denied for write)
+        4. User-configured allow patterns
+        5. Default to ASK
+
+        Args:
+            path: Path to check.
+            operation: The operation type.
+
+        Returns:
+            PermissionResult with the decision.
+        """
+        # Step 1: Check mandatory denies FIRST
+        mandatory = self.check_path_mandatory_deny(path, operation)
+        if mandatory:
+            return mandatory
+
+        normalized = self._normalize_path(path)
+        path_str = str(normalized)
+        filename = normalized.name
+
+        # Step 2: Check user-configured additional denies
+        for pattern in self.config.additional_deny:
+            if fnmatch.fnmatch(path_str, pattern) or fnmatch.fnmatch(filename, pattern):
+                return PermissionResult(
+                    action=PermissionAction.DENY,
+                    reason=f"Denied by user configuration: matches pattern '{pattern}'",
+                    path=path_str,
+                    pattern_matched=pattern,
+                )
+
+        # Step 3: For READ operations, allow most things
+        if operation == PermissionCategory.READ:
+            return PermissionResult(
+                action=PermissionAction.ALLOW,
+                reason="Read operations are allowed by default",
+                path=path_str,
+            )
+
+        # Step 4: For WRITE/EXECUTE, check additional allow patterns
+        for pattern in self.config.additional_allow_read:
+            if fnmatch.fnmatch(path_str, pattern) or fnmatch.fnmatch(filename, pattern):
+                return PermissionResult(
+                    action=PermissionAction.ALLOW,
+                    reason=f"Allowed by user configuration: matches pattern '{pattern}'",
+                    path=path_str,
+                    pattern_matched=pattern,
+                )
+
+        # Step 5: Default to ASK for write/execute operations
+        return PermissionResult(
+            action=PermissionAction.ASK,
+            reason="Write/execute operations require confirmation by default",
+            path=path_str,
+        )
+
+    def check_command(self, command: str) -> PermissionResult:
+        """Check permission for a shell command.
+
+        Checks in order:
+        1. Mandatory denies (CANNOT be overridden)
+        2. Destructive commands (require confirmation)
+        3. Safe read commands (auto-allow)
+        4. Default to ASK
+
+        Args:
+            command: Command string to check.
+
+        Returns:
+            PermissionResult with the decision.
+        """
+        # Step 1: Check mandatory denies FIRST
+        mandatory = self.check_command_mandatory_deny(command)
+        if mandatory:
+            return mandatory
+
+        cmd_lower = command.lower().strip()
+
+        # Step 2: Parse command to get base command
+        try:
+            parts = shlex.split(command)
+            base_cmd = parts[0] if parts else ""
+        except ValueError:
+            # Malformed command, be cautious
+            base_cmd = cmd_lower.split()[0] if cmd_lower.split() else ""
+
+        # Step 3: Check for destructive commands
+        for destructive in DESTRUCTIVE_COMMANDS:
+            if destructive.lower() in cmd_lower or cmd_lower.startswith(destructive.lower()):
+                return PermissionResult(
+                    action=PermissionAction.ASK,
+                    reason=f"Command contains destructive operation '{destructive}'",
+                    pattern_matched=destructive,
+                )
+
+        # Step 4: Check for safe read commands
+        for safe_cmd in SAFE_READ_COMMANDS:
+            if cmd_lower.startswith(safe_cmd.lower()):
+                return PermissionResult(
+                    action=PermissionAction.ALLOW,
+                    reason="Command is safe read-only operation",
+                    pattern_matched=safe_cmd,
+                )
+
+        # Step 5: Default to ASK for unknown commands
+        return PermissionResult(
+            action=PermissionAction.ASK,
+            reason="Unknown command requires confirmation",
+        )
+
+    def is_symlink_escape(
+        self,
+        symlink_path: Union[str, Path],
+        allowed_boundary: Union[str, Path],
+    ) -> bool:
+        """Check if a symlink points outside the allowed boundary.
+
+        This is a security check to prevent symlink-based escapes.
+
+        Args:
+            symlink_path: Path to the symlink.
+            allowed_boundary: The boundary directory that should contain the target.
+
+        Returns:
+            True if the symlink escapes the boundary, False if safe.
+        """
+        try:
+            symlink = Path(symlink_path)
+            boundary = Path(allowed_boundary).resolve()
+
+            if not symlink.is_symlink():
+                return False  # Not a symlink
+
+            # Resolve the symlink target
+            target = symlink.resolve()
+
+            # Check if target is within boundary
+            try:
+                target.relative_to(boundary)
+                return False  # Safe, within boundary
+            except ValueError:
+                return True  # Escapes boundary!
+
+        except (OSError, ValueError):
+            # If we can't check, assume unsafe
+            return True
 
 
-# Agent-specific permission profiles
-def get_explore_agent_profile() -> PermissionProfile:
-    """Get permission profile for explore agent (read-only)."""
-    ruleset = PermissionRuleset(default_action=PermissionAction.DENY)
-
-    # Allow reading
-    ruleset.add_rule(PermissionRule(
-        category=PermissionCategory.READ,
-        pattern="**/*",
-        action=PermissionAction.ALLOW,
-    ))
-
-    # Deny secrets
-    ruleset.add_rule(PermissionRule(
-        category=PermissionCategory.READ,
-        pattern="**/.env*",
-        action=PermissionAction.DENY,
-        priority=10,
-    ))
-
-    # Deny all writes
-    ruleset.add_rule(PermissionRule(
-        category=PermissionCategory.EDIT,
-        pattern="**/*",
-        action=PermissionAction.DENY,
-    ))
-    ruleset.add_rule(PermissionRule(
-        category=PermissionCategory.CREATE,
-        pattern="**/*",
-        action=PermissionAction.DENY,
-    ))
-    ruleset.add_rule(PermissionRule(
-        category=PermissionCategory.DELETE,
-        pattern="**/*",
-        action=PermissionAction.DENY,
-    ))
-
-    # Allow read-only bash commands
-    read_only_commands = ["ls", "dir", "cat", "type", "pwd", "git status", "git log"]
-    for cmd in read_only_commands:
-        ruleset.add_rule(PermissionRule(
-            category=PermissionCategory.BASH,
-            pattern=f"{cmd}*",
-            action=PermissionAction.ALLOW,
-        ))
-
-    return PermissionProfile(
-        name="explore",
-        description="Read-only profile for exploration agents",
-        ruleset=ruleset,
-    )
+# Singleton for global permission checking
+_default_checker: Optional[PermissionChecker] = None
 
 
-def get_plan_agent_profile() -> PermissionProfile:
-    """Get permission profile for plan agent (read + ask for bash)."""
-    ruleset = PermissionRuleset(default_action=PermissionAction.ASK)
+def get_permission_checker(config: Optional[PermissionConfig] = None) -> PermissionChecker:
+    """Get the global permission checker.
 
-    # Allow reading
-    ruleset.add_rule(PermissionRule(
-        category=PermissionCategory.READ,
-        pattern="**/*",
-        action=PermissionAction.ALLOW,
-    ))
+    Args:
+        config: Optional configuration to apply.
 
-    # Deny secrets
-    ruleset.add_rule(PermissionRule(
-        category=PermissionCategory.READ,
-        pattern="**/.env*",
-        action=PermissionAction.DENY,
-        priority=10,
-    ))
-
-    # Deny all writes
-    ruleset.add_rule(PermissionRule(
-        category=PermissionCategory.EDIT,
-        pattern="**/*",
-        action=PermissionAction.DENY,
-    ))
-    ruleset.add_rule(PermissionRule(
-        category=PermissionCategory.CREATE,
-        pattern="**/*",
-        action=PermissionAction.DENY,
-    ))
-
-    return PermissionProfile(
-        name="plan",
-        description="Read-only with bash confirmation for planning agents",
-        ruleset=ruleset,
-    )
+    Returns:
+        PermissionChecker instance.
+    """
+    global _default_checker
+    if _default_checker is None or config is not None:
+        _default_checker = PermissionChecker(config)
+    return _default_checker
 
 
-def get_build_agent_profile() -> PermissionProfile:
-    """Get permission profile for build agent (full access with standard safeguards)."""
-    return PermissionProfile.standard()
+def check_path_permission(
+    path: Union[str, Path],
+    operation: PermissionCategory,
+) -> PermissionResult:
+    """Convenience function to check path permission.
+
+    Args:
+        path: Path to check.
+        operation: Operation type.
+
+    Returns:
+        PermissionResult.
+    """
+    return get_permission_checker().check_path(path, operation)
+
+
+def check_command_permission(command: str) -> PermissionResult:
+    """Convenience function to check command permission.
+
+    Args:
+        command: Command to check.
+
+    Returns:
+        PermissionResult.
+    """
+    return get_permission_checker().check_command(command)
+
+
+def is_mandatory_deny_path(path: Union[str, Path], operation: PermissionCategory) -> bool:
+    """Quick check if a path is mandatory denied.
+
+    Args:
+        path: Path to check.
+        operation: Operation type.
+
+    Returns:
+        True if mandatory denied.
+    """
+    result = get_permission_checker().check_path_mandatory_deny(path, operation)
+    return result is not None
+
+
+def is_mandatory_deny_command(command: str) -> bool:
+    """Quick check if a command is mandatory denied.
+
+    Args:
+        command: Command to check.
+
+    Returns:
+        True if mandatory denied.
+    """
+    result = get_permission_checker().check_command_mandatory_deny(command)
+    return result is not None

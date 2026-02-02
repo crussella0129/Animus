@@ -27,6 +27,14 @@ from src.core.decision import (
     OutcomeStatus,
     DecisionRecorder,
 )
+from src.core.permission import (
+    PermissionCategory,
+    PermissionAction,
+    check_command_permission,
+    check_path_permission,
+    is_mandatory_deny_command,
+    is_mandatory_deny_path,
+)
 
 
 @dataclass
@@ -266,21 +274,20 @@ class Agent:
             return None
 
     def _is_safe_shell_command(self, command: str) -> bool:
-        """Check if a shell command is safe (read-only) and can be auto-executed."""
-        command_lower = command.lower().strip()
-        for safe_cmd in self.config.safe_shell_commands:
-            # Check if command starts with safe command
-            if command_lower.startswith(safe_cmd.lower()):
-                return True
-        return False
+        """Check if a shell command is safe using hardcoded permission system.
+
+        Uses centralized permission module for consistent safety checks.
+        """
+        perm_result = check_command_permission(command)
+        return perm_result.action == PermissionAction.ALLOW
 
     def _is_blocked_command(self, command: str) -> bool:
-        """Check if a shell command is blocked (dangerous/destructive)."""
-        command_lower = command.lower().strip()
-        for blocked in self.config.blocked_commands:
-            if blocked.lower() in command_lower:
-                return True
-        return False
+        """Check if a shell command is blocked using hardcoded permission system.
+
+        Uses centralized permission module - NOT configurable via LLM.
+        """
+        # Use centralized mandatory deny check (hardcoded, non-overridable)
+        return is_mandatory_deny_command(command)
 
     def _is_directory_change(self, command: str) -> tuple[bool, Optional[str]]:
         """

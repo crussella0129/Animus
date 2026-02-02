@@ -1,4 +1,7 @@
-"""Animus CLI - Main entry point."""
+"""Animus CLI - Main entry point.
+
+A techromantic CLI coding agent - your conjured spirit companion for software development.
+"""
 
 from __future__ import annotations
 
@@ -14,11 +17,12 @@ from rich.table import Table
 from src import __version__
 from src.core.config import ConfigManager
 from src.core.detection import detect_environment, HardwareType, OperatingSystem
+from src.incantations import speak, whisper, show_banner, get_response
 
 # Initialize Typer app
 app = typer.Typer(
     name="animus",
-    help="A high-performance, cross-platform CLI coding agent.",
+    help="A techromantic CLI coding agent - your conjured spirit companion.",
     add_completion=False,
     no_args_is_help=True,
 )
@@ -48,7 +52,7 @@ def main(
     pass
 
 
-@app.command()
+@app.command("sense")
 def detect(
     json_output: bool = typer.Option(
         False,
@@ -63,7 +67,8 @@ def detect(
         help="Show detailed information.",
     ),
 ) -> None:
-    """Detect system environment (OS, hardware, GPU)."""
+    """Sense the realm - detect system environment (OS, hardware, GPU)."""
+    whisper(get_response("sense"))
     info = detect_environment()
 
     if json_output:
@@ -158,7 +163,7 @@ def detect(
         ))
 
 
-@app.command()
+@app.command("attune")
 def config(
     show: bool = typer.Option(
         False,
@@ -179,7 +184,8 @@ def config(
         help="Show configuration file path.",
     ),
 ) -> None:
-    """Manage Animus configuration."""
+    """Attune the spirit - manage Animus configuration."""
+    whisper(get_response("attune"))
     manager = ConfigManager()
 
     if path:
@@ -207,7 +213,7 @@ def config(
     console.print("Use [cyan]--show[/cyan] to view config, [cyan]--init[/cyan] to initialize, or [cyan]--path[/cyan] to show path.")
 
 
-@app.command()
+@app.command("summon")
 def init(
     force: bool = typer.Option(
         False,
@@ -216,7 +222,8 @@ def init(
         help="Overwrite existing configuration.",
     ),
 ) -> None:
-    """Initialize Animus in the current directory or home."""
+    """Summon the spirit - initialize Animus in the current directory."""
+    whisper(get_response("summon"))
     manager = ConfigManager()
 
     if manager.config_path.exists() and not force:
@@ -262,7 +269,7 @@ def init(
     console.print("  3. Run [cyan]animus chat[/cyan] to start chatting")
 
 
-@app.command()
+@app.command("vessels")
 def models(
     provider: Optional[str] = typer.Option(
         None,
@@ -271,7 +278,8 @@ def models(
         help="Provider to list models from (ollama, api).",
     ),
 ) -> None:
-    """List available models."""
+    """Survey vessels - list available models the spirit may inhabit."""
+    whisper(get_response("vessels"))
     import asyncio
     from src.llm import OllamaProvider, APIProvider, ProviderType
     from src.core.config import ConfigManager
@@ -338,17 +346,18 @@ def models(
     asyncio.run(list_models())
 
 
-@app.command()
+@app.command("bind")
 def pull(
-    model_name: str = typer.Argument(..., help="Name of the model to pull."),
+    model_name: str = typer.Argument(..., help="Name of the model to bind."),
     provider: Optional[str] = typer.Option(
         None,
         "--provider",
         "-p",
-        help="Provider to pull from (default: ollama).",
+        help="Provider to bind from (default: ollama).",
     ),
 ) -> None:
-    """Pull/download a model."""
+    """Bind a vessel - pull/download a model for the spirit to inhabit."""
+    whisper(get_response("bind"))
     import asyncio
     from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
     from src.llm import OllamaProvider
@@ -409,13 +418,14 @@ def pull(
     asyncio.run(pull_model())
 
 
-@app.command()
+@app.command("consume")
 def ingest(
-    path: str = typer.Argument(..., help="File or directory to ingest."),
+    path: str = typer.Argument(..., help="File or directory to consume."),
     chunk_size: int = typer.Option(512, "--chunk-size", "-c", help="Chunk size in tokens."),
     overlap: int = typer.Option(50, "--overlap", "-o", help="Overlap between chunks."),
 ) -> None:
-    """Ingest documents into the knowledge base."""
+    """Consume knowledge - ingest documents into the spirit's memory."""
+    whisper(get_response("consume"))
     import asyncio
     from pathlib import Path as PathLib
     from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
@@ -487,12 +497,13 @@ def ingest(
     asyncio.run(run_ingestion())
 
 
-@app.command()
+@app.command("scry")
 def search(
     query: str = typer.Argument(..., help="Search query."),
     k: int = typer.Option(5, "--results", "-k", help="Number of results."),
 ) -> None:
-    """Search the knowledge base."""
+    """Scry the depths - search the spirit's accumulated knowledge."""
+    whisper(get_response("scry"))
     import asyncio
     from src.memory import Ingester
     from src.core.config import ConfigManager
@@ -529,13 +540,13 @@ def search(
     asyncio.run(run_search())
 
 
-# Model management subcommand group
+# Model management subcommand group (vessel)
 model_app = typer.Typer(
-    name="model",
-    help="Manage local GGUF models for native inference.",
+    name="vessel",
+    help="Manage vessels (GGUF models) the spirit may inhabit.",
     no_args_is_help=True,
 )
-app.add_typer(model_app, name="model")
+app.add_typer(model_app, name="vessel")
 
 
 @model_app.command("download")
@@ -684,20 +695,21 @@ def model_remove(
     console.print(f"[green]Deleted:[/green] {model_path.name}")
 
 
-# Skills subcommand group
+# Skills subcommand group (grimoire)
 skill_app = typer.Typer(
-    name="skill",
-    help="Manage Animus skills for extending capabilities.",
+    name="grimoire",
+    help="The Grimoire - manage arcane skills that extend the spirit's capabilities.",
     no_args_is_help=True,
 )
-app.add_typer(skill_app, name="skill")
+app.add_typer(skill_app, name="grimoire")
 
 
 @skill_app.command("list")
 def skill_list(
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed info."),
 ) -> None:
-    """List available skills."""
+    """Catalog the grimoire - list available arcane skills."""
+    whisper(get_response("grimoire"))
     from pathlib import Path
     from src.skills import SkillRegistry
 
@@ -778,13 +790,13 @@ def skill_show(
     console.print(Panel(skill.instructions[:500] + "..." if len(skill.instructions) > 500 else skill.instructions))
 
 
-@skill_app.command("create")
+@skill_app.command("inscribe")
 def skill_create(
     name: str = typer.Argument(..., help="Name for the new skill."),
     description: str = typer.Option("A custom Animus skill", "--description", "-d", help="Skill description."),
     project: bool = typer.Option(False, "--project", "-p", help="Create in project directory instead of user."),
 ) -> None:
-    """Create a new skill from template."""
+    """Inscribe a new spell - create a skill from template."""
     from pathlib import Path
     from src.skills import SkillRegistry
 
@@ -901,9 +913,10 @@ def model_info(
         console.print(f"\n[yellow]Install llama-cpp-python to use this model[/yellow]")
 
 
-@app.command()
+@app.command("commune")
 def status() -> None:
-    """Show provider status and configured model."""
+    """Commune with the spirit - show provider status and available vessels."""
+    whisper(get_response("commune"))
     import asyncio
     from src.llm import NativeProvider, OllamaProvider, TRTLLMProvider, APIProvider, LLAMA_CPP_AVAILABLE
     from src.core.config import ConfigManager
@@ -960,13 +973,13 @@ def status() -> None:
     asyncio.run(check_status())
 
 
-@app.command()
+@app.command("rise")
 def chat(
     model: Optional[str] = typer.Option(
         None,
         "--model",
         "-m",
-        help="Model to use for chat.",
+        help="Model/vessel to inhabit.",
     ),
     no_confirm: bool = typer.Option(
         False,
@@ -985,7 +998,7 @@ def chat(
         help="Show token usage after each turn.",
     ),
 ) -> None:
-    """Start an interactive chat session with the agent."""
+    """Rise, spirit! Begin an interactive session with Animus."""
     import asyncio
     from rich.prompt import Prompt, Confirm
     from rich.markdown import Markdown
@@ -999,7 +1012,7 @@ def chat(
         provider = get_default_provider(config)
 
         if not provider.is_available:
-            console.print("[red]No LLM provider available.[/red]")
+            whisper("The ethereal connection fails...", "red")
             console.print("Start Ollama with: [cyan]ollama serve[/cyan]")
             console.print("Or configure an API key in [cyan]~/.animus/config.yaml[/cyan]")
             raise typer.Exit(1)
@@ -1029,17 +1042,19 @@ def chat(
         context_window.set_system_prompt(agent.system_prompt)
         turn_number = 0
 
-        console.print("[bold blue]Animus Chat[/bold blue]")
+        # Show awakening banner and response
+        show_banner("awakening")
+        speak("rise", newline_before=False)
         if max_context:
             console.print(f"[dim]Max context: {max_context} tokens[/dim]")
-        console.print("Type your message. Use [cyan]exit[/cyan] or [cyan]quit[/cyan] to end.\n")
+        console.print("Speak your command. Say [cyan]farewell[/cyan] to end.\n")
 
         while True:
             try:
                 user_input = Prompt.ask("[bold green]You[/bold green]")
 
-                if user_input.lower() in ("exit", "quit", "q"):
-                    console.print("[dim]Goodbye![/dim]")
+                if user_input.lower() in ("exit", "quit", "q", "farewell", "dismiss"):
+                    show_banner("farewell")
                     break
 
                 if not user_input.strip():
@@ -1089,13 +1104,13 @@ def chat(
     asyncio.run(run_chat())
 
 
-# MCP subcommand group
+# MCP subcommand group (portal)
 mcp_app = typer.Typer(
-    name="mcp",
-    help="Model Context Protocol server and client.",
+    name="portal",
+    help="The Portal - Model Context Protocol server for inter-spirit communication.",
     no_args_is_help=True,
 )
-app.add_typer(mcp_app, name="mcp")
+app.add_typer(mcp_app, name="portal")
 
 
 @mcp_app.command("server")
@@ -1146,20 +1161,21 @@ def mcp_tools() -> None:
     console.print(f"\n[dim]{len(server._tools)} tool(s) available[/dim]")
 
 
-@app.command()
+@app.command("manifest")
 def serve(
     host: str = typer.Option("localhost", "--host", "-h", help="Host to bind to."),
     port: int = typer.Option(8337, "--port", "-p", help="Port to listen on."),
     api_key: Optional[str] = typer.Option(None, "--api-key", "-k", help="API key for authentication."),
 ) -> None:
-    """Start the OpenAI-compatible API server."""
+    """Manifest the spirit - start the OpenAI-compatible API server."""
+    whisper(get_response("manifest"))
     from src.api import create_app
     from http.server import HTTPServer
 
     handler = create_app(api_key)
     server = HTTPServer((host, port), handler)
 
-    console.print(f"[bold blue]Animus API Server[/bold blue]")
+    console.print(f"[bold magenta]✦ Animus Manifests ✦[/bold magenta]")
     console.print(f"Running on [cyan]http://{host}:{port}[/cyan]")
     console.print()
     console.print("[dim]Endpoints:[/dim]")
@@ -1178,6 +1194,106 @@ def serve(
     except KeyboardInterrupt:
         console.print("\n[dim]Shutting down...[/dim]")
         server.shutdown()
+
+
+# =============================================================================
+# BACKWARD COMPATIBILITY ALIASES
+# Users can use either thematic or technical command names
+# =============================================================================
+
+# Create hidden aliases for technical names (for scripts and muscle memory)
+# These point to the same functions but with the original names
+
+@app.command("detect", hidden=True)
+def _detect_alias(
+    json_output: bool = typer.Option(False, "--json", "-j"),
+    verbose: bool = typer.Option(False, "--verbose", "-V"),
+) -> None:
+    """Alias for 'sense'."""
+    detect(json_output, verbose)
+
+
+@app.command("config", hidden=True)
+def _config_alias(
+    show: bool = typer.Option(False, "--show", "-s"),
+    init: bool = typer.Option(False, "--init", "-i"),
+    path: bool = typer.Option(False, "--path", "-p"),
+) -> None:
+    """Alias for 'attune'."""
+    config(show, init, path)
+
+
+@app.command("init", hidden=True)
+def _init_alias(force: bool = typer.Option(False, "--force", "-f")) -> None:
+    """Alias for 'summon'."""
+    init(force)
+
+
+@app.command("models", hidden=True)
+def _models_alias(provider: Optional[str] = typer.Option(None, "--provider", "-p")) -> None:
+    """Alias for 'vessels'."""
+    models(provider)
+
+
+@app.command("pull", hidden=True)
+def _pull_alias(
+    model_name: str = typer.Argument(...),
+    provider: Optional[str] = typer.Option(None, "--provider", "-p"),
+) -> None:
+    """Alias for 'bind'."""
+    pull(model_name, provider)
+
+
+@app.command("ingest", hidden=True)
+def _ingest_alias(
+    path: str = typer.Argument(...),
+    chunk_size: int = typer.Option(512, "--chunk-size", "-c"),
+    overlap: int = typer.Option(50, "--overlap", "-o"),
+) -> None:
+    """Alias for 'consume'."""
+    ingest(path, chunk_size, overlap)
+
+
+@app.command("search", hidden=True)
+def _search_alias(
+    query: str = typer.Argument(...),
+    k: int = typer.Option(5, "--results", "-k"),
+) -> None:
+    """Alias for 'scry'."""
+    search(query, k)
+
+
+@app.command("status", hidden=True)
+def _status_alias() -> None:
+    """Alias for 'commune'."""
+    status()
+
+
+@app.command("chat", hidden=True)
+def _chat_alias(
+    model: Optional[str] = typer.Option(None, "--model", "-m"),
+    no_confirm: bool = typer.Option(False, "--no-confirm"),
+    max_context: Optional[int] = typer.Option(None, "--max-context", "-c"),
+    show_tokens: bool = typer.Option(False, "--show-tokens"),
+) -> None:
+    """Alias for 'rise'."""
+    chat(model, no_confirm, max_context, show_tokens)
+
+
+@app.command("serve", hidden=True)
+def _serve_alias(
+    host: str = typer.Option("localhost", "--host", "-h"),
+    port: int = typer.Option(8337, "--port", "-p"),
+    api_key: Optional[str] = typer.Option(None, "--api-key", "-k"),
+) -> None:
+    """Alias for 'manifest'."""
+    serve(host, port, api_key)
+
+
+# Add subcommand group aliases
+app.add_typer(model_app, name="model", hidden=True)
+app.add_typer(skill_app, name="skill", hidden=True)
+app.add_typer(mcp_app, name="mcp", hidden=True)
 
 
 if __name__ == "__main__":

@@ -10,31 +10,14 @@ from typing import Any, Optional, Callable, Awaitable
 from pathlib import Path
 
 from src.tools.base import Tool, ToolParameter, ToolResult, ToolCategory
-
-
-# Commands that are considered destructive and require extra confirmation
-DESTRUCTIVE_COMMANDS = {
-    "rm", "rmdir", "del", "rd",  # Delete
-    "mv", "move", "rename",       # Move/rename
-    "format",                      # Format disk
-    "dd",                          # Disk operations
-    "mkfs",                        # Make filesystem
-    "fdisk", "parted",            # Partition tools
-    "chmod", "chown",             # Permission changes
-    "kill", "killall", "pkill",   # Process killing
-    "shutdown", "reboot", "halt", # System control
-    "git push", "git reset",      # Git operations
-    "docker rm", "docker rmi",    # Docker cleanup
-    "kubectl delete",             # Kubernetes deletion
-}
-
-# Commands that should never be run
-BLOCKED_COMMANDS = {
-    ":(){ :|:& };:",  # Fork bomb
-    "rm -rf /",
-    "rm -rf /*",
-    "dd if=/dev/zero of=/dev/sda",
-}
+from src.core.permission import (
+    PermissionAction,
+    check_command_permission,
+    is_mandatory_deny_command,
+    DESTRUCTIVE_COMMANDS,
+    BLOCKED_COMMANDS,
+    SAFE_READ_COMMANDS,
+)
 
 
 class ShellTool(Tool):
@@ -109,29 +92,15 @@ class ShellTool(Tool):
         return True  # All shell commands go through confirmation logic
 
     def _is_blocked(self, command: str) -> bool:
-        """Check if command is blocked."""
-        cmd_lower = command.lower().strip()
-        return any(blocked in cmd_lower for blocked in BLOCKED_COMMANDS)
+        """Check if command is blocked using hardcoded permission system."""
+        # Use centralized permission check
+        return is_mandatory_deny_command(command)
 
     def _is_destructive(self, command: str) -> bool:
-        """Check if command is potentially destructive."""
-        cmd_lower = command.lower().strip()
-
-        # Check for destructive command patterns
-        for pattern in DESTRUCTIVE_COMMANDS:
-            if pattern in cmd_lower:
-                return True
-
-        # Check for piping to dangerous commands
-        if "|" in command:
-            parts = command.split("|")
-            for part in parts:
-                part = part.strip()
-                for pattern in DESTRUCTIVE_COMMANDS:
-                    if part.startswith(pattern):
-                        return True
-
-        return False
+        """Check if command is potentially destructive using permission system."""
+        perm_result = check_command_permission(command)
+        # ASK means it's destructive but not blocked
+        return perm_result.action == PermissionAction.ASK
 
     async def _get_confirmation(self, command: str) -> bool:
         """Get confirmation for a command."""

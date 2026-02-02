@@ -47,6 +47,12 @@ class SubAgentScope:
     # Context to provide to the sub-agent
     context: str = ""
 
+    # Template variables for prompt customization (100% HARDCODED substitution)
+    # {previous} - Previous conversation context
+    # {task} - The current task description
+    # {scope_dir} - The scope directory path(s)
+    template_vars: dict[str, str] = field(default_factory=dict)
+
     def validate_path(self, path: Path) -> bool:
         """Check if a path is within the allowed scope."""
         if not self.allowed_paths:
@@ -94,23 +100,37 @@ Execute tools directly - do NOT ask the user to run commands for you.
 Do NOT hallucinate file contents - always use read_file to get actual contents.
 """
 
-# Role-specific system prompts
+# Role-specific system prompts with template variables
+# Template vars: {tools}, {scope}, {task}, {scope_dir}, {previous}
 ROLE_PROMPTS = {
-    SubAgentRole.CODER: """You are a specialized coding sub-agent. Your task is to write or modify code according to the given requirements.
+    SubAgentRole.CODER: """You are a specialized coding sub-agent.
 
-Focus on:
+## Current Task
+{task}
+
+## Context from Parent Agent
+{previous}
+
+## Focus Areas
 - Writing clean, well-structured code
 - Following existing code patterns and conventions
 - Adding appropriate comments for complex logic
 - Handling edge cases
 
-You have access to: {tools}
-Scope: {scope}
+## Available Tools: {tools}
+## Scope: {scope}
+## Working Directory: {scope_dir}
 """ + TOOL_CALLING_INSTRUCTIONS,
 
-    SubAgentRole.REVIEWER: """You are a code review sub-agent. Your task is to review code and provide feedback.
+    SubAgentRole.REVIEWER: """You are a code review sub-agent.
 
-Focus on:
+## Current Task
+{task}
+
+## Context from Parent Agent
+{previous}
+
+## Focus Areas
 - Code quality and readability
 - Potential bugs or issues
 - Performance considerations
@@ -118,62 +138,99 @@ Focus on:
 - Adherence to best practices
 
 Provide constructive feedback with specific suggestions.
-You have access to: {tools}
+
+## Available Tools: {tools}
+## Scope: {scope}
 """ + TOOL_CALLING_INSTRUCTIONS,
 
-    SubAgentRole.TESTER: """You are a testing sub-agent. Your task is to write or run tests.
+    SubAgentRole.TESTER: """You are a testing sub-agent.
 
-Focus on:
+## Current Task
+{task}
+
+## Context from Parent Agent
+{previous}
+
+## Focus Areas
 - Unit tests for individual functions
 - Edge cases and error conditions
 - Test coverage
 - Clear test descriptions
 
-You have access to: {tools}
+## Available Tools: {tools}
+## Scope: {scope}
 """ + TOOL_CALLING_INSTRUCTIONS,
 
-    SubAgentRole.DOCUMENTER: """You are a documentation sub-agent. Your task is to write or improve documentation.
+    SubAgentRole.DOCUMENTER: """You are a documentation sub-agent.
 
-Focus on:
+## Current Task
+{task}
+
+## Context from Parent Agent
+{previous}
+
+## Focus Areas
 - Clear and concise explanations
 - Code examples where helpful
 - Accurate API documentation
 - README and guide content
 
-You have access to: {tools}
+## Available Tools: {tools}
+## Scope: {scope}
 """ + TOOL_CALLING_INSTRUCTIONS,
 
-    SubAgentRole.REFACTORER: """You are a refactoring sub-agent. Your task is to improve code structure without changing behavior.
+    SubAgentRole.REFACTORER: """You are a refactoring sub-agent.
 
-Focus on:
+## Current Task
+{task}
+
+## Context from Parent Agent
+{previous}
+
+## Focus Areas
 - Reducing code duplication
 - Improving naming and organization
 - Breaking down complex functions
 - Maintaining existing tests
 
-You have access to: {tools}
+## Available Tools: {tools}
+## Scope: {scope}
 """ + TOOL_CALLING_INSTRUCTIONS,
 
-    SubAgentRole.DEBUGGER: """You are a debugging sub-agent. Your task is to find and fix bugs.
+    SubAgentRole.DEBUGGER: """You are a debugging sub-agent.
 
-Focus on:
+## Current Task
+{task}
+
+## Context from Parent Agent
+{previous}
+
+## Focus Areas
 - Understanding the error or unexpected behavior
 - Tracing the issue to its source
 - Proposing and implementing fixes
 - Verifying the fix works
 
-You have access to: {tools}
+## Available Tools: {tools}
+## Scope: {scope}
 """ + TOOL_CALLING_INSTRUCTIONS,
 
-    SubAgentRole.RESEARCHER: """You are a research sub-agent. Your task is to gather information and analyze code.
+    SubAgentRole.RESEARCHER: """You are a research sub-agent.
 
-Focus on:
+## Current Task
+{task}
+
+## Context from Parent Agent
+{previous}
+
+## Focus Areas
 - Understanding code structure and patterns
 - Finding relevant code sections
 - Analyzing dependencies
 - Summarizing findings
 
-You have access to: {tools}
+## Available Tools: {tools}
+## Scope: {scope}
 """ + TOOL_CALLING_INSTRUCTIONS,
 }
 
@@ -229,16 +286,29 @@ class SubAgentOrchestrator:
         self,
         role: SubAgentRole,
         scope: SubAgentScope,
+        task: str = "",
         custom_prompt: Optional[str] = None,
     ) -> str:
-        """Build the system prompt for a sub-agent."""
+        """Build the system prompt for a sub-agent.
+
+        Uses 100% HARDCODED template substitution - no LLM inference.
+
+        Template Variables:
+            {tools} - Comma-separated list of allowed tools
+            {scope} - Scope restrictions description
+            {previous} - Previous context from parent (from scope.template_vars)
+            {task} - The current task description
+            {scope_dir} - The scope directory path(s)
+        """
         if role == SubAgentRole.CUSTOM and custom_prompt:
             base_prompt = custom_prompt
         else:
             base_prompt = ROLE_PROMPTS.get(role, ROLE_PROMPTS[SubAgentRole.CODER])
 
-        # Format with scope info
+        # Build tools string (HARDCODED)
         tools_str = ", ".join(scope.allowed_tools)
+
+        # Build scope string (HARDCODED)
         scope_str = ""
         if scope.allowed_paths:
             paths = [str(p) for p in scope.allowed_paths]
@@ -248,7 +318,32 @@ class SubAgentOrchestrator:
         if not scope.can_execute:
             scope_str += "\nNote: You cannot run shell commands."
 
-        return base_prompt.format(tools=tools_str, scope=scope_str or "No restrictions")
+        # Build scope_dir string (HARDCODED)
+        scope_dir = ""
+        if scope.allowed_paths:
+            scope_dir = ", ".join(str(p) for p in scope.allowed_paths)
+
+        # Build format dict with all template variables (HARDCODED substitution)
+        format_dict = {
+            "tools": tools_str,
+            "scope": scope_str or "No restrictions",
+            "task": task,
+            "scope_dir": scope_dir or ".",
+            "previous": scope.template_vars.get("previous", ""),
+            # Include any additional template vars from scope
+            **scope.template_vars,
+        }
+
+        # Safe format that ignores missing keys (HARDCODED)
+        try:
+            return base_prompt.format(**format_dict)
+        except KeyError:
+            # Fall back to partial formatting if some keys are missing
+            import re
+            result = base_prompt
+            for key, value in format_dict.items():
+                result = result.replace(f"{{{key}}}", str(value))
+            return result
 
     async def spawn_subagent(
         self,
@@ -275,10 +370,10 @@ class SubAgentOrchestrator:
         # Create scoped tool registry
         scoped_registry = ScopedToolRegistry(self.tool_registry, scope)
 
-        # Build config
+        # Build config with template variables (100% HARDCODED substitution)
         config = AgentConfig(
             max_turns=scope.max_turns,
-            system_prompt=self._build_system_prompt(role, scope, custom_prompt),
+            system_prompt=self._build_system_prompt(role, scope, task, custom_prompt),
             require_tool_confirmation=False,  # Sub-agents run with pre-approved scope
         )
 
