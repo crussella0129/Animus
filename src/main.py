@@ -1242,6 +1242,12 @@ def chat(
         "--stream/--no-stream",
         help="Stream tokens in real-time (default: enabled).",
     ),
+    plan: bool = typer.Option(
+        False,
+        "--plan",
+        "-p",
+        help="Enable planning mode (create plan before execution).",
+    ),
 ) -> None:
     """Rise! Begin an interactive session with Animus."""
     import asyncio
@@ -1304,6 +1310,7 @@ def chat(
             model=model_name,
             temperature=config.model.temperature,
             require_tool_confirmation=not no_confirm,
+            enable_planning=plan,
         )
 
         agent = Agent(
@@ -1323,6 +1330,8 @@ def chat(
         speak("rise", newline_before=False)
         if max_context:
             console.print(f"[dim]Max context: {max_context} tokens[/dim]")
+        if plan:
+            console.print("[cyan]Planning mode enabled[/cyan] - I'll create a plan before acting.")
         console.print("Speak your command. Say [cyan]farewell[/cyan] to end.\n")
 
         while True:
@@ -1347,6 +1356,33 @@ def chat(
                     console.print(f"[red]Context full ({context_window.usage_ratio:.0%}). Consider starting a new session.[/red]")
 
                 console.print()
+
+                # Planning mode - create and display plan first
+                if plan and agent.is_planning_enabled():
+                    from src.core import ExecutionPlan
+                    console.print("[cyan]Creating plan...[/cyan]")
+                    execution_plan = await agent.create_plan(user_input)
+
+                    if execution_plan and execution_plan.steps:
+                        # Display the plan
+                        console.print("\n[bold cyan]Execution Plan[/bold cyan]")
+                        console.print(f"[dim]{execution_plan.summary}[/dim]\n")
+
+                        for i, step in enumerate(execution_plan.steps, 1):
+                            dep_str = ""
+                            if step.dependencies:
+                                dep_str = f" [dim](after step {', '.join(str(execution_plan.steps.index(s)+1) for s in execution_plan.steps if s.id in step.dependencies)})[/dim]"
+                            tools_str = f" [dim][{', '.join(step.tool_hints)}][/dim]" if step.tool_hints else ""
+                            console.print(f"  {i}. {step.description}{tools_str}{dep_str}")
+
+                        console.print()
+
+                        # Ask for confirmation
+                        if not Confirm.ask("Execute this plan?", default=True):
+                            console.print("[yellow]Plan cancelled.[/yellow]")
+                            continue
+
+                        console.print()
 
                 if stream:
                     # Streaming mode - display tokens as they arrive

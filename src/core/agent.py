@@ -44,6 +44,7 @@ from src.core.compaction import (
     CompactionResult,
 )
 from src.core.tokenizer import count_tokens, is_tiktoken_available
+from src.core.planner import Planner, ExecutionPlan, PlanStep, StepStatus
 
 
 @dataclass
@@ -96,6 +97,11 @@ class AgentConfig:
 
     # Parallel execution settings
     parallel_tool_execution: bool = True  # Execute independent tools in parallel
+
+    # Planning settings
+    enable_planning: bool = False  # Enable explicit planning phase
+    planning_threshold: int = 2  # Min complexity for planning (steps estimate)
+    auto_revise_plan: bool = True  # Automatically revise plan on failures
 
 
 @dataclass
@@ -272,6 +278,11 @@ class Agent:
         if self.config.enable_compaction:
             self._init_compactor()
 
+        # Planning
+        self._planner: Optional[Planner] = None
+        if self.config.enable_planning:
+            self._init_planner()
+
     def _apply_animus_config(self, agent_config: AgentBehaviorConfig) -> None:
         """Apply AgentBehaviorConfig settings to AgentConfig."""
         self.config.auto_execute_tools = tuple(agent_config.auto_execute_tools)
@@ -303,6 +314,14 @@ class Agent:
         self._compactor = SessionCompactor(
             config=compaction_config,
             provider=self.provider,
+        )
+
+    def _init_planner(self) -> None:
+        """Initialize the planner with available tools."""
+        available_tools = list(self.tool_registry._tools.keys())
+        self._planner = Planner(
+            provider=self.provider,
+            available_tools=available_tools,
         )
 
     def _estimate_tokens(self, text: str) -> int:
@@ -1138,6 +1157,180 @@ class Agent:
             if last_turn and not last_turn.tool_calls:
                 break
 
+    async def create_plan(self, request: str, context: str = "") -> Optional[ExecutionPlan]:
+        """Create an execution plan for a request.
+
+        Args:
+            request: The user's request/goal.
+            context: Additional context for planning.
+
+        Returns:
+            ExecutionPlan if planning is enabled, None otherwise.
+        """
+        if not self._planner:
+            if self.config.enable_planning:
+                self._init_planner()
+            else:
+                return None
+
+        return await self._planner.create_plan(
+            request=request,
+            context=context,
+            model=self.config.model,
+        )
+
+    async def run_with_plan(
+        self,
+        user_input: str,
+        plan: Optional[ExecutionPlan] = None,
+    ) -> AsyncIterator[Union[Turn, ExecutionPlan]]:
+        """Run the agent with explicit planning phase.
+
+        First creates (or uses provided) plan, then executes steps.
+        Yields plan first, then turns as execution progresses.
+
+        Args:
+            user_input: User's request.
+            plan: Optional pre-created plan to use.
+
+        Yields:
+            ExecutionPlan (first), then Turn objects as execution progresses.
+        """
+        # Create plan if not provided
+        if plan is None:
+            if not self._planner:
+                self._init_planner()
+            plan = await self._planner.create_plan(
+                request=user_input,
+                model=self.config.model,
+            )
+
+        # Yield the plan first so UI can display it
+        yield plan
+
+        if not plan.steps:
+            # Empty plan, just run normally
+            async for turn in self.run(user_input):
+                yield turn
+            return
+
+        self._current_turn = 0
+
+        # Execute each step
+        while not plan.is_complete() and self._current_turn < self.config.max_turns:
+            # Get next ready step(s)
+            ready_steps = plan.get_ready_steps()
+            if not ready_steps:
+                # No ready steps but plan not complete - might be blocked
+                blocked = plan.get_blocked_steps()
+                if blocked:
+                    # Try to unblock by completing dependencies
+                    break
+                continue
+
+            # Execute first ready step (could parallelize multiple)
+            current_step = ready_steps[0]
+            plan.mark_step_started(current_step.id)
+
+            # Build prompt for this specific step
+            step_prompt = self._build_step_prompt(user_input, plan, current_step)
+
+            # Execute the step
+            try:
+                step_complete = False
+                step_output_parts = []
+
+                async for turn in self.run(step_prompt):
+                    yield turn
+                    step_output_parts.append(turn.content)
+
+                    # Check if step appears complete (no more tool calls)
+                    if not turn.tool_calls:
+                        step_complete = True
+
+                # Mark step completed
+                step_output = "\n".join(step_output_parts[-1:])  # Last response
+                plan.mark_step_completed(current_step.id, step_output[:500])
+
+            except Exception as e:
+                # Step failed
+                plan.mark_step_failed(current_step.id, str(e))
+
+                # Auto-revise plan if enabled
+                if self.config.auto_revise_plan and self._planner:
+                    revised = await self._planner.revise_plan(
+                        issue=f"Step failed: {current_step.description}\nError: {e}",
+                        model=self.config.model,
+                    )
+                    if revised:
+                        plan = revised
+                        yield plan  # Yield revised plan
+
+            # Clear history between steps to avoid context overflow
+            # but keep system understanding
+            if len(self.history) > self.config.max_context_messages:
+                self.history = self.history[-self.config.max_context_messages // 2:]
+
+    def _build_step_prompt(
+        self,
+        original_request: str,
+        plan: ExecutionPlan,
+        step: PlanStep,
+    ) -> str:
+        """Build a prompt for executing a specific plan step.
+
+        Args:
+            original_request: The original user request.
+            plan: The execution plan.
+            step: The current step to execute.
+
+        Returns:
+            Prompt string for the LLM.
+        """
+        # Get completed steps for context
+        completed = [s for s in plan.steps if s.status == StepStatus.COMPLETED]
+        completed_summary = ""
+        if completed:
+            parts = [f"- {s.description}: {s.output or 'Done'}" for s in completed[-3:]]
+            completed_summary = f"\n\nCompleted so far:\n" + "\n".join(parts)
+
+        # Build step prompt
+        prompt = f"""Original request: {original_request}
+
+Current step ({plan.get_progress()[0] + 1}/{len(plan.steps)}): {step.description}
+
+{step.reasoning}{completed_summary}
+
+Execute this step now. Use the appropriate tools to accomplish it.
+When done, provide a brief summary of what was accomplished."""
+
+        if step.tool_hints:
+            prompt += f"\n\nSuggested tools: {', '.join(step.tool_hints)}"
+
+        return prompt
+
+    def get_current_plan(self) -> Optional[ExecutionPlan]:
+        """Get the current execution plan if any."""
+        if self._planner:
+            return self._planner.current_plan
+        return None
+
+    async def revise_plan(self, issue: str) -> Optional[ExecutionPlan]:
+        """Revise the current plan based on new information.
+
+        Args:
+            issue: Description of the issue or change.
+
+        Returns:
+            Revised plan, or None if no planner/plan.
+        """
+        if not self._planner:
+            return None
+        return await self._planner.revise_plan(
+            issue=issue,
+            model=self.config.model,
+        )
+
     def reset(self) -> None:
         """Reset the agent state."""
         self.history = []
@@ -1145,6 +1338,8 @@ class Agent:
         self._decision_recorder.clear()
         if self._compactor:
             self._compactor.clear_history()
+        if self._planner:
+            self._planner.clear_plan()
 
     def get_history(self) -> list[Turn]:
         """Get conversation history."""
@@ -1194,3 +1389,21 @@ class Agent:
             True if compaction is enabled.
         """
         return self._compactor is not None and self.config.enable_compaction
+
+    def is_planning_enabled(self) -> bool:
+        """Check if planning is enabled.
+
+        Returns:
+            True if planning is enabled.
+        """
+        return self.config.enable_planning
+
+    def get_plan_progress(self) -> Optional[tuple[int, int]]:
+        """Get current plan progress as (completed, total).
+
+        Returns:
+            Tuple of (completed, total) or None if no plan.
+        """
+        if self._planner:
+            return self._planner.get_progress()
+        return None

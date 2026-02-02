@@ -496,3 +496,119 @@ class TestParallelToolExecution:
             assert "content1" in results[0].output
             assert results[1].success is True
             assert "content2" in results[1].output
+
+
+class TestPlanningIntegration:
+    """Tests for agent planning integration."""
+
+    @pytest.fixture
+    def mock_provider(self):
+        """Create a mock provider."""
+        class MockProvider:
+            is_available = True
+            async def generate(self, **kwargs):
+                class Result:
+                    content = ""
+                return Result()
+        return MockProvider()
+
+    def test_planning_disabled_by_default(self):
+        """Test that planning is disabled by default."""
+        config = AgentConfig()
+        assert config.enable_planning is False
+
+    def test_planning_can_be_enabled(self):
+        """Test that planning can be enabled."""
+        config = AgentConfig(enable_planning=True)
+        assert config.enable_planning is True
+
+    def test_planning_config_options(self):
+        """Test planning configuration options."""
+        config = AgentConfig(
+            enable_planning=True,
+            planning_threshold=3,
+            auto_revise_plan=False,
+        )
+        assert config.enable_planning is True
+        assert config.planning_threshold == 3
+        assert config.auto_revise_plan is False
+
+    def test_agent_is_planning_enabled(self, mock_provider):
+        """Test is_planning_enabled accessor."""
+        config = AgentConfig(enable_planning=False)
+        agent = Agent(provider=mock_provider, config=config)
+        assert agent.is_planning_enabled() is False
+
+        config2 = AgentConfig(enable_planning=True)
+        agent2 = Agent(provider=mock_provider, config=config2)
+        assert agent2.is_planning_enabled() is True
+
+    def test_agent_planner_initialization(self, mock_provider):
+        """Test that planner is initialized when enabled."""
+        config = AgentConfig(enable_planning=True)
+        agent = Agent(provider=mock_provider, config=config)
+        assert agent._planner is not None
+
+    def test_agent_no_planner_when_disabled(self, mock_provider):
+        """Test that planner is not initialized when disabled."""
+        config = AgentConfig(enable_planning=False)
+        agent = Agent(provider=mock_provider, config=config)
+        assert agent._planner is None
+
+    def test_get_plan_progress_no_plan(self, mock_provider):
+        """Test get_plan_progress with no plan."""
+        config = AgentConfig(enable_planning=True)
+        agent = Agent(provider=mock_provider, config=config)
+        # Planner exists but no plan yet
+        assert agent.get_plan_progress() == (0, 0)
+
+    def test_get_current_plan_no_plan(self, mock_provider):
+        """Test get_current_plan with no plan."""
+        config = AgentConfig(enable_planning=True)
+        agent = Agent(provider=mock_provider, config=config)
+        assert agent.get_current_plan() is None
+
+    @pytest.mark.asyncio
+    async def test_create_plan_returns_plan(self, mock_provider):
+        """Test create_plan returns an ExecutionPlan."""
+        # Mock provider that returns a valid plan JSON
+        class PlanningProvider:
+            is_available = True
+            async def generate(self, **kwargs):
+                class Result:
+                    content = '''```json
+{
+    "summary": "Test plan",
+    "steps": [
+        {"description": "Step 1", "reasoning": "First", "dependencies": [], "tool_hints": [], "estimated_complexity": "low"}
+    ]
+}
+```'''
+                return Result()
+
+        config = AgentConfig(enable_planning=True)
+        agent = Agent(provider=PlanningProvider(), config=config)
+
+        plan = await agent.create_plan("Test request")
+
+        assert plan is not None
+        assert plan.goal == "Test request"
+        assert len(plan.steps) == 1
+
+    def test_reset_clears_plan(self, mock_provider):
+        """Test that reset clears the plan."""
+        from src.core.planner import ExecutionPlan, PlanStep
+
+        config = AgentConfig(enable_planning=True)
+        agent = Agent(provider=mock_provider, config=config)
+
+        # Set a plan manually
+        plan = ExecutionPlan.create(goal="Test")
+        plan.add_step(PlanStep.create(description="Test step"))
+        agent._planner._current_plan = plan
+
+        assert agent.get_current_plan() is not None
+
+        # Reset should clear it
+        agent.reset()
+        assert agent.get_current_plan() is None
