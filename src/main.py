@@ -66,6 +66,135 @@ def main(
     pass
 
 
+@app.command("install")
+def install_cmd(
+    skip_native: bool = typer.Option(
+        False,
+        "--skip-native",
+        help="Skip llama-cpp-python installation.",
+    ),
+    skip_embeddings: bool = typer.Option(
+        False,
+        "--skip-embeddings",
+        help="Skip sentence-transformers installation.",
+    ),
+    force_cpu: bool = typer.Option(
+        False,
+        "--cpu",
+        help="Force CPU-only installation (no GPU acceleration).",
+    ),
+    verbose: bool = typer.Option(
+        False,
+        "--verbose",
+        "-V",
+        help="Show detailed installation output.",
+    ),
+) -> None:
+    """Install Animus - auto-detect system and install all dependencies.
+
+    This command detects your system (OS, architecture, GPU) and installs
+    the appropriate dependencies for optimal performance.
+
+    Supported platforms:
+    - Windows (x86_64)
+    - macOS (Intel & Apple Silicon)
+    - Linux (x86_64, ARM64)
+    - NVIDIA Jetson (Nano, TX2, Xavier, Orin)
+    """
+    from rich.progress import Progress, SpinnerColumn, TextColumn
+    from src.install import install_animus, InstallProgress, InstallStep
+
+    console.print("[bold magenta]Installing Animus[/bold magenta]\n")
+
+    steps_done = set()
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        console=console,
+        transient=False,
+    ) as progress:
+        current_task = None
+
+        def on_progress(p: InstallProgress):
+            nonlocal current_task
+
+            # Create new task for each step
+            if p.step.value not in steps_done:
+                if current_task is not None:
+                    progress.update(current_task, description=f"[green]✓[/green] {p.message}")
+                current_task = progress.add_task(p.message)
+                steps_done.add(p.step.value)
+            else:
+                # Update current task
+                if p.success:
+                    if p.warning:
+                        progress.update(current_task, description=f"[yellow]![/yellow] {p.message}")
+                    else:
+                        progress.update(current_task, description=f"[dim]{p.message}[/dim]")
+                else:
+                    progress.update(current_task, description=f"[red]✗[/red] {p.message}")
+
+            if verbose and p.detail:
+                console.print(f"  [dim]{p.detail}[/dim]")
+
+        result = install_animus(
+            skip_native=skip_native,
+            skip_embeddings=skip_embeddings,
+            force_cpu=force_cpu,
+            verbose=verbose,
+            progress_callback=on_progress,
+        )
+
+        # Mark final task complete
+        if current_task is not None:
+            progress.update(current_task, description="[green]✓[/green] Verification complete")
+
+    console.print()
+
+    # Show results
+    if result.success:
+        console.print("[bold green]Installation complete![/bold green]\n")
+    else:
+        console.print("[bold red]Installation completed with errors[/bold red]\n")
+
+    # System info
+    if result.system_info:
+        info = result.system_info
+        console.print(f"[bold]System:[/bold] {info.os.value} {info.architecture.value}")
+        console.print(f"[bold]Hardware:[/bold] {info.hardware_type.value}")
+        if info.gpu:
+            console.print(f"[bold]GPU:[/bold] {info.gpu.name}")
+        console.print()
+
+    # Components installed
+    if result.installed_components:
+        console.print("[bold]Installed:[/bold]")
+        for comp in result.installed_components:
+            console.print(f"  [green]✓[/green] {comp}")
+        console.print()
+
+    # Warnings
+    if result.warnings:
+        console.print("[bold yellow]Warnings:[/bold yellow]")
+        for warn in result.warnings:
+            console.print(f"  [yellow]![/yellow] {warn}")
+        console.print()
+
+    # Errors
+    if result.errors:
+        console.print("[bold red]Errors:[/bold red]")
+        for err in result.errors:
+            console.print(f"  [red]✗[/red] {err}")
+        console.print()
+
+    # Next steps
+    if result.next_steps:
+        console.print("[bold]Next steps:[/bold]")
+        for i, step in enumerate(result.next_steps, 1):
+            console.print(f"\n{i}. {step}")
+
+
 @app.command("sense")
 def detect(
     json_output: bool = typer.Option(

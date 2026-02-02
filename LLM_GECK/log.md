@@ -2475,3 +2475,96 @@ def __getattr__(name):
 ### Next
 - Commit and push optimization changes
 - Continue with Phase 8 BuilderQuery or Phase 10 Hybrid Search
+
+---
+
+## Entry #23 — 2026-02-02
+
+### Summary
+Implemented Phase 8 BuilderQuery interface for run analysis and self-improvement. Also created comprehensive installation system with `animus install` command and bootstrap script for improved cross-platform compatibility (including Jetson).
+
+### Phase 8: BuilderQuery Interface
+
+Created `src/core/builder.py` with:
+
+**Classes:**
+- `SuggestionPriority` enum: CRITICAL, HIGH, MEDIUM, LOW
+- `SuggestionCategory` enum: ERROR_PATTERN, PERFORMANCE, TOOL_USAGE, STRATEGY, RESOURCE, SUCCESS_RATE
+- `Suggestion` dataclass: Actionable improvement suggestion with evidence and affected runs
+- `AnalysisResult` dataclass: Complete analysis results with patterns and suggestions
+- `BuilderQuery` class: Main analysis engine
+
+**BuilderQuery Capabilities:**
+- `analyze()` - Analyze runs with optional filters (goal, days, limit)
+- `_analyze_patterns()` - Extract patterns from runs (status distribution, errors, tool usage)
+- `_analyze_error_patterns()` - Detect recurring errors (timeout, rate limit, permission, network)
+- `_analyze_performance()` - Identify performance issues (high tokens, slow runs, many turns)
+- `_analyze_tool_usage()` - Detect low tool success rates
+- `_analyze_success_rates()` - Flag high failure rates
+- `get_run_details()` - Detailed analysis of a specific run
+- `compare_runs()` - Compare multiple runs to identify differences
+- `get_trends()` - Analyze trends over time (daily stats, overall trend)
+
+**Tests:** 24 tests in `tests/test_builder.py` covering all analysis features
+
+### Installation System
+
+**Created `src/install.py`:**
+- `AnimusInstaller` class with cross-platform installation logic
+- Auto-detection of system type (OS, architecture, GPU)
+- Platform-specific installation methods:
+  - `_install_llama_cpp_cpu()` - CPU-only
+  - `_install_llama_cpp_cuda()` - NVIDIA CUDA with fallback
+  - `_install_llama_cpp_metal()` - Apple Silicon Metal
+  - `_install_llama_cpp_rocm()` - AMD ROCm
+  - `_install_llama_cpp_jetson()` - NVIDIA Jetson (Nano, TX2, Xavier, Orin)
+- Jetson-specific features:
+  - `_detect_jetpack_version()` - Parse JetPack version
+  - `_detect_jetson_cuda_arch()` - Map device to CUDA compute capability (53/62/72/87)
+- Progress callback system for UI updates
+
+**Created `install.py` (bootstrap script):**
+- Can run directly after `git clone` without any dependencies
+- Installs base dependencies, then runs full installer
+- Quickstart guide after installation
+
+**Added `animus install` CLI command:**
+- `--skip-native` - Skip llama-cpp-python
+- `--skip-embeddings` - Skip sentence-transformers
+- `--cpu` - Force CPU-only
+- `--verbose` - Detailed output
+
+### Simplified Installation Flow
+
+```
+git clone https://github.com/crussella0129/Animus.git
+cd Animus
+python install.py          # Auto-detects system, installs everything
+animus vessel download <model>
+animus rise
+```
+
+### Files Changed
+
+| File | Change |
+|------|--------|
+| `src/core/builder.py` | NEW - BuilderQuery analysis engine |
+| `src/core/__init__.py` | Export BuilderQuery components |
+| `tests/test_builder.py` | NEW - 24 tests for BuilderQuery |
+| `src/install.py` | NEW - Cross-platform installer module |
+| `install.py` | NEW - Bootstrap script (root directory) |
+| `src/main.py` | Added `animus install` command |
+| `tests/test_install.py` | NEW - 29 tests for installer |
+| `README.md` | Updated quickstart and installation docs |
+
+### Test Results
+```
+414 passed in 11.97s
+```
+
+### Checkpoint
+**Status:** CONTINUE — Phase 8 BuilderQuery complete. Installation system ready.
+
+### Next
+- Add `animus analyze` CLI command using BuilderQuery
+- Continue with Phase 10 Hybrid Search or Phase 11 Sub-Agent improvements

@@ -51,6 +51,13 @@ from src.core.compaction import (
     CompactionResult,
     compact_conversation,
 )
+from src.core.builder import (
+    BuilderQuery,
+    AnalysisResult,
+    Suggestion,
+    SuggestionPriority,
+    SuggestionCategory,
+)
 from src.core.permission import (
     PermissionAction,
     PermissionCategory,
@@ -122,6 +129,12 @@ __all__ = [
     "CompactionStrategy",
     "CompactionResult",
     "compact_conversation",
+    # BuilderQuery (Self-Improvement)
+    "BuilderQuery",
+    "AnalysisResult",
+    "Suggestion",
+    "SuggestionPriority",
+    "SuggestionCategory",
     # Permissions (Hardcoded Security)
     "PermissionAction",
     "PermissionCategory",

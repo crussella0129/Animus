@@ -1,6 +1,6 @@
 # Tasks — ANIMUS
 
-**Last Updated:** 2026-02-02 (Entry #21: Phase 12-13 complete, 361 tests total)
+**Last Updated:** 2026-02-02 (Entry #23: Phase 8 BuilderQuery, Installation system, 414 tests total)
 
 ## Design Philosophy Update
 
@@ -187,10 +187,13 @@ After analyzing 12 additional repositories, a critical insight emerged: **many a
   - [x] Add run indexing by goal, status, date
   - [x] Add RunStore class with find/filter methods
   - [x] Add tests (17 new tests in test_run.py)
-- [ ] **BuilderQuery Interface** (`src/core/builder.py`)
-  - [ ] Analyze runs for patterns and failures
-  - [ ] Generate improvement suggestions
-  - [ ] Implement `animus analyze <goal>` command
+- [x] **BuilderQuery Interface** (`src/core/builder.py`) ✓
+  - [x] Analyze runs for patterns and failures
+  - [x] Generate improvement suggestions
+  - [x] get_run_details() and compare_runs() methods
+  - [x] get_trends() for time-based analysis
+  - [x] 24 tests in test_builder.py
+  - [ ] Implement `animus analyze <goal>` command (CLI integration)
 - [ ] **Triangulated Verification** (`src/core/judge.py`)
   - [ ] Implement rule-based checks (fast, deterministic)
   - [ ] Implement LLM fallback evaluation (flexible, contextual)
@@ -223,6 +226,33 @@ After analyzing 12 additional repositories, a critical insight emerged: **many a
   - [x] Add `--show-tokens` CLI option
   - [x] Add TokenEstimator for character-based token estimation
   - [x] Add tests (22 new tests in test_context.py)
+
+### Installation System (Cross-Platform) ✓ (COMPLETE — Entry #23)
+
+**Goal:** Simplify Animus installation across all platforms including Jetson.
+
+**Tasks:**
+- [x] **Bootstrap Script** (`install.py` in root) — HARDCODED ✓
+  - [x] Runs directly after git clone without dependencies
+  - [x] System detection (OS, architecture, GPU)
+  - [x] Base dependency installation
+  - [x] Quickstart guide display
+- [x] **Install Module** (`src/install.py`) — HARDCODED ✓
+  - [x] AnimusInstaller class with cross-platform logic
+  - [x] Platform-specific installation methods
+  - [x] Jetson support (Nano, TX2, Xavier, Orin)
+  - [x] CUDA architecture detection per Jetson device
+  - [x] JetPack version detection
+  - [x] Fallback chain (GPU → CPU)
+- [x] **CLI Command** (`animus install`) — HARDCODED ✓
+  - [x] `--skip-native` flag
+  - [x] `--skip-embeddings` flag
+  - [x] `--cpu` flag for CPU-only
+  - [x] `--verbose` flag
+  - [x] Progress callback for UI updates
+- [x] **Tests** (`tests/test_install.py`) — 29 tests ✓
+
+**Test Results:** 414 passed (361 previous + 24 builder + 29 install)
 
 ### Phase 10: Enhanced Retrieval (from both analyses)
 
@@ -657,6 +687,9 @@ After analyzing 12 additional repositories, a critical insight emerged: **many a
 
 ## Completed (Recent)
 
+- Phase 8: BuilderQuery Interface (run analysis, pattern detection, improvement suggestions)
+- Installation System (cross-platform installer with Jetson support, `animus install` command)
+- Startup Performance: 91% faster (5.5s → 0.5s) via lazy loading
 - Bug Fix: Python string concatenation in JSON parsing (Qwen3-VL compatibility)
 - Phase 9: Session Compaction integrated into Agent class (246 tests pass)
 - Phase 16: Code Hardening Audit (permission.py, template variables)

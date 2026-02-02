@@ -18,35 +18,38 @@ A **techromantic** CLI coding agent that runs locally. Animus reads code, writes
 
 ## Quick Start
 
-### 1. Summon Animus
+### One-Line Install
 
 ```bash
-# Clone the repository
+git clone https://github.com/crussella0129/Animus.git && cd Animus && python install.py
+```
+
+### Or Step-by-Step
+
+```bash
+# 1. Clone the repository
 git clone https://github.com/crussella0129/Animus.git
 cd Animus
 
-# Install with native support (recommended)
-pip install -e ".[native]"
+# 2. Install (auto-detects your system and GPU)
+python install.py
 
-# Initialize Animus
-animus summon
-```
-
-### 2. Bind a Vessel (Download a Model)
-
-```bash
-# Download a coding model for Animus to inhabit
+# 3. Download a model
 animus vessel download Qwen/Qwen2.5-Coder-7B-Instruct-GGUF
-```
 
-### 3. Rise!
-
-```bash
-# Awaken Animus for an interactive session
+# 4. Rise!
 animus rise
 ```
 
 That's it! Animus awakens and awaits your commands.
+
+### Supported Platforms
+
+The installer auto-detects and configures for:
+- **Windows** (x86_64) - NVIDIA CUDA
+- **macOS** (Intel & Apple Silicon) - Metal acceleration
+- **Linux** (x86_64, ARM64) - CUDA, ROCm
+- **NVIDIA Jetson** (Nano, TX2, Xavier, Orin) - JetPack optimization
 
 ---
 
@@ -56,6 +59,7 @@ Animus uses thematic command names that fit its techromancy aesthetic. Tradition
 
 | Incantation | Purpose | Traditional |
 |-------------|---------|-------------|
+| `animus install` | **Install Animus** - auto-detect system and setup | - |
 | `animus rise` | **Awaken Animus** for interactive chat | `chat` |
 | `animus sense` | **Sense the realm** - detect OS, hardware, GPU | `detect` |
 | `animus summon` | **Summon Animus** - initialize in current directory | `init` |
@@ -208,9 +212,27 @@ Results for: authentication middleware
 
 ## Installation Options
 
-### Option A: Fully Self-Contained (Recommended)
+### Option A: Auto-Install (Recommended)
 
-Run entirely locally without any external services:
+The installer auto-detects your system and installs everything:
+
+```bash
+# Full installation with GPU acceleration
+python install.py
+
+# CPU-only installation
+python install.py --cpu
+
+# Minimal install (use Ollama for models)
+python install.py --minimal
+
+# Skip heavy dependencies
+python install.py --skip-native --skip-embeddings
+```
+
+After initial install, use `animus install` for future updates.
+
+### Option B: Manual Installation
 
 ```bash
 # Install with native support
@@ -232,13 +254,28 @@ CMAKE_ARGS="-DGGML_METAL=on" pip install llama-cpp-python --force-reinstall
 CMAKE_ARGS="-DGGML_HIPBLAS=on" pip install llama-cpp-python --force-reinstall
 ```
 
-### Option B: With Ollama
+### Option C: With Ollama (Lightweight)
 
 ```bash
 pip install -e .
 ollama serve
 animus bind qwen2.5-coder:7b
 animus rise
+```
+
+### Jetson Installation
+
+For NVIDIA Jetson devices (Nano, TX2, Xavier, Orin):
+
+```bash
+# Ensure JetPack is installed
+sudo apt update && sudo apt install nvidia-jetpack
+
+# Run installer (auto-detects Jetson)
+python install.py
+
+# Use quantized models to fit in memory
+animus vessel download TheBloke/Llama-2-7B-Chat-GGUF
 ```
 
 ---
@@ -314,7 +351,7 @@ Animus/
 │   ├── mcp/               # The Portal (MCP server)
 │   ├── incantations.py    # Animus responses
 │   └── main.py            # CLI entry point
-└── tests/                 # 246 tests
+└── tests/                 # 414 tests
 ```
 
 ---
