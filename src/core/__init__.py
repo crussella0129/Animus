@@ -2,7 +2,7 @@
 
 from src.core.config import ConfigManager, AnimusConfig, AgentBehaviorConfig
 from src.core.detection import detect_environment, SystemInfo
-from src.core.agent import Agent, AgentConfig, Turn
+from src.core.agent import Agent, AgentConfig, Turn, StreamChunk
 from src.core.subagent import (
     SubAgentOrchestrator,
     SubAgentRole,
@@ -106,6 +106,7 @@ __all__ = [
     "Agent",
     "AgentConfig",
     "Turn",
+    "StreamChunk",
     # Sub-agent
     "SubAgentOrchestrator",
     "SubAgentRole",

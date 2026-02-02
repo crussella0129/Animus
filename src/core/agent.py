@@ -106,6 +106,28 @@ class Turn:
     metadata: dict = field(default_factory=dict)
 
 
+@dataclass
+class StreamChunk:
+    """A chunk of streamed output.
+
+    Used for real-time token streaming. Can be either a token
+    (partial text) or a complete turn (when generation finishes).
+    """
+    type: str  # "token" or "turn"
+    token: Optional[str] = None  # For type="token"
+    turn: Optional[Turn] = None  # For type="turn"
+
+    @classmethod
+    def from_token(cls, token: str) -> "StreamChunk":
+        """Create a token chunk."""
+        return cls(type="token", token=token)
+
+    @classmethod
+    def from_turn(cls, turn: Turn) -> "StreamChunk":
+        """Create a turn chunk."""
+        return cls(type="turn", turn=turn)
+
+
 DEFAULT_SYSTEM_PROMPT = """You are Animus, an intelligent coding assistant.
 
 ## CRITICAL: Your Identity
@@ -886,6 +908,123 @@ class Agent:
 
         return assistant_turn
 
+    async def step_stream(
+        self,
+        user_input: Optional[str] = None,
+    ) -> AsyncIterator[StreamChunk]:
+        """
+        Execute one step of the agent loop with streaming.
+
+        Yields tokens as they are generated, then yields the final Turn.
+
+        Args:
+            user_input: User message to process. None to continue from last state.
+
+        Yields:
+            StreamChunk objects - either tokens or the final turn.
+        """
+        self._current_turn += 1
+
+        # Add user input to history
+        if user_input:
+            # Retrieve context if memory is enabled
+            context = await self._retrieve_context(user_input)
+            if context:
+                enhanced_input = f"{context}\n\nUser query: {user_input}"
+            else:
+                enhanced_input = user_input
+
+            self.history.append(Turn(role="user", content=enhanced_input))
+
+        # Check and perform compaction if needed
+        await self._check_and_compact()
+
+        # Build messages for LLM
+        messages = self._build_messages()
+
+        # Generate response with streaming
+        gen_config = GenerationConfig(
+            temperature=self.config.temperature,
+            max_tokens=4096,
+            stream=True,
+        )
+
+        # Collect streamed content
+        full_content = []
+        last_error = None
+        backoff = self.config.retry_backoff_base
+
+        for attempt in range(self.config.max_retries + 1):
+            try:
+                async for token in self.provider.generate_stream(
+                    messages=messages,
+                    model=self.config.model,
+                    config=gen_config,
+                ):
+                    full_content.append(token)
+                    yield StreamChunk.from_token(token)
+                break  # Success, exit retry loop
+            except Exception as e:
+                classified = classify_error(e)
+                last_error = classified
+                self._last_error = classified
+
+                # Only retry if the error strategy says we should
+                if not classified.strategy.should_retry or attempt >= self.config.max_retries:
+                    raise
+
+                # Reset content for retry
+                full_content = []
+
+                # Wait before retrying with exponential backoff
+                await asyncio.sleep(backoff)
+                backoff *= self.config.retry_backoff_multiplier
+
+        # Assemble final content
+        content = "".join(full_content)
+
+        if not content:
+            error_msg = str(last_error.message) if last_error else "Unknown error"
+            raise RuntimeError(f"Failed to generate response after retries: {error_msg}")
+
+        # Parse tool calls from response
+        tool_calls = await self._parse_tool_calls(content)
+
+        # Create assistant turn
+        assistant_turn = Turn(
+            role="assistant",
+            content=content,
+            tool_calls=tool_calls if tool_calls else None,
+        )
+        self.history.append(assistant_turn)
+
+        # Execute tool calls if any
+        if tool_calls:
+            tool_results = []
+            for call in tool_calls:
+                tool_result = await self._call_tool(call["name"], call["arguments"])
+                tool_results.append(tool_result)
+
+            # Add tool results to history (truncated to prevent context bloat)
+            results_parts = []
+            for call, res in zip(tool_calls, tool_results):
+                output_text = res.output if res.success else res.error
+                truncated_output = self._truncate_output(output_text)
+                results_parts.append(f"Tool: {call['name']}\nResult: {truncated_output}")
+
+            results_text = "\n\n".join(results_parts)
+            tool_turn = Turn(
+                role="tool",
+                content=results_text,
+                tool_results=tool_results,
+            )
+            self.history.append(tool_turn)
+
+            assistant_turn.tool_results = tool_results
+
+        # Yield the final turn
+        yield StreamChunk.from_turn(assistant_turn)
+
     async def run(
         self,
         user_input: str,
@@ -914,6 +1053,42 @@ class Agent:
 
             # Break if no more tool calls
             if not turn.tool_calls:
+                break
+
+    async def run_stream(
+        self,
+        user_input: str,
+    ) -> AsyncIterator[StreamChunk]:
+        """
+        Run the agent loop with streaming output.
+
+        Yields tokens as they are generated, interspersed with
+        complete Turn objects when generation finishes.
+
+        Args:
+            user_input: Initial user message.
+
+        Yields:
+            StreamChunk objects - either tokens or turns.
+        """
+        self._current_turn = 0
+        last_turn: Optional[Turn] = None
+
+        # First step with user input (streaming)
+        async for chunk in self.step_stream(user_input):
+            yield chunk
+            if chunk.type == "turn":
+                last_turn = chunk.turn
+
+        # Continue if there were tool calls
+        while last_turn and last_turn.tool_calls and self._current_turn < self.config.max_turns:
+            async for chunk in self.step_stream():
+                yield chunk
+                if chunk.type == "turn":
+                    last_turn = chunk.turn
+
+            # Break if no more tool calls
+            if last_turn and not last_turn.tool_calls:
                 break
 
     def reset(self) -> None:

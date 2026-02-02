@@ -1237,6 +1237,11 @@ def chat(
         "--show-tokens",
         help="Show token usage after each turn.",
     ),
+    stream: bool = typer.Option(
+        True,
+        "--stream/--no-stream",
+        help="Stream tokens in real-time (default: enabled).",
+    ),
 ) -> None:
     """Rise! Begin an interactive session with Animus."""
     import asyncio
@@ -1343,23 +1348,62 @@ def chat(
 
                 console.print()
 
-                async for turn in agent.run(user_input):
-                    if turn.role == "assistant":
-                        # Track assistant response tokens
-                        turn_number += 1
-                        context_window.add_turn(turn_number, "assistant", turn.content)
+                if stream:
+                    # Streaming mode - display tokens as they arrive
+                    from src.core import StreamChunk
 
-                        console.print("[bold blue]Animus[/bold blue]")
-                        # Render as markdown
-                        console.print(Markdown(turn.content))
+                    streaming_started = False
+                    current_content = []
 
-                        if turn.tool_calls:
-                            console.print(f"\n[dim]Executed {len(turn.tool_calls)} tool(s)[/dim]")
+                    async for chunk in agent.run_stream(user_input):
+                        if chunk.type == "token":
+                            # Print header on first token
+                            if not streaming_started:
+                                console.print("[bold blue]Animus[/bold blue]", end="")
+                                console.print()  # newline after header
+                                streaming_started = True
+                            # Print token immediately (raw, no markdown)
+                            print(chunk.token, end="", flush=True)
+                            current_content.append(chunk.token)
+                        elif chunk.type == "turn" and chunk.turn:
+                            turn = chunk.turn
+                            if turn.role == "assistant":
+                                # End the streaming line
+                                if streaming_started:
+                                    print()  # newline after streamed content
+                                    streaming_started = False
+                                    current_content = []
 
-                        # Show token usage if requested
-                        if show_tokens:
-                            stats = context_window.get_stats()
-                            console.print(f"[dim]Tokens: {stats['total_tokens']}/{stats['max_tokens']} ({stats['usage_ratio']:.0%})[/dim]")
+                                # Track assistant response tokens
+                                turn_number += 1
+                                context_window.add_turn(turn_number, "assistant", turn.content)
+
+                                if turn.tool_calls:
+                                    console.print(f"\n[dim]Executed {len(turn.tool_calls)} tool(s)[/dim]")
+
+                                # Show token usage if requested
+                                if show_tokens:
+                                    stats = context_window.get_stats()
+                                    console.print(f"[dim]Tokens: {stats['total_tokens']}/{stats['max_tokens']} ({stats['usage_ratio']:.0%})[/dim]")
+                else:
+                    # Non-streaming mode - display complete responses
+                    async for turn in agent.run(user_input):
+                        if turn.role == "assistant":
+                            # Track assistant response tokens
+                            turn_number += 1
+                            context_window.add_turn(turn_number, "assistant", turn.content)
+
+                            console.print("[bold blue]Animus[/bold blue]")
+                            # Render as markdown
+                            console.print(Markdown(turn.content))
+
+                            if turn.tool_calls:
+                                console.print(f"\n[dim]Executed {len(turn.tool_calls)} tool(s)[/dim]")
+
+                            # Show token usage if requested
+                            if show_tokens:
+                                stats = context_window.get_stats()
+                                console.print(f"[dim]Tokens: {stats['total_tokens']}/{stats['max_tokens']} ({stats['usage_ratio']:.0%})[/dim]")
 
                 console.print()
 

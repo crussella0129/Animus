@@ -291,3 +291,109 @@ class TestAgentDirectoryTracking:
         assert agent._is_safe_shell_command("pwd")
         assert not agent._is_safe_shell_command("rm file.txt")
         assert not agent._is_safe_shell_command("git push")
+
+
+class TestStreamChunk:
+    """Tests for StreamChunk class."""
+
+    def test_from_token(self):
+        """Test creating a token chunk."""
+        from src.core.agent import StreamChunk
+        chunk = StreamChunk.from_token("Hello")
+        assert chunk.type == "token"
+        assert chunk.token == "Hello"
+        assert chunk.turn is None
+
+    def test_from_turn(self):
+        """Test creating a turn chunk."""
+        from src.core.agent import StreamChunk, Turn
+        turn = Turn(role="assistant", content="Hello, world!")
+        chunk = StreamChunk.from_turn(turn)
+        assert chunk.type == "turn"
+        assert chunk.turn == turn
+        assert chunk.token is None
+
+    def test_token_chunk_str(self):
+        """Test that token chunks hold string tokens."""
+        from src.core.agent import StreamChunk
+        chunk = StreamChunk.from_token("")
+        assert chunk.token == ""
+        chunk = StreamChunk.from_token(" ")
+        assert chunk.token == " "
+
+
+class TestAgentStreaming:
+    """Tests for agent streaming functionality."""
+
+    @pytest.fixture
+    def streaming_provider(self):
+        """Create a mock provider that supports streaming."""
+        class MockStreamingProvider:
+            is_available = True
+
+            async def generate(self, **kwargs):
+                class Result:
+                    content = "Hello, I am Animus!"
+                return Result()
+
+            async def generate_stream(self, **kwargs):
+                tokens = ["Hello", ", ", "I ", "am ", "Animus", "!"]
+                for token in tokens:
+                    yield token
+
+        return MockStreamingProvider()
+
+    @pytest.fixture
+    def streaming_agent(self, streaming_provider):
+        """Create an agent with streaming provider."""
+        from src.core.agent import Agent, AgentConfig
+        config = AgentConfig(max_turns=1)
+        return Agent(provider=streaming_provider, config=config)
+
+    @pytest.mark.asyncio
+    async def test_step_stream_yields_tokens(self, streaming_agent):
+        """Test that step_stream yields tokens."""
+        from src.core.agent import StreamChunk
+
+        chunks = []
+        async for chunk in streaming_agent.step_stream("Hi"):
+            chunks.append(chunk)
+
+        # Should have token chunks and a final turn chunk
+        token_chunks = [c for c in chunks if c.type == "token"]
+        turn_chunks = [c for c in chunks if c.type == "turn"]
+
+        assert len(token_chunks) == 6  # "Hello", ", ", "I ", "am ", "Animus", "!"
+        assert len(turn_chunks) == 1
+        assert turn_chunks[0].turn.role == "assistant"
+
+    @pytest.mark.asyncio
+    async def test_step_stream_content_matches(self, streaming_agent):
+        """Test that streamed content matches final turn."""
+        from src.core.agent import StreamChunk
+
+        tokens = []
+        final_turn = None
+        async for chunk in streaming_agent.step_stream("Hi"):
+            if chunk.type == "token":
+                tokens.append(chunk.token)
+            elif chunk.type == "turn":
+                final_turn = chunk.turn
+
+        streamed_content = "".join(tokens)
+        assert final_turn is not None
+        assert final_turn.content == streamed_content
+
+    @pytest.mark.asyncio
+    async def test_run_stream_yields_chunks(self, streaming_agent):
+        """Test that run_stream yields StreamChunks."""
+        from src.core.agent import StreamChunk
+
+        chunks = []
+        async for chunk in streaming_agent.run_stream("Hello"):
+            chunks.append(chunk)
+            assert isinstance(chunk, StreamChunk)
+
+        # Should have at least one turn
+        turn_chunks = [c for c in chunks if c.type == "turn"]
+        assert len(turn_chunks) >= 1
