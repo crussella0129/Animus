@@ -1,0 +1,220 @@
+{
+  "name": "animus-vscode",
+  "displayName": "Animus - AI Coding Assistant",
+  "description": "VSCode integration for Animus, the local AI coding agent",
+  "version": "0.1.0",
+  "publisher": "animus",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Machine Learning",
+    "Other"
+  ],
+  "keywords": [
+    "ai",
+    "coding assistant",
+    "animus",
+    "code generation",
+    "local ai"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "animus.startChat",
+        "title": "Animus: Start Chat",
+        "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "animus.askAboutSelection",
+        "title": "Animus: Ask About Selection"
+      },
+      {
+        "command": "animus.explainCode",
+        "title": "Animus: Explain This Code"
+      },
+      {
+        "command": "animus.fixCode",
+        "title": "Animus: Fix This Code"
+      },
+      {
+        "command": "animus.refactorCode",
+        "title": "Animus: Refactor This Code"
+      },
+      {
+        "command": "animus.generateTests",
+        "title": "Animus: Generate Tests"
+      },
+      {
+        "command": "animus.addDocumentation",
+        "title": "Animus: Add Documentation"
+      },
+      {
+        "command": "animus.connectServer",
+        "title": "Animus: Connect to Server"
+      },
+      {
+        "command": "animus.disconnectServer",
+        "title": "Animus: Disconnect from Server"
+      },
+      {
+        "command": "animus.showDiff",
+        "title": "Animus: Show Pending Changes"
+      },
+      {
+        "command": "animus.acceptChanges",
+        "title": "Animus: Accept Changes"
+      },
+      {
+        "command": "animus.rejectChanges",
+        "title": "Animus: Reject Changes"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "animus.askAboutSelection",
+          "when": "editorHasSelection",
+          "group": "animus@1"
+        },
+        {
+          "command": "animus.explainCode",
+          "when": "editorHasSelection",
+          "group": "animus@2"
+        },
+        {
+          "command": "animus.fixCode",
+          "when": "editorHasSelection",
+          "group": "animus@3"
+        },
+        {
+          "command": "animus.refactorCode",
+          "when": "editorHasSelection",
+          "group": "animus@4"
+        },
+        {
+          "command": "animus.generateTests",
+          "when": "editorHasSelection",
+          "group": "animus@5"
+        },
+        {
+          "command": "animus.addDocumentation",
+          "when": "editorHasSelection",
+          "group": "animus@6"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "animus.startChat",
+          "when": "true"
+        },
+        {
+          "command": "animus.connectServer",
+          "when": "!animus.connected"
+        },
+        {
+          "command": "animus.disconnectServer",
+          "when": "animus.connected"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "animus",
+          "title": "Animus",
+          "icon": "resources/animus-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "animus": [
+        {
+          "type": "webview",
+          "id": "animus.chatView",
+          "name": "Chat"
+        },
+        {
+          "id": "animus.changesView",
+          "name": "Pending Changes"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Animus",
+      "properties": {
+        "animus.serverUrl": {
+          "type": "string",
+          "default": "ws://localhost:8765",
+          "description": "WebSocket URL for Animus server"
+        },
+        "animus.autoConnect": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically connect to Animus server on startup"
+        },
+        "animus.showInlineDiffs": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show inline diff decorations for proposed changes"
+        },
+        "animus.streamingEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable streaming responses in chat"
+        },
+        "animus.confirmBeforeApply": {
+          "type": "boolean",
+          "default": true,
+          "description": "Confirm before applying code changes"
+        }
+      }
+    },
+    "keybindings": [
+      {
+        "command": "animus.startChat",
+        "key": "ctrl+shift+a",
+        "mac": "cmd+shift+a"
+      },
+      {
+        "command": "animus.askAboutSelection",
+        "key": "ctrl+shift+q",
+        "mac": "cmd+shift+q",
+        "when": "editorHasSelection"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/vscode": "^1.85.0",
+    "@types/ws": "^8.5.10",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "@vscode/test-electron": "^2.3.8",
+    "eslint": "^8.54.0",
+    "typescript": "^5.3.2",
+    "vsce": "^2.15.0"
+  },
+  "dependencies": {
+    "ws": "^8.14.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/crussella0129/Animus"
+  },
+  "license": "MIT"
+}

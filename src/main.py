@@ -1706,6 +1706,36 @@ def serve(
         server.shutdown()
 
 
+@app.command("ide")
+def ide_server(
+    host: str = typer.Option("localhost", "--host", "-h", help="Host to bind to."),
+    port: int = typer.Option(8765, "--port", "-p", help="Port to listen on."),
+) -> None:
+    """Start the WebSocket server for IDE integration (VSCode extension)."""
+    import asyncio
+
+    try:
+        from src.api.websocket_server import run_websocket_server
+    except ImportError:
+        console.print("[red]websockets package not installed.[/red]")
+        console.print("Install with: [cyan]pip install websockets[/cyan]")
+        raise typer.Exit(1)
+
+    console.print(f"[bold magenta]✦ Animus IDE Server ✦[/bold magenta]")
+    console.print(f"WebSocket server on [cyan]ws://{host}:{port}[/cyan]")
+    console.print()
+    console.print("[dim]Connect your VSCode extension to this server.[/dim]")
+    console.print("[dim]Configure the URL in VSCode settings: animus.serverUrl[/dim]")
+    console.print()
+    console.print("Press [yellow]Ctrl+C[/yellow] to stop")
+    console.print()
+
+    try:
+        asyncio.run(run_websocket_server(host=host, port=port))
+    except KeyboardInterrupt:
+        console.print("\n[dim]Shutting down...[/dim]")
+
+
 # =============================================================================
 # BACKWARD COMPATIBILITY ALIASES
 # =============================================================================

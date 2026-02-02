@@ -62,8 +62,11 @@ analysis = [
     "tree-sitter-c>=0.21.0",
     "tree-sitter-cpp>=0.21.0",
 ]
+ide = [
+    "websockets>=12.0",
+]
 all = [
-    "animus[dev,native,memory,analysis]",
+    "animus[dev,native,memory,analysis,ide]",
 ]
 
 [project.scripts]
