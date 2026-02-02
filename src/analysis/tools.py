@@ -305,10 +305,228 @@ class GetCodeStructureTool(Tool):
         )
 
 
+class IndexCodebaseTool(Tool):
+    """Tool to index a codebase for fast symbol search."""
+
+    def __init__(self):
+        self._indexer = None
+        self._index = None
+
+    def _get_indexer(self):
+        """Get indexer, creating if needed."""
+        if self._indexer is None:
+            from src.analysis.indexer import CodebaseIndexer
+            self._indexer = CodebaseIndexer()
+        return self._indexer
+
+    @property
+    def name(self) -> str:
+        return "index_codebase"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Index a codebase directory for fast symbol search. "
+            "Scans all supported source files and extracts symbols."
+        )
+
+    @property
+    def parameters(self) -> list[ToolParameter]:
+        return [
+            ToolParameter(
+                name="directory",
+                type="string",
+                description="Path to the directory to index.",
+            ),
+            ToolParameter(
+                name="save_path",
+                type="string",
+                description="Path to save the index file (optional).",
+                required=False,
+            ),
+        ]
+
+    @property
+    def category(self) -> ToolCategory:
+        return ToolCategory.ANALYSIS
+
+    @property
+    def requires_confirmation(self) -> bool:
+        return False
+
+    async def execute(
+        self,
+        directory: str,
+        save_path: Optional[str] = None,
+        **kwargs: Any,
+    ) -> ToolResult:
+        """Index a codebase."""
+        from pathlib import Path
+
+        if not Path(directory).exists():
+            return ToolResult(
+                success=False,
+                output="",
+                error=f"Directory not found: {directory}",
+            )
+
+        indexer = self._get_indexer()
+
+        try:
+            self._index = indexer.index_directory(directory)
+
+            if save_path:
+                indexer.save_index(self._index, save_path)
+
+            stats = self._index.get_statistics()
+            output = (
+                f"Indexed {stats['total_files']} files\n"
+                f"Found {stats['total_symbols']} symbols:\n"
+                f"  - {stats['total_classes']} classes\n"
+                f"  - {stats['total_functions']} functions/methods\n"
+                f"Languages: {', '.join(stats['languages'])}"
+            )
+            if save_path:
+                output += f"\nIndex saved to: {save_path}"
+
+            return ToolResult(
+                success=True,
+                output=output,
+                metadata=stats,
+            )
+        except Exception as e:
+            return ToolResult(
+                success=False,
+                output="",
+                error=f"Indexing failed: {e}",
+            )
+
+
+class SearchCodebaseTool(Tool):
+    """Tool to search an indexed codebase."""
+
+    def __init__(self):
+        self._index = None
+
+    @property
+    def name(self) -> str:
+        return "search_codebase"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Search for symbols in an indexed codebase. "
+            "Requires prior indexing with index_codebase or loading an index."
+        )
+
+    @property
+    def parameters(self) -> list[ToolParameter]:
+        return [
+            ToolParameter(
+                name="query",
+                type="string",
+                description="Search query (symbol name or pattern).",
+            ),
+            ToolParameter(
+                name="symbol_type",
+                type="string",
+                description="Filter by type: function, class, method.",
+                required=False,
+            ),
+            ToolParameter(
+                name="index_path",
+                type="string",
+                description="Path to load index from (if not already loaded).",
+                required=False,
+            ),
+            ToolParameter(
+                name="limit",
+                type="integer",
+                description="Maximum results to return (default: 20).",
+                required=False,
+            ),
+        ]
+
+    @property
+    def category(self) -> ToolCategory:
+        return ToolCategory.ANALYSIS
+
+    @property
+    def requires_confirmation(self) -> bool:
+        return False
+
+    async def execute(
+        self,
+        query: str,
+        symbol_type: Optional[str] = None,
+        index_path: Optional[str] = None,
+        limit: int = 20,
+        **kwargs: Any,
+    ) -> ToolResult:
+        """Search the codebase."""
+        from src.analysis.indexer import CodebaseIndexer
+
+        # Load index if path provided
+        if index_path:
+            try:
+                indexer = CodebaseIndexer()
+                self._index = indexer.load_index(index_path)
+            except Exception as e:
+                return ToolResult(
+                    success=False,
+                    output="",
+                    error=f"Failed to load index: {e}",
+                )
+
+        if self._index is None:
+            return ToolResult(
+                success=False,
+                output="",
+                error="No index loaded. Use index_codebase first or provide index_path.",
+            )
+
+        # Parse symbol type
+        sym_type = None
+        if symbol_type:
+            try:
+                sym_type = SymbolType(symbol_type.lower())
+            except ValueError:
+                pass
+
+        # Search
+        results = self._index.search_symbols(query, symbol_type=sym_type, limit=limit)
+
+        if not results:
+            return ToolResult(
+                success=True,
+                output=f"No results found for '{query}'",
+                metadata={"count": 0},
+            )
+
+        # Format output
+        output_parts = [f"Found {len(results)} result(s) for '{query}':"]
+        for r in results:
+            sym = r.symbol
+            if sym:
+                output_parts.append(
+                    f"  {sym.type.value}: {sym.name} - {r.file_path}:{r.line}"
+                )
+            else:
+                output_parts.append(f"  {r.file_path}:{r.line}")
+
+        return ToolResult(
+            success=True,
+            output="\n".join(output_parts),
+            metadata={"count": len(results)},
+        )
+
+
 def create_analysis_tools() -> list[Tool]:
     """Create all analysis tools."""
     return [
         AnalyzeCodeTool(),
         FindSymbolsTool(),
         GetCodeStructureTool(),
+        IndexCodebaseTool(),
+        SearchCodebaseTool(),
     ]

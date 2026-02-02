@@ -12,6 +12,12 @@ from src.analysis.parser import (
     is_tree_sitter_available,
     get_supported_languages,
 )
+from src.analysis.indexer import (
+    CodebaseIndexer,
+    CodebaseIndex,
+    IndexedFile,
+    SearchResult,
+)
 
 
 class TestParserBasics:
@@ -333,3 +339,163 @@ class TestAnalysisTools:
             assert structure["classes"][0]["name"] == "Foo"
 
             Path(f.name).unlink()
+
+
+class TestCodebaseIndexer:
+    """Tests for codebase indexing."""
+
+    def test_indexed_file_serialization(self):
+        """Test IndexedFile to_dict and from_dict."""
+        symbols = [
+            CodeSymbol("test", SymbolType.FUNCTION, 1, 0, 5, 0),
+        ]
+        indexed = IndexedFile(
+            path="test.py",
+            language="python",
+            symbols=symbols,
+            imports=["import os"],
+            last_modified=12345.0,
+            file_hash="abc123",
+        )
+
+        d = indexed.to_dict()
+        restored = IndexedFile.from_dict(d)
+
+        assert restored.path == indexed.path
+        assert restored.language == indexed.language
+        assert len(restored.symbols) == 1
+        assert restored.symbols[0].name == "test"
+
+    def test_codebase_index_statistics(self):
+        """Test CodebaseIndex statistics."""
+        symbols = [
+            CodeSymbol("MyClass", SymbolType.CLASS, 1, 0, 10, 0),
+            CodeSymbol("my_func", SymbolType.FUNCTION, 15, 0, 20, 0),
+        ]
+        indexed = IndexedFile(
+            path="test.py",
+            language="python",
+            symbols=symbols,
+            imports=[],
+            last_modified=12345.0,
+            file_hash="abc123",
+        )
+
+        index = CodebaseIndex(root_path="/test")
+        index.add_file(indexed)
+
+        stats = index.get_statistics()
+        assert stats["total_files"] == 1
+        assert stats["total_symbols"] == 2
+        assert stats["total_classes"] == 1
+        assert stats["total_functions"] == 1
+
+    def test_codebase_index_search(self):
+        """Test CodebaseIndex symbol search."""
+        symbols = [
+            CodeSymbol("MyClass", SymbolType.CLASS, 1, 0, 10, 0),
+            CodeSymbol("my_func", SymbolType.FUNCTION, 15, 0, 20, 0),
+            CodeSymbol("another_func", SymbolType.FUNCTION, 25, 0, 30, 0),
+        ]
+        indexed = IndexedFile(
+            path="test.py",
+            language="python",
+            symbols=symbols,
+            imports=[],
+            last_modified=12345.0,
+            file_hash="abc123",
+        )
+
+        index = CodebaseIndex(root_path="/test")
+        index.add_file(indexed)
+
+        # Search by pattern
+        results = index.search_symbols("func")
+        assert len(results) == 2
+
+        # Search with type filter
+        results = index.search_symbols("My", symbol_type=SymbolType.CLASS)
+        assert len(results) == 1
+        assert results[0].symbol.name == "MyClass"
+
+    def test_codebase_index_find_definition(self):
+        """Test finding symbol definitions."""
+        symbols = [
+            CodeSymbol("MyClass", SymbolType.CLASS, 1, 0, 10, 0),
+        ]
+        indexed = IndexedFile(
+            path="test.py",
+            language="python",
+            symbols=symbols,
+            imports=[],
+            last_modified=12345.0,
+            file_hash="abc123",
+        )
+
+        index = CodebaseIndex(root_path="/test")
+        index.add_file(indexed)
+
+        results = index.find_definition("MyClass")
+        assert len(results) == 1
+        assert results[0].file_path == "test.py"
+
+        results = index.find_definition("NonExistent")
+        assert len(results) == 0
+
+    def test_indexer_ignore_patterns(self):
+        """Test that ignore patterns work."""
+        indexer = CodebaseIndexer()
+
+        # These should be ignored by default
+        assert indexer._should_ignore(Path("node_modules"), "node_modules")
+        assert indexer._should_ignore(Path(".git"), ".git")
+        assert indexer._should_ignore(Path("test.pyc"), "test.pyc")
+
+        # These should not be ignored
+        assert not indexer._should_ignore(Path("src"), "src")
+        assert not indexer._should_ignore(Path("main.py"), "main.py")
+
+    @pytest.mark.skipif(
+        not is_tree_sitter_available() or "python" not in get_supported_languages(),
+        reason="tree-sitter-python not installed"
+    )
+    def test_indexer_index_directory(self):
+        """Test indexing a directory."""
+        import os
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create test files
+            Path(tmpdir, "main.py").write_text("def main():\n    pass\n")
+            Path(tmpdir, "utils.py").write_text("def helper():\n    pass\n")
+            Path(tmpdir, "data.txt").write_text("not code")  # Should be ignored
+
+            indexer = CodebaseIndexer()
+            index = indexer.index_directory(tmpdir)
+
+            assert len(index.files) == 2
+            stats = index.get_statistics()
+            assert stats["total_functions"] == 2
+
+    @pytest.mark.skipif(
+        not is_tree_sitter_available() or "python" not in get_supported_languages(),
+        reason="tree-sitter-python not installed"
+    )
+    def test_indexer_save_and_load(self):
+        """Test saving and loading an index."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create test file
+            Path(tmpdir, "test.py").write_text("class Foo:\n    pass\n")
+
+            indexer = CodebaseIndexer()
+            index = indexer.index_directory(tmpdir)
+
+            # Save index
+            index_path = Path(tmpdir, "index.json")
+            indexer.save_index(index, str(index_path))
+
+            # Load index
+            loaded = indexer.load_index(str(index_path))
+
+            assert len(loaded.files) == len(index.files)
+            stats = loaded.get_statistics()
+            assert stats["total_classes"] == 1

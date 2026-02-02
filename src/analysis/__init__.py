@@ -8,6 +8,12 @@ from src.analysis.parser import (
     is_tree_sitter_available,
     get_supported_languages,
 )
+from src.analysis.indexer import (
+    CodebaseIndexer,
+    CodebaseIndex,
+    IndexedFile,
+    SearchResult,
+)
 from src.analysis.tools import (
     AnalyzeCodeTool,
     FindSymbolsTool,
@@ -22,6 +28,11 @@ __all__ = [
     "SymbolType",
     "is_tree_sitter_available",
     "get_supported_languages",
+    # Indexer
+    "CodebaseIndexer",
+    "CodebaseIndex",
+    "IndexedFile",
+    "SearchResult",
     # Tools
     "AnalyzeCodeTool",
     "FindSymbolsTool",
