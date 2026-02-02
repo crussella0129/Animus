@@ -2637,3 +2637,248 @@ Created `src/core/judge.py` with multi-layer verification:
 ### Next
 - Phase 10: Hybrid Search (BM25 + vector)
 - Phase 11: Sub-Agent Architecture Improvements
+
+---
+
+## Entry #25 — 2026-02-02
+
+### Summary
+Comprehensive codebase analysis and cleanup. Removed Ollama, renamed thematic commands to standard names, updated README.
+
+### Changes Made This Session
+
+**1. Removed Ollama Provider**
+- Deleted `src/llm/ollama.py` entirely
+- Simplified architecture to only: NativeProvider, TRTLLMProvider, APIProvider
+- Updated `src/llm/factory.py`, `src/llm/base.py`, `src/llm/__init__.py`
+- Removed OllamaConfig from `src/core/config.py`
+
+**2. Renamed Thematic Commands to Standard Names**
+- `vessels` → `models` (model management)
+- `summon` → `init` (initialize project)
+- `attune` → `config` (configuration)
+- `consume` → `ingest` (RAG ingestion)
+- `scry` → `search` (RAG search)
+- `reflect` → `analyze` (run analysis)
+- `commune` → `status` (system status)
+- `manifest` → `serve` (API server)
+- `sense` → `detect` (hardware detection)
+- Kept `rise` as branded command (start chat)
+
+**3. Added `animus pull <repo>` Command**
+- Direct model download from Hugging Face
+- Replaces `animus vessel download`
+
+**4. Updated README**
+- Clean quick start guide
+- Standard command names
+- Detailed installation instructions
+- Model recommendations
+- Configuration examples
+
+### Files Changed
+
+| File | Change |
+|------|--------|
+| `src/llm/ollama.py` | DELETED |
+| `src/llm/factory.py` | Removed Ollama references |
+| `src/llm/base.py` | Removed OLLAMA from ProviderType |
+| `src/llm/__init__.py` | Removed OllamaProvider export |
+| `src/core/config.py` | Removed OllamaConfig |
+| `src/main.py` | Renamed all commands, added pull |
+| `tests/test_llm.py` | Removed Ollama tests |
+| `tests/test_install.py` | Updated test assertions |
+| `README.md` | Complete rewrite |
+
+---
+
+## COMPREHENSIVE CODEBASE ANALYSIS
+
+### Executive Summary
+
+**Animus** is a local CLI coding agent (~12K LOC) powered by GGUF models via llama-cpp-python. The project is **Alpha (v0.1.0)** with solid architecture but critical gaps.
+
+**Overall Score: 6.0/10 - Functional Alpha with notable gaps**
+
+| Category | Score | Notes |
+|----------|-------|-------|
+| Architecture | 7/10 | Good structure, some coupling |
+| Security | 7/10 | Good permissions, validation gaps |
+| Error Handling | 6/10 | Classified errors good, silent failures |
+| Test Coverage | 5/10 | Core tests exist, integration gaps |
+| Documentation | 5/10 | Good README, missing advanced docs |
+| Performance | 6/10 | Reasonable, token estimation wrong |
+| Code Quality | 6/10 | Clean code, technical debt present |
+| Completeness | 5/10 | Core works, TensorRT/Compaction incomplete |
+
+---
+
+### CRITICAL ISSUES (Must Fix Before v0.2)
+
+#### 1. TensorRT-LLM Provider Non-Functional
+**File:** `src/llm/trtllm.py`
+**Issue:** `generate()` and `generate_stream()` raise `NotImplementedError`
+**Impact:** Jetson hardware users completely blocked
+**Missing:** Referenced `docs/trtllm-setup.md` doesn't exist
+
+#### 2. Permission Checker False Positives
+**File:** `src/core/permission.py` lines 303-313
+**Issue:** Substring matching in path checks
+```python
+for dangerous_dir in DANGEROUS_DIRECTORIES:
+    if dangerous_dir in path_str or path_str.endswith(dangerous_dir.rstrip("/")):
+```
+**Problem:** `.git/config` could match `my.git/config_backup`
+**Fix:** Use proper path component matching
+
+#### 3. Session Compaction Not Implemented
+**File:** `src/core/compaction.py`
+**Issue:** `compact_turns()` is stub, SUMMARIZE strategy incomplete
+**Impact:** Long conversations will crash with context overflow
+
+#### 4. Missing Dependencies in pyproject.toml
+**Missing:**
+- `sentence-transformers` (imported in memory/embedder.py)
+- `chromadb` (imported in memory/vectorstore.py)
+
+#### 5. Token Estimation Heuristic Wrong
+**File:** `src/core/agent.py` line 284
+```python
+return len(text) // 4  # Rough approximation for English
+```
+**Problem:** Incorrect for code and non-English text
+**Fix:** Use tiktoken or actual tokenizer
+
+---
+
+### HIGH-PRIORITY ISSUES
+
+#### 6. Shell Command Execution Risk
+**File:** `src/tools/shell.py` line 158
+**Issue:** Uses `shell=True` with `asyncio.create_subprocess_shell()`
+**Mitigation:** Permission checker helps but edge cases exist
+**Recommendation:** Add command quoting validation, CRLF detection
+
+#### 7. Silent Failure Cascades
+- Memory search failures return None silently (agent.py:362)
+- Config errors print warning but return defaults
+- Embedder falls back to mock without notification
+
+#### 8. Working Directory Tracking Incomplete
+**File:** `src/core/agent.py` lines 415-435
+**Issue:** `_is_path_change_significant()` doesn't handle relative paths properly
+
+#### 9. Tool Output Truncation
+**File:** `src/core/agent.py` lines 408-413
+**Issue:** Truncates to 10KB without clear notification to LLM
+**Impact:** Agent makes decisions on incomplete data
+
+#### 10. Configuration Duplication
+- `AgentConfig.safe_shell_commands` (agent.py:64-70)
+- `AgentBehaviorConfig.safe_shell_commands` (config.py:62-71)
+**Risk:** Inconsistency if one is updated
+
+---
+
+### SECURITY ANALYSIS
+
+**Well-Implemented:**
+- ✅ Hardcoded permission system with mandatory deny lists
+- ✅ Safe shell commands whitelist
+- ✅ Dangerous directory/file blocking
+- ✅ Symlink escape detection
+- ✅ Pipe-to-shell detection (data exfiltration)
+
+**Gaps:**
+- ⚠️ Commands inherit full environment (credential exposure risk)
+- ⚠️ No rate limiting on file operations
+- ⚠️ API keys might appear in exception messages
+- ⚠️ Missing CRLF injection detection
+
+---
+
+### TEST COVERAGE GAPS
+
+**16 test files, ~1,500 LOC**
+
+**NOT TESTED:**
+- Agent.step() full flow
+- Agent.run() loop and streaming
+- Tool confirmation flow
+- Memory system end-to-end
+- Sub-agent execution
+- MCP server functionality
+- Compaction logic
+- Error recovery strategies
+
+**MISSING TEST TYPES:**
+- Integration tests
+- Security bypass tests
+- Stress tests (context overflow, large files)
+- Concurrency tests
+
+---
+
+### INCOMPLETE IMPLEMENTATIONS
+
+| Feature | File | Status |
+|---------|------|--------|
+| TensorRT-LLM inference | llm/trtllm.py | Stub only |
+| Session compaction | core/compaction.py | Partial |
+| Sub-agents | core/subagent.py | Implemented, untested |
+| Skills system | skills/ | Implemented, untested |
+| MCP server | mcp/server.py | Partial |
+| RAG memory | memory/ | InMemory/Chroma only |
+
+---
+
+### ARCHITECTURAL CONCERNS
+
+**Strong Points:**
+- Clear separation of concerns
+- Async/await patterns throughout
+- Pydantic configuration management
+- Decision recording for self-improvement
+
+**Issues:**
+- Agent class is 974 lines (should be split)
+- Tool registry coupling
+- No plugin architecture for custom tools
+- Bidirectional dependencies possible
+
+---
+
+### RECOMMENDED FIX PRIORITY
+
+**P0 - Before v0.2:**
+1. Implement TensorRT-LLM generate methods
+2. Fix permission substring matching
+3. Implement real session compaction with tiktoken
+4. Add missing dependencies to pyproject.toml
+
+**P1 - Before v0.3:**
+5. Add environment variable config override
+6. Command injection protection improvements
+7. Replace print() with proper logging
+8. Standardize error message format
+
+**P2 - Nice to Have:**
+9. Refactor Agent class into smaller components
+10. Add comprehensive integration tests
+11. Add security bypass test suite
+12. Performance optimizations (caching)
+
+---
+
+### Test Results (After Changes)
+```
+330 passed in 10.52s
+```
+
+### Checkpoint
+**Status:** ANALYSIS COMPLETE — Codebase reviewed, critical issues documented.
+
+### Next Steps
+- Address P0 critical issues
+- Phase 10: Hybrid Search (BM25 + vector)
+- Phase 11: Sub-Agent improvements
