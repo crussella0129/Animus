@@ -44,6 +44,7 @@ from src.core.compaction import (
     CompactionStrategy,
     CompactionResult,
 )
+from src.core.tokenizer import count_tokens, is_tiktoken_available
 
 
 @dataclass
@@ -276,12 +277,12 @@ class Agent:
         )
 
     def _estimate_tokens(self, text: str) -> int:
-        """Estimate token count for text.
+        """Count tokens in text using tiktoken.
 
-        Uses a simple heuristic of ~4 characters per token.
-        This is a rough approximation that works for English text.
+        Uses tiktoken for accurate counting, with fallback to
+        character-based estimation if tiktoken is unavailable.
         """
-        return len(text) // 4
+        return count_tokens(text)
 
     def _estimate_total_tokens(self) -> int:
         """Estimate total tokens in conversation history."""

@@ -84,6 +84,15 @@ from src.core.permission import (
     BLOCKED_COMMANDS,
     SAFE_READ_COMMANDS,
 )
+from src.core.tokenizer import (
+    count_tokens,
+    count_tokens_messages,
+    count_tokens_cached,
+    truncate_to_tokens,
+    split_by_tokens,
+    is_tiktoken_available,
+    get_model_context_limit,
+)
 
 __all__ = [
     # Config
@@ -169,4 +178,12 @@ __all__ = [
     "DANGEROUS_FILES",
     "BLOCKED_COMMANDS",
     "SAFE_READ_COMMANDS",
+    # Tokenizer
+    "count_tokens",
+    "count_tokens_messages",
+    "count_tokens_cached",
+    "truncate_to_tokens",
+    "split_by_tokens",
+    "is_tiktoken_available",
+    "get_model_context_limit",
 ]

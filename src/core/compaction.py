@@ -2,6 +2,8 @@
 
 This module provides conversation summarization to prevent
 context overflow during long agent sessions.
+
+Uses tiktoken for accurate token counting.
 """
 
 from __future__ import annotations
@@ -10,6 +12,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Optional, Callable, Awaitable, TYPE_CHECKING
 from enum import Enum
+
+from src.core.tokenizer import count_tokens
 
 if TYPE_CHECKING:
     from src.llm.base import ModelProvider
@@ -203,7 +207,7 @@ class SessionCompactor:
         new_turns = turns[-keep:]
 
         # Estimate tokens freed
-        tokens_freed = sum(len(t.content) // 4 for t in removed)
+        tokens_freed = sum(count_tokens(t.content) for t in removed)
 
         result = CompactionResult(
             success=True,
@@ -238,8 +242,8 @@ class SessionCompactor:
                 metadata={"is_summary": True, "summarized_turns": len(turns)},
             )
 
-            tokens_freed = sum(len(t.content) // 4 for t in turns)
-            tokens_used = len(summary) // 4
+            tokens_freed = sum(count_tokens(t.content) for t in turns)
+            tokens_used = count_tokens(summary)
 
             result = CompactionResult(
                 success=True,
@@ -292,8 +296,8 @@ class SessionCompactor:
             # Combine summary with recent turns
             new_turns = [summary_turn] + recent_turns
 
-            tokens_freed = sum(len(t.content) // 4 for t in old_turns)
-            tokens_used = len(summary) // 4
+            tokens_freed = sum(count_tokens(t.content) for t in old_turns)
+            tokens_used = count_tokens(summary)
 
             result = CompactionResult(
                 success=True,
