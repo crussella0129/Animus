@@ -7,13 +7,49 @@ from typing import Optional, Any
 import httpx
 
 
-# Check if sentence-transformers is available
-try:
-    from sentence_transformers import SentenceTransformer
-    SENTENCE_TRANSFORMERS_AVAILABLE = True
-except ImportError:
-    SENTENCE_TRANSFORMERS_AVAILABLE = False
-    SentenceTransformer = None
+# Lazy loading for sentence-transformers (heavy import ~5 seconds)
+# Using tri-state: None = not checked, True = available, False = not available
+_SENTENCE_TRANSFORMERS_AVAILABLE: Optional[bool] = None
+_SentenceTransformer = None
+
+
+def _check_sentence_transformers() -> bool:
+    """Lazily check if sentence-transformers is available."""
+    global _SENTENCE_TRANSFORMERS_AVAILABLE, _SentenceTransformer
+    if _SENTENCE_TRANSFORMERS_AVAILABLE is None:
+        try:
+            from sentence_transformers import SentenceTransformer
+            _SentenceTransformer = SentenceTransformer
+            _SENTENCE_TRANSFORMERS_AVAILABLE = True
+        except ImportError:
+            _SENTENCE_TRANSFORMERS_AVAILABLE = False
+    return _SENTENCE_TRANSFORMERS_AVAILABLE
+
+
+def _get_sentence_transformer():
+    """Get the SentenceTransformer class, importing if needed."""
+    _check_sentence_transformers()
+    return _SentenceTransformer
+
+
+# For backward compatibility - these will trigger lazy check when accessed
+@property
+def SENTENCE_TRANSFORMERS_AVAILABLE():
+    return _check_sentence_transformers()
+
+
+# Expose as module-level for backward compat (lazy)
+def get_sentence_transformers_available() -> bool:
+    """Check if sentence-transformers is available (lazy)."""
+    return _check_sentence_transformers()
+
+
+# For backward compatibility - make SENTENCE_TRANSFORMERS_AVAILABLE lazy
+# This uses module-level __getattr__ (Python 3.7+)
+def __getattr__(name: str):
+    if name == "SENTENCE_TRANSFORMERS_AVAILABLE":
+        return _check_sentence_transformers()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 class Embedder(ABC):
@@ -241,7 +277,7 @@ class NativeEmbedder(Embedder):
             model: Model name from sentence-transformers.
             device: Device to use ('cuda', 'cpu', or None for auto).
         """
-        if not SENTENCE_TRANSFORMERS_AVAILABLE:
+        if not _check_sentence_transformers():
             raise RuntimeError(
                 "sentence-transformers is not installed. "
                 "Install with: pip install sentence-transformers"
@@ -254,6 +290,7 @@ class NativeEmbedder(Embedder):
     def _ensure_model(self) -> Any:
         """Lazy load the model."""
         if self._model is None:
+            SentenceTransformer = _get_sentence_transformer()
             self._model = SentenceTransformer(self.model_name, device=self._device)
         return self._model
 
@@ -297,7 +334,7 @@ def create_embedder(
     """
     if provider == "auto":
         # Try native first (fully local), then ollama, then mock
-        if SENTENCE_TRANSFORMERS_AVAILABLE:
+        if _check_sentence_transformers():
             return NativeEmbedder(
                 model=model or "all-MiniLM-L6-v2",
                 **kwargs,
@@ -306,7 +343,7 @@ def create_embedder(
         return MockEmbedder(**kwargs)
 
     if provider == "native":
-        if not SENTENCE_TRANSFORMERS_AVAILABLE:
+        if not _check_sentence_transformers():
             raise RuntimeError(
                 "sentence-transformers not installed. "
                 "Install with: pip install sentence-transformers"

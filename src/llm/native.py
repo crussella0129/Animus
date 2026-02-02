@@ -18,23 +18,76 @@ from src.llm.base import (
 )
 
 
-# Check if llama-cpp-python is available
-try:
-    from llama_cpp import Llama
-    LLAMA_CPP_AVAILABLE = True
-except ImportError:
-    LLAMA_CPP_AVAILABLE = False
-    Llama = None
+# Lazy loading for llama-cpp-python (heavy C++ library)
+_LLAMA_CPP_AVAILABLE: Optional[bool] = None
+_Llama = None
 
-# Check if huggingface_hub is available
-try:
-    from huggingface_hub import hf_hub_download, list_repo_files, HfApi
-    HF_HUB_AVAILABLE = True
-except ImportError:
-    HF_HUB_AVAILABLE = False
-    hf_hub_download = None
-    list_repo_files = None
-    HfApi = None
+
+def _check_llama_cpp() -> bool:
+    """Lazily check if llama-cpp-python is available."""
+    global _LLAMA_CPP_AVAILABLE, _Llama
+    if _LLAMA_CPP_AVAILABLE is None:
+        try:
+            from llama_cpp import Llama
+            _Llama = Llama
+            _LLAMA_CPP_AVAILABLE = True
+        except ImportError:
+            _LLAMA_CPP_AVAILABLE = False
+    return _LLAMA_CPP_AVAILABLE
+
+
+def _get_llama():
+    """Get the Llama class, importing if needed."""
+    _check_llama_cpp()
+    return _Llama
+
+
+# Lazy loading for huggingface_hub
+_HF_HUB_AVAILABLE: Optional[bool] = None
+_hf_hub_download = None
+_list_repo_files = None
+_HfApi = None
+
+
+def _check_hf_hub() -> bool:
+    """Lazily check if huggingface_hub is available."""
+    global _HF_HUB_AVAILABLE, _hf_hub_download, _list_repo_files, _HfApi
+    if _HF_HUB_AVAILABLE is None:
+        try:
+            from huggingface_hub import hf_hub_download, list_repo_files, HfApi
+            _hf_hub_download = hf_hub_download
+            _list_repo_files = list_repo_files
+            _HfApi = HfApi
+            _HF_HUB_AVAILABLE = True
+        except ImportError:
+            _HF_HUB_AVAILABLE = False
+    return _HF_HUB_AVAILABLE
+
+
+def _get_hf_hub():
+    """Get huggingface_hub functions, importing if needed."""
+    _check_hf_hub()
+    return _hf_hub_download, _list_repo_files, _HfApi
+
+
+# Module-level __getattr__ for backward compatibility
+def __getattr__(name: str):
+    if name == "LLAMA_CPP_AVAILABLE":
+        return _check_llama_cpp()
+    if name == "HF_HUB_AVAILABLE":
+        return _check_hf_hub()
+    if name == "Llama":
+        return _get_llama()
+    if name == "hf_hub_download":
+        _check_hf_hub()
+        return _hf_hub_download
+    if name == "list_repo_files":
+        _check_hf_hub()
+        return _list_repo_files
+    if name == "HfApi":
+        _check_hf_hub()
+        return _HfApi
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 # Common GGUF quantization patterns
@@ -160,7 +213,7 @@ class NativeProvider(ModelProvider):
     @property
     def is_available(self) -> bool:
         """Check if llama-cpp-python is installed."""
-        return LLAMA_CPP_AVAILABLE
+        return _check_llama_cpp()
 
     @property
     def gpu_backend(self) -> str:
@@ -193,7 +246,7 @@ class NativeProvider(ModelProvider):
 
     def _load_model(self, model_name: str) -> Any:
         """Load a model, caching for reuse."""
-        if not LLAMA_CPP_AVAILABLE:
+        if not _check_llama_cpp():
             raise RuntimeError(
                 "llama-cpp-python is not installed. "
                 "Install with: pip install llama-cpp-python"
@@ -214,6 +267,7 @@ class NativeProvider(ModelProvider):
         if self._gpu_backend == "cpu":
             n_gpu_layers = 0
 
+        Llama = _get_llama()
         model = Llama(
             model_path=str(model_path),
             n_ctx=self.n_ctx,
@@ -271,7 +325,7 @@ class NativeProvider(ModelProvider):
 
         Yields progress updates.
         """
-        if not HF_HUB_AVAILABLE:
+        if not _check_hf_hub():
             yield {
                 "status": "error",
                 "error": "huggingface_hub not installed. Install with: pip install huggingface-hub",
@@ -301,7 +355,8 @@ class NativeProvider(ModelProvider):
             if not filename:
                 yield {"status": "searching", "message": f"Searching for GGUF files in {repo_id}..."}
 
-                files = list_repo_files(repo_id)
+                hf_download, list_files, _ = _get_hf_hub()
+                files = list_files(repo_id)
                 gguf_files = [f for f in files if f.endswith(".gguf")]
 
                 if not gguf_files:
@@ -330,7 +385,8 @@ class NativeProvider(ModelProvider):
             # Download the file
             yield {"status": "downloading", "filename": filename}
 
-            local_path = hf_hub_download(
+            hf_download, _, _ = _get_hf_hub()
+            local_path = hf_download(
                 repo_id=repo_id,
                 filename=filename,
                 local_dir=self.models_dir,

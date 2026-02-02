@@ -8,7 +8,8 @@ from src.llm.base import (
     GenerationResult,
     ModelInfo,
 )
-from src.llm.native import NativeProvider, LLAMA_CPP_AVAILABLE, HF_HUB_AVAILABLE
+# Note: NativeProvider import is lazy - doesn't trigger heavy llama_cpp import
+from src.llm.native import NativeProvider
 from src.llm.ollama import OllamaProvider
 from src.llm.trtllm import TRTLLMProvider
 from src.llm.api import APIProvider
@@ -27,7 +28,7 @@ __all__ = [
     "OllamaProvider",
     "TRTLLMProvider",
     "APIProvider",
-    # Availability flags
+    # Availability flags (lazy-loaded)
     "LLAMA_CPP_AVAILABLE",
     "HF_HUB_AVAILABLE",
     # Factory
@@ -35,3 +36,14 @@ __all__ = [
     "get_default_provider",
     "get_available_provider",
 ]
+
+
+# Lazy re-export of availability flags to avoid eager heavy imports
+def __getattr__(name: str):
+    if name == "LLAMA_CPP_AVAILABLE":
+        from src.llm.native import LLAMA_CPP_AVAILABLE
+        return LLAMA_CPP_AVAILABLE
+    if name == "HF_HUB_AVAILABLE":
+        from src.llm.native import HF_HUB_AVAILABLE
+        return HF_HUB_AVAILABLE
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

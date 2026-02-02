@@ -6,7 +6,7 @@ import asyncio
 import json
 import os
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator, Callable, Optional, Awaitable, Union
+from typing import Any, AsyncIterator, Callable, Optional, Awaitable, Union, TYPE_CHECKING
 from pathlib import Path
 
 # Constants
@@ -16,7 +16,10 @@ MAX_TOOL_OUTPUT_LENGTH = 10000  # Truncate tool outputs longer than this
 from src.llm.base import ModelProvider, Message, GenerationConfig, GenerationResult
 from src.tools.base import Tool, ToolRegistry, ToolResult
 from src.tools import create_default_registry
-from src.memory import Ingester
+
+# Lazy import: Ingester is only used for type hints
+if TYPE_CHECKING:
+    from src.memory import Ingester
 from src.core.config import AnimusConfig, AgentBehaviorConfig
 from src.core.errors import classify_error, ClassifiedError, ErrorCategory
 from src.core.decision import (

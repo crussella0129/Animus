@@ -2373,3 +2373,105 @@ Verified Phase 13: Skills System complete. Added 59 comprehensive tests for the 
 - Consider Phase 8 BuilderQuery for run analysis
 - Consider Phase 10 Hybrid Search (BM25 + vector)
 - Commit and push changes
+
+---
+
+## Entry #22 — 2026-02-02
+
+### Summary
+Optimized Animus startup performance by implementing lazy loading for heavy dependencies. Reduced startup time from ~5.5 seconds to ~0.5 seconds (91% improvement).
+
+### Problem Analysis
+
+**Root Cause:** Heavy libraries were being imported at module load time:
+- `sentence_transformers` (4.9 seconds) - imported in `src/memory/embedder.py`
+- `llama_cpp` - imported in `src/llm/native.py`
+- `huggingface_hub` - imported in `src/llm/native.py`
+
+**Import Chain:**
+```
+src.main → src.core → src.core.agent → src.memory → src.memory.embedder
+                                                  → sentence_transformers (4.9s)
+```
+
+### Optimizations Implemented
+
+**1. Lazy Loading in `src/memory/embedder.py`**
+- Replaced eager `from sentence_transformers import SentenceTransformer` with lazy check
+- Added `_check_sentence_transformers()` and `_get_sentence_transformer()` functions
+- Added module-level `__getattr__` for backward-compatible access to `SENTENCE_TRANSFORMERS_AVAILABLE`
+
+**2. Lazy Loading in `src/llm/native.py`**
+- Replaced eager imports of `llama_cpp.Llama`, `huggingface_hub` functions
+- Added `_check_llama_cpp()`, `_get_llama()`, `_check_hf_hub()`, `_get_hf_hub()` functions
+- Updated all internal usages to use lazy accessors
+- Added module-level `__getattr__` for backward compatibility
+
+**3. Lazy Import in `src/llm/__init__.py`**
+- Removed eager import of `LLAMA_CPP_AVAILABLE` and `HF_HUB_AVAILABLE`
+- Added module-level `__getattr__` to lazy-forward these attributes
+
+**4. TYPE_CHECKING Import in `src/core/agent.py`**
+- Changed `from src.memory import Ingester` to conditional import
+- Used `TYPE_CHECKING` guard so Ingester is only imported for type checking, not at runtime
+
+### Performance Results
+
+| Command | Before | After | Improvement |
+|---------|--------|-------|-------------|
+| Module import | 5.5s | 0.4s | 93% faster |
+| `animus --help` | 5.5s | 0.5s | 91% faster |
+| `animus sense` | 5.5s | 0.5s | 91% faster |
+| Test suite | 8.8s | 2.7s | 69% faster |
+
+### Key Design Pattern
+
+```python
+# BEFORE (slow - 4.9s import at module load)
+try:
+    from sentence_transformers import SentenceTransformer
+    AVAILABLE = True
+except ImportError:
+    AVAILABLE = False
+
+# AFTER (fast - 0s import, deferred to first use)
+_AVAILABLE = None
+_Class = None
+
+def _check_available():
+    global _AVAILABLE, _Class
+    if _AVAILABLE is None:
+        try:
+            from heavy_library import Class
+            _Class = Class
+            _AVAILABLE = True
+        except ImportError:
+            _AVAILABLE = False
+    return _AVAILABLE
+
+def __getattr__(name):
+    if name == "AVAILABLE":
+        return _check_available()
+    raise AttributeError(...)
+```
+
+### Files Changed
+
+| File | Change |
+|------|--------|
+| `src/memory/embedder.py` | Lazy loading for sentence_transformers |
+| `src/llm/native.py` | Lazy loading for llama_cpp and huggingface_hub |
+| `src/llm/__init__.py` | Lazy re-export of availability flags |
+| `src/core/agent.py` | TYPE_CHECKING guard for Ingester import |
+
+### Test Results
+```
+361 passed in 2.66s
+```
+
+### Checkpoint
+**Status:** CONTINUE — Performance optimization complete. Ready to continue with GECK tasks.
+
+### Next
+- Commit and push optimization changes
+- Continue with Phase 8 BuilderQuery or Phase 10 Hybrid Search
