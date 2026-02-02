@@ -19,6 +19,12 @@ from src.tools.filesystem import (
 )
 from src.tools.shell import ShellTool
 from src.tools.git import GitTool
+from src.tools.git_workflow import (
+    GitWorkflowTool,
+    ChangeRisk,
+    DiffAnalysis,
+    create_git_workflow_tool,
+)
 from src.tools.delegate import (
     DelegateTaskTool,
     DelegateParallelTool,
@@ -40,6 +46,11 @@ __all__ = [
     "ShellTool",
     # Git
     "GitTool",
+    # Git Workflow
+    "GitWorkflowTool",
+    "ChangeRisk",
+    "DiffAnalysis",
+    "create_git_workflow_tool",
     # Delegation
     "DelegateTaskTool",
     "DelegateParallelTool",
@@ -68,6 +79,7 @@ def create_default_registry(
     registry.register(ListDirectoryTool())
     registry.register(ShellTool())
     registry.register(GitTool())
+    registry.register(GitWorkflowTool())
 
     # Register analysis tools if tree-sitter is available
     if include_analysis:
