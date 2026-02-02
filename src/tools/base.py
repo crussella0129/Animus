@@ -15,6 +15,7 @@ class ToolCategory(str, Enum):
     CODE = "code"
     SEARCH = "search"
     MEMORY = "memory"
+    ANALYSIS = "analysis"
 
 
 @dataclass
