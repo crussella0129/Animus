@@ -49,6 +49,28 @@ class MemoryConfig(BaseModel):
     chunk_overlap: int = Field(default=50, description="Overlap between chunks")
 
 
+class MCPServerEntry(BaseModel):
+    """Configuration for a single MCP server."""
+    name: str = Field(..., description="Unique identifier for this server")
+    command: Optional[str] = Field(default=None, description="Command to launch stdio server")
+    args: list[str] = Field(default_factory=list, description="Arguments for the command")
+    url: Optional[str] = Field(default=None, description="URL for HTTP server")
+    env: dict[str, str] = Field(default_factory=dict, description="Environment variables")
+    enabled: bool = Field(default=True, description="Whether this server is enabled")
+
+
+class MCPConfig(BaseModel):
+    """MCP (Model Context Protocol) configuration."""
+    servers: list[MCPServerEntry] = Field(
+        default_factory=list,
+        description="List of configured MCP servers"
+    )
+    auto_connect: bool = Field(
+        default=False,
+        description="Automatically connect to enabled servers on startup"
+    )
+
+
 class AgentBehaviorConfig(BaseModel):
     """Agent behavior and stopping cadence configuration."""
 
@@ -131,6 +153,7 @@ class AnimusConfig(BaseModel):
     native: NativeConfig = Field(default_factory=NativeConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     agent: AgentBehaviorConfig = Field(default_factory=AgentBehaviorConfig)
+    mcp: MCPConfig = Field(default_factory=MCPConfig)
 
     # Paths - use default_factory so they're evaluated at instantiation, not import
     data_dir: Path = Field(default_factory=_default_data_dir)

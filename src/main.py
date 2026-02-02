@@ -1476,6 +1476,157 @@ def mcp_tools() -> None:
     console.print(f"\n[dim]{len(server._tools)} tool(s) available[/dim]")
 
 
+@mcp_app.command("list")
+def mcp_list(
+    connect: bool = typer.Option(
+        False,
+        "--connect",
+        "-c",
+        help="Test connection to each server.",
+    ),
+) -> None:
+    """List configured MCP servers and their status."""
+    import asyncio
+    from src.core.config import ConfigManager
+    from src.mcp.client import MCPClient, MCPServerConfig
+
+    config = ConfigManager().config
+    servers = config.mcp.servers
+
+    if not servers:
+        console.print("[yellow]No MCP servers configured.[/yellow]")
+        console.print("\nTo add an MCP server, edit [cyan]~/.animus/config.yaml[/cyan]:")
+        console.print("""
+[dim]mcp:
+  servers:
+    - name: my-server
+      command: npx
+      args: ["-y", "@my/mcp-server"]
+      enabled: true[/dim]
+""")
+        return
+
+    table = Table(title="Configured MCP Servers")
+    table.add_column("Name", style="cyan")
+    table.add_column("Transport", style="white")
+    table.add_column("Enabled", style="white")
+    if connect:
+        table.add_column("Status", style="white")
+        table.add_column("Tools", style="white")
+
+    async def check_servers():
+        client = MCPClient()
+        results = []
+
+        for server in servers:
+            transport = "stdio" if server.command else "http" if server.url else "unknown"
+            enabled = "[green]Yes[/green]" if server.enabled else "[dim]No[/dim]"
+
+            if connect and server.enabled:
+                try:
+                    server_config = MCPServerConfig(
+                        name=server.name,
+                        command=server.command,
+                        args=server.args,
+                        url=server.url,
+                        env=server.env,
+                        enabled=server.enabled,
+                    )
+                    connected = await client.connect(server_config)
+                    status = "[green]Connected[/green]"
+                    tool_count = str(len(connected.tools))
+                    results.append((server.name, transport, enabled, status, tool_count))
+                except Exception as e:
+                    status = f"[red]Failed[/red]"
+                    results.append((server.name, transport, enabled, status, "-"))
+            else:
+                if connect:
+                    results.append((server.name, transport, enabled, "[dim]Skipped[/dim]", "-"))
+                else:
+                    results.append((server.name, transport, enabled))
+
+        client.disconnect_all()
+        return results
+
+    if connect:
+        with console.status("[bold blue]Connecting to servers..."):
+            results = asyncio.run(check_servers())
+        for result in results:
+            table.add_row(*result)
+    else:
+        for server in servers:
+            transport = "stdio" if server.command else "http" if server.url else "unknown"
+            enabled = "[green]Yes[/green]" if server.enabled else "[dim]No[/dim]"
+            table.add_row(server.name, transport, enabled)
+
+    console.print(table)
+    console.print(f"\n[dim]{len(servers)} server(s) configured[/dim]")
+    if not connect:
+        console.print("[dim]Use --connect to test connections[/dim]")
+
+
+@mcp_app.command("add")
+def mcp_add(
+    name: str = typer.Argument(..., help="Unique name for this server"),
+    command: Optional[str] = typer.Option(None, "--command", "-c", help="Command for stdio transport"),
+    url: Optional[str] = typer.Option(None, "--url", "-u", help="URL for HTTP transport"),
+    args: Optional[str] = typer.Option(None, "--args", "-a", help="Comma-separated args for command"),
+) -> None:
+    """Add a new MCP server configuration."""
+    from src.core.config import ConfigManager, MCPServerEntry
+
+    if not command and not url:
+        console.print("[red]Error: Must specify either --command or --url[/red]")
+        raise typer.Exit(1)
+
+    manager = ConfigManager()
+    config = manager.config
+
+    # Check for duplicate name
+    for server in config.mcp.servers:
+        if server.name == name:
+            console.print(f"[red]Error: Server '{name}' already exists[/red]")
+            raise typer.Exit(1)
+
+    # Create new server entry
+    server = MCPServerEntry(
+        name=name,
+        command=command,
+        url=url,
+        args=args.split(",") if args else [],
+        enabled=True,
+    )
+
+    config.mcp.servers.append(server)
+    manager.save(config)
+
+    console.print(f"[green]Added MCP server: {name}[/green]")
+    transport = "stdio" if command else "http"
+    console.print(f"Transport: [cyan]{transport}[/cyan]")
+
+
+@mcp_app.command("remove")
+def mcp_remove(
+    name: str = typer.Argument(..., help="Name of server to remove"),
+) -> None:
+    """Remove an MCP server configuration."""
+    from src.core.config import ConfigManager
+
+    manager = ConfigManager()
+    config = manager.config
+
+    # Find and remove
+    for i, server in enumerate(config.mcp.servers):
+        if server.name == name:
+            config.mcp.servers.pop(i)
+            manager.save(config)
+            console.print(f"[green]Removed MCP server: {name}[/green]")
+            return
+
+    console.print(f"[red]Error: Server '{name}' not found[/red]")
+    raise typer.Exit(1)
+
+
 @app.command("serve")
 def serve(
     host: str = typer.Option("localhost", "--host", "-h", help="Host to bind to."),
