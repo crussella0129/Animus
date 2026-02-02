@@ -58,6 +58,16 @@ from src.core.builder import (
     SuggestionPriority,
     SuggestionCategory,
 )
+from src.core.judge import (
+    HybridJudge,
+    RuleEngine,
+    RuleCheck,
+    LLMEvaluator,
+    HumanEscalator,
+    VerificationResult,
+    VerificationLevel,
+    VerificationSource,
+)
 from src.core.permission import (
     PermissionAction,
     PermissionCategory,
@@ -135,6 +145,15 @@ __all__ = [
     "Suggestion",
     "SuggestionPriority",
     "SuggestionCategory",
+    # Triangulated Verification
+    "HybridJudge",
+    "RuleEngine",
+    "RuleCheck",
+    "LLMEvaluator",
+    "HumanEscalator",
+    "VerificationResult",
+    "VerificationLevel",
+    "VerificationSource",
     # Permissions (Hardcoded Security)
     "PermissionAction",
     "PermissionCategory",

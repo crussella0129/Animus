@@ -1056,6 +1056,152 @@ def model_info(
         console.print(f"\n[yellow]Install llama-cpp-python to use this model[/yellow]")
 
 
+@app.command("reflect")
+def analyze(
+    goal: Optional[str] = typer.Argument(
+        None,
+        help="Filter runs by goal (substring match).",
+    ),
+    days: Optional[int] = typer.Option(
+        None,
+        "--days",
+        "-d",
+        help="Only analyze runs from last N days.",
+    ),
+    limit: Optional[int] = typer.Option(
+        None,
+        "--limit",
+        "-n",
+        help="Maximum number of runs to analyze.",
+    ),
+    run_id: Optional[str] = typer.Option(
+        None,
+        "--run",
+        "-r",
+        help="Show details for a specific run ID.",
+    ),
+    trends: bool = typer.Option(
+        False,
+        "--trends",
+        "-t",
+        help="Show trends over time.",
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        "-j",
+        help="Output as JSON.",
+    ),
+) -> None:
+    """Reflect on past journeys - analyze runs and suggest improvements."""
+    whisper(get_response("reflect"))
+    from src.core.builder import BuilderQuery, SuggestionPriority
+
+    builder = BuilderQuery()
+
+    # Show specific run details
+    if run_id:
+        details = builder.get_run_details(run_id)
+        if not details:
+            console.print(f"[red]Run not found:[/red] {run_id}")
+            raise typer.Exit(1)
+
+        if json_output:
+            import json
+            console.print_json(json.dumps(details, indent=2, default=str))
+        else:
+            console.print(f"[bold]Run Details[/bold]\n")
+            console.print(f"ID: [cyan]{details['id']}[/cyan]")
+            console.print(f"Goal: {details['goal']}")
+            console.print(f"Status: {details['status']}")
+            console.print(f"Duration: {details['duration_ms']/1000:.1f}s")
+            console.print(f"Tokens: {details['metrics']['tokens_used']}")
+            console.print(f"Tool Success Rate: {details['success_rate']*100:.1f}%")
+
+            if details['errors']:
+                console.print(f"\n[bold red]Errors:[/bold red]")
+                for err in details['errors'][:5]:
+                    console.print(f"  - {err}")
+
+            if details['decisions']:
+                console.print(f"\n[bold]Decisions ({details['decision_count']}):[/bold]")
+                for dec in details['decisions'][:5]:
+                    console.print(f"  [{dec['type']}] {dec['intent'][:50]}...")
+        return
+
+    # Show trends
+    if trends:
+        trend_data = builder.get_trends(days=days or 30)
+
+        if "error" in trend_data:
+            console.print(f"[yellow]{trend_data['error']}[/yellow]")
+            return
+
+        if json_output:
+            import json
+            console.print_json(json.dumps(trend_data, indent=2, default=str))
+        else:
+            console.print(f"[bold]Trends (Last {trend_data['period_days']} Days)[/bold]\n")
+            console.print(f"Total Runs: {trend_data['total_runs']}")
+            console.print(f"Overall Trend: [{'green' if trend_data['overall_trend'] == 'improving' else 'yellow'}]{trend_data['overall_trend']}[/]")
+
+            if trend_data['daily_stats']:
+                console.print(f"\n[bold]Daily Stats:[/bold]")
+                table = Table()
+                table.add_column("Date", style="cyan")
+                table.add_column("Runs", justify="right")
+                table.add_column("Success", justify="right")
+                table.add_column("Failed", justify="right")
+                table.add_column("Rate", justify="right")
+
+                for day in trend_data['daily_stats'][-10:]:  # Last 10 days
+                    rate_color = "green" if day['success_rate'] >= 0.8 else "yellow" if day['success_rate'] >= 0.5 else "red"
+                    table.add_row(
+                        day['date'],
+                        str(day['runs']),
+                        str(day['completed']),
+                        str(day['failed']),
+                        f"[{rate_color}]{day['success_rate']*100:.0f}%[/]",
+                    )
+                console.print(table)
+        return
+
+    # Full analysis
+    result = builder.analyze(goal_filter=goal, days=days, limit=limit)
+
+    if json_output:
+        import json
+        console.print_json(json.dumps(result.to_dict(), indent=2, default=str))
+        return
+
+    # Print summary
+    console.print(f"[bold]Run Analysis[/bold]\n")
+    console.print(result.summary)
+
+    # Print suggestions
+    if result.suggestions:
+        console.print(f"\n[bold]Suggestions ({len(result.suggestions)}):[/bold]\n")
+
+        priority_colors = {
+            SuggestionPriority.CRITICAL: "red",
+            SuggestionPriority.HIGH: "yellow",
+            SuggestionPriority.MEDIUM: "blue",
+            SuggestionPriority.LOW: "dim",
+        }
+
+        for i, sug in enumerate(result.suggestions[:10], 1):
+            color = priority_colors.get(sug.priority, "white")
+            console.print(f"[{color}]{i}. [{sug.priority.value.upper()}] {sug.title}[/]")
+            console.print(f"   {sug.description}")
+            if sug.suggested_actions:
+                console.print(f"   [dim]Actions:[/dim]")
+                for action in sug.suggested_actions[:2]:
+                    console.print(f"     - {action}")
+            console.print()
+    else:
+        console.print("\n[green]No significant issues found.[/green]")
+
+
 @app.command("commune")
 def status() -> None:
     """Commune with Animus - show provider status and available vessels."""
@@ -1404,6 +1550,19 @@ def _search_alias(
 ) -> None:
     """Alias for 'scry'."""
     search(query, k)
+
+
+@app.command("analyze", hidden=True)
+def _analyze_alias(
+    goal: Optional[str] = typer.Argument(None),
+    days: Optional[int] = typer.Option(None, "--days", "-d"),
+    limit: Optional[int] = typer.Option(None, "--limit", "-n"),
+    run_id: Optional[str] = typer.Option(None, "--run", "-r"),
+    trends: bool = typer.Option(False, "--trends", "-t"),
+    json_output: bool = typer.Option(False, "--json", "-j"),
+) -> None:
+    """Alias for 'reflect'."""
+    analyze(goal, days, limit, run_id, trends, json_output)
 
 
 @app.command("status", hidden=True)

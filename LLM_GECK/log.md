@@ -2568,3 +2568,72 @@ animus rise
 ### Next
 - Add `animus analyze` CLI command using BuilderQuery
 - Continue with Phase 10 Hybrid Search or Phase 11 Sub-Agent improvements
+
+---
+
+## Entry #24 — 2026-02-02
+
+### Summary
+Completed Phase 8 with `animus reflect` CLI command and Triangulated Verification (HybridJudge).
+
+### Phase 8: animus reflect CLI Command
+
+Added `animus reflect` (alias: `analyze`) command to main.py:
+- Filter runs by goal substring
+- Filter by days (--days)
+- Limit number of runs (--limit)
+- Show specific run details (--run)
+- Show trends over time (--trends)
+- JSON output (--json)
+
+Added "reflect" response category to incantations.py.
+
+### Phase 8: Triangulated Verification (HybridJudge)
+
+Created `src/core/judge.py` with multi-layer verification:
+
+**1. RuleEngine (Fast, Deterministic)**
+- non_empty: Output must not be empty
+- min_length: Output must be at least 10 chars
+- no_error_indicators: No error messages/tracebacks
+- no_placeholder_text: No [TODO], [PLACEHOLDER], etc.
+- no_hallucination_markers: No "As an AI, I cannot..."
+- balanced_brackets: Code bracket matching
+- no_syntax_markers: No SyntaxError indicators
+
+**2. LLMEvaluator (Flexible, Contextual)**
+- Async evaluation with configurable callback
+- Returns confidence score (0.0-1.0)
+- Graceful degradation on failure
+
+**3. HumanEscalator (When Confidence Low)**
+- Escalates to human for uncertain results
+- Returns authoritative high-confidence result
+
+**HybridJudge Verification Flow:**
+1. Run fast rule checks (always)
+2. If rules pass with HIGH confidence → accept
+3. If rules have warnings → optionally run LLM
+4. If LLM uncertain/fails → escalate to human
+
+### Files Changed
+
+| File | Change |
+|------|--------|
+| `src/main.py` | Added `animus reflect` command + analyze alias |
+| `src/incantations.py` | Added "reflect" response category |
+| `src/core/judge.py` | NEW - HybridJudge verification system |
+| `src/core/__init__.py` | Export judge module components |
+| `tests/test_judge.py` | NEW - 37 tests for verification |
+
+### Test Results
+```
+451 passed in 12.19s
+```
+
+### Checkpoint
+**Status:** CONTINUE — Phase 8 complete. Ready for Phase 10 (Hybrid Search).
+
+### Next
+- Phase 10: Hybrid Search (BM25 + vector)
+- Phase 11: Sub-Agent Architecture Improvements

@@ -67,6 +67,7 @@ Animus uses thematic command names that fit its techromancy aesthetic. Tradition
 | `animus consume <path>` | **Consume knowledge** - ingest files into memory | `ingest` |
 | `animus scry <query>` | **Scry the depths** - search accumulated knowledge | `search` |
 | `animus commune` | **Commune** - check Animus status and providers | `status` |
+| `animus reflect` | **Reflect** - analyze past runs and get suggestions | `analyze` |
 | `animus vessels` | **Survey vessels** - list available models | `models` |
 | `animus bind <model>` | **Bind a vessel** - download a model via Ollama | `pull` |
 | `animus manifest` | **Manifest** - start OpenAI-compatible API server | `serve` |
@@ -351,7 +352,7 @@ Animus/
 │   ├── mcp/               # The Portal (MCP server)
 │   ├── incantations.py    # Animus responses
 │   └── main.py            # CLI entry point
-└── tests/                 # 414 tests
+└── tests/                 # 451 tests
 ```
 
 ---

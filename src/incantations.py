@@ -126,6 +126,18 @@ RESPONSES = {
         "I examine the threads of my being...",
     ],
 
+    # Reflecting/analyze
+    "reflect": [
+        "I turn my gaze upon past journeys...",
+        "The patterns of history reveal themselves...",
+        "Examining the echoes of actions past...",
+        "I meditate upon my performance...",
+        "The chronicles unfold before me...",
+        "Analyzing the threads of fate woven...",
+        "I contemplate my evolution...",
+        "The lessons of experience emerge...",
+    ],
+
     # Manifesting/serve API
     "manifest": [
         "I manifest upon the network...",

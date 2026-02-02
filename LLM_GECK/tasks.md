@@ -1,6 +1,6 @@
 # Tasks — ANIMUS
 
-**Last Updated:** 2026-02-02 (Entry #23: Phase 8 BuilderQuery, Installation system, 414 tests total)
+**Last Updated:** 2026-02-02 (Entry #24: Phase 8 complete, HybridJudge, 451 tests total)
 
 ## Design Philosophy Update
 
@@ -193,12 +193,13 @@ After analyzing 12 additional repositories, a critical insight emerged: **many a
   - [x] get_run_details() and compare_runs() methods
   - [x] get_trends() for time-based analysis
   - [x] 24 tests in test_builder.py
-  - [ ] Implement `animus analyze <goal>` command (CLI integration)
-- [ ] **Triangulated Verification** (`src/core/judge.py`)
-  - [ ] Implement rule-based checks (fast, deterministic)
-  - [ ] Implement LLM fallback evaluation (flexible, contextual)
-  - [ ] Implement human escalation protocol
-  - [ ] Create `HybridJudge` class combining all three
+  - [x] Implement `animus reflect` command (CLI integration) ✓
+- [x] **Triangulated Verification** (`src/core/judge.py`) ✓
+  - [x] Implement rule-based checks (fast, deterministic)
+  - [x] Implement LLM fallback evaluation (flexible, contextual)
+  - [x] Implement human escalation protocol
+  - [x] Create `HybridJudge` class combining all three
+  - [x] 37 tests in test_judge.py
 
 ### Phase 9: Context Resilience (from Clawdbot analysis)
 
@@ -687,7 +688,7 @@ After analyzing 12 additional repositories, a critical insight emerged: **many a
 
 ## Completed (Recent)
 
-- Phase 8: BuilderQuery Interface (run analysis, pattern detection, improvement suggestions)
+- Phase 8: Complete (BuilderQuery, HybridJudge, `animus reflect` command)
 - Installation System (cross-platform installer with Jetson support, `animus install` command)
 - Startup Performance: 91% faster (5.5s → 0.5s) via lazy loading
 - Bug Fix: Python string concatenation in JSON parsing (Qwen3-VL compatibility)
