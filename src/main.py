@@ -1248,6 +1248,12 @@ def chat(
         "-p",
         help="Enable planning mode (create plan before execution).",
     ),
+    delegate: bool = typer.Option(
+        False,
+        "--delegate",
+        "-d",
+        help="Enable multi-agent delegation (spawn sub-agents for tasks).",
+    ),
 ) -> None:
     """Rise! Begin an interactive session with Animus."""
     import asyncio
@@ -1311,6 +1317,7 @@ def chat(
             temperature=config.model.temperature,
             require_tool_confirmation=not no_confirm,
             enable_planning=plan,
+            enable_delegation=delegate,
         )
 
         agent = Agent(
@@ -1332,6 +1339,8 @@ def chat(
             console.print(f"[dim]Max context: {max_context} tokens[/dim]")
         if plan:
             console.print("[cyan]Planning mode enabled[/cyan] - I'll create a plan before acting.")
+        if delegate:
+            console.print("[cyan]Delegation enabled[/cyan] - I can spawn sub-agents for complex tasks.")
         console.print("Speak your command. Say [cyan]farewell[/cyan] to end.\n")
 
         while True:

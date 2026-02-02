@@ -103,6 +103,10 @@ class AgentConfig:
     planning_threshold: int = 2  # Min complexity for planning (steps estimate)
     auto_revise_plan: bool = True  # Automatically revise plan on failures
 
+    # Delegation settings
+    enable_delegation: bool = False  # Enable multi-agent delegation
+    max_parallel_agents: int = 4  # Max sub-agents running in parallel
+
 
 @dataclass
 class Turn:
@@ -283,6 +287,11 @@ class Agent:
         if self.config.enable_planning:
             self._init_planner()
 
+        # Delegation / Multi-agent
+        self._orchestrator = None
+        if self.config.enable_delegation:
+            self._init_orchestrator()
+
     def _apply_animus_config(self, agent_config: AgentBehaviorConfig) -> None:
         """Apply AgentBehaviorConfig settings to AgentConfig."""
         self.config.auto_execute_tools = tuple(agent_config.auto_execute_tools)
@@ -323,6 +332,35 @@ class Agent:
             provider=self.provider,
             available_tools=available_tools,
         )
+
+    def _init_orchestrator(self) -> None:
+        """Initialize the sub-agent orchestrator for delegation."""
+        from src.core.subagent import SubAgentOrchestrator
+        from src.tools.delegate import DelegateTaskTool, DelegateParallelTool
+
+        self._orchestrator = SubAgentOrchestrator(
+            provider=self.provider,
+            tool_registry=self.tool_registry,
+            confirm_callback=self.confirm_callback,
+        )
+
+        # Register delegation tools if not already registered
+        if not self.tool_registry.get("delegate_task"):
+            delegate_tool = DelegateTaskTool(self._orchestrator)
+            self.tool_registry.register(delegate_tool)
+        else:
+            # Update existing tool with orchestrator
+            existing = self.tool_registry.get("delegate_task")
+            if hasattr(existing, "set_orchestrator"):
+                existing.set_orchestrator(self._orchestrator)
+
+        if not self.tool_registry.get("delegate_parallel"):
+            parallel_tool = DelegateParallelTool(self._orchestrator)
+            self.tool_registry.register(parallel_tool)
+        else:
+            existing = self.tool_registry.get("delegate_parallel")
+            if hasattr(existing, "set_orchestrator"):
+                existing.set_orchestrator(self._orchestrator)
 
     def _estimate_tokens(self, text: str) -> int:
         """Count tokens in text using tiktoken.
@@ -1407,3 +1445,29 @@ When done, provide a brief summary of what was accomplished."""
         if self._planner:
             return self._planner.get_progress()
         return None
+
+    def is_delegation_enabled(self) -> bool:
+        """Check if multi-agent delegation is enabled.
+
+        Returns:
+            True if delegation is enabled.
+        """
+        return self.config.enable_delegation and self._orchestrator is not None
+
+    def get_orchestrator(self):
+        """Get the sub-agent orchestrator.
+
+        Returns:
+            SubAgentOrchestrator or None if not enabled.
+        """
+        return self._orchestrator
+
+    def get_delegation_results(self) -> list:
+        """Get results from all completed sub-agent delegations.
+
+        Returns:
+            List of SubAgentResult objects.
+        """
+        if self._orchestrator:
+            return self._orchestrator.list_results()
+        return []
