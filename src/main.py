@@ -440,6 +440,14 @@ def models() -> None:
         table.add_column("Quantization", style="yellow")
 
         for model in model_list:
+            size = ""
+            if model.size_bytes:
+                size_gb = model.size_bytes / (1024 ** 3)
+                if size_gb >= 1:
+                    size = f"{size_gb:.2f} GB"
+                else:
+                    size_mb = model.size_bytes / (1024 ** 2)
+                    size = f"{size_mb:.0f} MB"
             table.add_row(
                 model.name,
                 size,
