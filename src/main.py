@@ -767,7 +767,7 @@ def model_list() -> None:
         if not models:
             console.print("[yellow]No local models found.[/yellow]")
             console.print("\nDownload a model with:")
-            console.print("  [cyan]animus model download TheBloke/CodeLlama-7B-GGUF[/cyan]")
+            console.print("  [cyan]animus vessel download Qwen/Qwen2.5-Coder-7B-Instruct-GGUF[/cyan]")
             return
 
         table = Table(title="Local GGUF Models")
@@ -1299,12 +1299,41 @@ def chat(
     async def run_chat() -> None:
         config = ConfigManager().config
         provider = get_default_provider(config)
+        model_name = model or config.model.model_name
 
         if not provider.is_available:
             whisper("The ethereal connection fails...", "red")
             console.print("Start Ollama with: [cyan]ollama serve[/cyan]")
             console.print("Or configure an API key in [cyan]~/.animus/config.yaml[/cyan]")
             raise typer.Exit(1)
+
+        # Check for model configuration mismatch
+        if config.model.provider == "native" and ":" in model_name:
+            whisper("Configuration mismatch detected...", "yellow")
+            console.print(f"Model [cyan]{model_name}[/cyan] looks like an Ollama model")
+            console.print(f"but provider is set to [cyan]native[/cyan].\n")
+            console.print("Options:")
+            console.print("  1. Switch to Ollama:")
+            console.print("     [dim]Edit ~/.animus/config.yaml: provider: ollama[/dim]")
+            console.print("     [dim]Then: ollama pull {model_name}[/dim]\n")
+            console.print("  2. Download a GGUF model for native:")
+            console.print("     [dim]animus vessel download Qwen/Qwen2.5-Coder-7B-Instruct-GGUF[/dim]")
+            raise typer.Exit(1)
+
+        # For native provider, check if model exists
+        if config.model.provider == "native" and model_name:
+            from src.llm.native import NativeProvider
+            native = provider if isinstance(provider, NativeProvider) else None
+            if native:
+                model_path = native._get_model_path(model_name)
+                if not model_path:
+                    whisper("No vessel bound...", "yellow")
+                    console.print(f"Model [cyan]{model_name}[/cyan] not found.\n")
+                    console.print("Download a GGUF model:")
+                    console.print("  [dim]animus vessel download Qwen/Qwen2.5-Coder-7B-Instruct-GGUF[/dim]\n")
+                    console.print("Or list available models:")
+                    console.print("  [dim]animus vessel list[/dim]")
+                    raise typer.Exit(1)
 
         async def confirm_tool(tool_name: str, description: str) -> bool:
             if no_confirm:
@@ -1314,7 +1343,7 @@ def chat(
             return Confirm.ask("Execute this tool?", default=True)
 
         agent_config = AgentConfig(
-            model=model or config.model.model_name,
+            model=model_name,
             temperature=config.model.temperature,
             require_tool_confirmation=not no_confirm,
         )

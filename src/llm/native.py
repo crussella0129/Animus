@@ -259,7 +259,8 @@ class NativeProvider(ModelProvider):
         if not model_path:
             raise FileNotFoundError(
                 f"Model not found: {model_name}. "
-                f"Download with: animus model download <model>"
+                f"Download a GGUF model with: animus vessel download <repo>\n"
+                f"Or switch to Ollama provider in ~/.animus/config.yaml"
             )
 
         # Determine GPU layers based on backend
