@@ -1508,13 +1508,12 @@ def _models_alias(provider: Optional[str] = typer.Option(None, "--provider", "-p
     models(provider)
 
 
-@app.command("pull", hidden=True)
-def _pull_alias(
+@app.command("download", hidden=True)
+def _download_alias(
     model_name: str = typer.Argument(...),
-    provider: Optional[str] = typer.Option(None, "--provider", "-p"),
 ) -> None:
-    """Alias for 'bind'."""
-    pull(model_name, provider)
+    """Alias for 'pull'."""
+    pull_model(model_name)
 
 
 @app.command("ingest", hidden=True)
