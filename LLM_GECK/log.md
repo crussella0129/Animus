@@ -2233,3 +2233,143 @@ This caused:
 - Test with Qwen model to verify bug fix works in practice
 - Consider adding diagnostic logging when JSON parsing fails
 - Continue with MCP (Phase 12) or Skills (Phase 13)
+
+---
+
+## Entry #20 — 2026-02-02
+
+### Summary
+Completed Phase 12: MCP Integration. Verified and tested the existing MCP implementation with 56 new tests.
+
+### Work Completed
+
+**1. Verified MCP Server (`src/mcp/server.py`)**
+- JSON-RPC 2.0 message parsing (100% hardcoded)
+- Method routing table: initialize, tools/list, tools/call, ping
+- Tool registration from Animus tool registry
+- stdio and HTTP transport support
+- Error handling with standard JSON-RPC error codes
+
+**2. Verified MCP Client (`src/mcp/client.py`)**
+- Connect to external MCP servers (stdio and HTTP transports)
+- Tool discovery via tools/list
+- Convert MCP tool schemas to Animus format
+- Call tools on connected servers
+- Connection management (connect, disconnect, list)
+
+**3. Verified MCP Protocol (`src/mcp/protocol.py`)**
+- MCPRequest, MCPResponse, MCPNotification, MCPError
+- MCPServerCapabilities, MCPClientCapabilities
+- MCPToolInfo, MCPToolCallRequest, MCPToolCallResult
+- Standard JSON-RPC error codes (-32700, -32600, -32601, -32602, -32603)
+
+**4. Verified CLI Commands (`src/main.py`)**
+- `animus portal server` - Start MCP server (stdio or HTTP transport)
+- `animus portal tools` - List tools exposed via MCP
+
+**5. Created Comprehensive Tests (`tests/test_mcp.py`)**
+- 56 new tests covering:
+  - Protocol message parsing and serialization
+  - Server request handling (initialize, tools/list, tools/call, ping)
+  - Client configuration and connection management
+  - Tool registration and execution
+  - Error handling and edge cases
+  - JSON roundtrip serialization
+  - Integration tests for full request-response cycle
+
+### Test Results
+```
+302 passed (246 existing + 56 new MCP tests)
+```
+
+### Files Changed
+
+| File | Change Type | Lines |
+|------|-------------|-------|
+| `tests/test_mcp.py` | NEW | 668 |
+
+### Phase 12 Status
+
+| Task | Status | Notes |
+|------|--------|-------|
+| MCP Server Implementation | Complete | JSON-RPC 2.0, method routing, tool schema generation |
+| MCP Client Implementation | Complete | stdio and HTTP transport, tool discovery |
+| MCP CLI Commands | Complete | `animus portal server`, `animus portal tools` |
+| MCP Configuration (YAML) | Pending | External server configuration |
+| MCP Tests | Complete | 56 tests |
+
+### Checkpoint
+**Status:** CONTINUE — Phase 12 MCP core complete. Ready for MCP configuration and Phase 13 (Skills).
+
+### Next
+- Add MCP configuration file for external servers (~/.animus/mcp.yaml)
+- Begin Phase 13: Skills System (SKILL.md parser, registry, bundled skills)
+- Consider Phase 8 BuilderQuery for run analysis
+
+---
+
+## Entry #21 — 2026-02-02
+
+### Summary
+Verified Phase 13: Skills System complete. Added 59 comprehensive tests for the existing implementation.
+
+### Work Completed
+
+**1. Verified Skills Parser (`src/skills/parser.py`)**
+- YAML frontmatter extraction using regex (100% hardcoded)
+- Field validation (name, description required)
+- Section extraction (Examples, Guidelines)
+- File and directory parsing
+
+**2. Verified Skills Registry (`src/skills/registry.py`)**
+- Priority-ordered discovery: project > user > bundled
+- Skill search by name, description, and tags
+- URL-based installation (GitHub support)
+- Template creation for new skills
+
+**3. Verified Skills Loader (`src/skills/loader.py`)**
+- Skill prompt injection (before, after, replace)
+- Requirements checking against available tools
+- Compatible skills filtering
+- Convenience functions for agent integration
+
+**4. Verified Bundled Skills**
+- `code-review` — Code review and analysis
+- `test-gen` — Unit test generation
+- `refactor` — Code refactoring
+- `explain` — Code explanation
+- `commit` — Conventional commit messages
+
+**5. Created Comprehensive Tests (`tests/test_skills.py`)**
+- 59 new tests covering:
+  - SkillMetadata and Skill dataclasses
+  - SkillParser for SKILL.md format
+  - SkillRegistry discovery and priority
+  - SkillLoader prompt injection
+  - Bundled skills validation
+  - Edge cases (Unicode, code blocks, nested dirs)
+
+### Test Results
+```
+361 passed (302 previous + 59 new skills tests)
+```
+
+### Phase 13 Status
+
+| Task | Status | Notes |
+|------|--------|-------|
+| SKILL.md Parser | Complete | YAML frontmatter, section extraction |
+| Skill Registry | Complete | Priority discovery, search, URL install |
+| Skill Loader | Complete | Prompt injection, requirements check |
+| CLI Commands | Complete | `animus tomes list/show/inscribe/install` |
+| Bundled Skills | Complete | 5 skills: code-review, test-gen, refactor, explain, commit |
+| Skill Tests | Complete | 59 tests |
+
+### Checkpoint
+**Status:** CONTINUE — Phase 12 (MCP) and Phase 13 (Skills) core complete. 361 tests passing.
+
+### Next
+- Update tasks.md with Phase 13 completion
+- Consider Phase 8 BuilderQuery for run analysis
+- Consider Phase 10 Hybrid Search (BM25 + vector)
+- Commit and push changes

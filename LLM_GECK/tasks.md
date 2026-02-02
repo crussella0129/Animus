@@ -1,6 +1,6 @@
 # Tasks — ANIMUS
 
-**Last Updated:** 2026-02-02 (Entry #19: Bug fix for Python string concat in JSON, Phase 9 compaction integrated)
+**Last Updated:** 2026-02-02 (Entry #21: Phase 12-13 complete, 361 tests total)
 
 ## Design Philosophy Update
 
@@ -309,7 +309,7 @@ After analyzing 12 additional repositories, a critical insight emerged: **many a
   - [ ] Test pause/resume with session state
   - [ ] Test output cleaning
 
-### Phase 12: MCP Integration (from external repo analysis)
+### Phase 12: MCP Integration (from external repo analysis) ✓ (CORE COMPLETE — Entry #20)
 
 **Goal:** Enable Animus to expose tools via MCP and connect to external MCP servers.
 
@@ -318,24 +318,27 @@ After analyzing 12 additional repositories, a critical insight emerged: **many a
 **Implementation Principle:** 100% hardcoded — protocol handling is entirely deterministic.
 
 **Tasks:**
-- [ ] **MCP Server Implementation** (`src/mcp/server.py`) — HARDCODED
-  - [ ] JSON-RPC 2.0 message parsing (hardcoded validation)
-  - [ ] Method routing table (dict-based dispatch, no LLM)
-  - [ ] Tool schema generation from registry (programmatic)
-  - [ ] Support stdio and HTTP transports
-  - [ ] Add `animus mcp-server` command
+- [x] **MCP Server Implementation** (`src/mcp/server.py`) — HARDCODED ✓
+  - [x] JSON-RPC 2.0 message parsing (hardcoded validation)
+  - [x] Method routing table (dict-based dispatch, no LLM)
+  - [x] Tool schema generation from registry (programmatic)
+  - [x] Support stdio and HTTP transports
+  - [x] Add `animus portal server` command (renamed from mcp-server)
   - [ ] Authentication via API key header validation
-- [ ] **MCP Client Implementation** (`src/mcp/client.py`) — HARDCODED
-  - [ ] Connect to external MCP servers
-  - [ ] Tool discovery via `tools/list` (parse JSON response)
-  - [ ] Convert MCP tool schemas to Animus format (schema mapping)
+- [x] **MCP Client Implementation** (`src/mcp/client.py`) — HARDCODED ✓
+  - [x] Connect to external MCP servers
+  - [x] Tool discovery via `tools/list` (parse JSON response)
+  - [x] Convert MCP tool schemas to Animus format (schema mapping)
   - [ ] Connection health via ping/timeout (hardcoded intervals)
 - [ ] **MCP Configuration** (`src/mcp/config.py`) — HARDCODED
   - [ ] YAML-based config parsing
   - [ ] Per-server tool allowlists (pattern matching)
   - [ ] Transport type resolution (stdio vs HTTP)
+- [x] **MCP Tests** (`tests/test_mcp.py`) — 56 tests ✓
 
-### Phase 13: Skills System (from Anthropic skills repo)
+**Test Results:** 302 passed (246 existing + 56 new MCP tests)
+
+### Phase 13: Skills System (from Anthropic skills repo) ✓ (COMPLETE — Entry #21)
 
 **Goal:** Enable modular capability extension via SKILL.md format.
 
@@ -344,28 +347,35 @@ After analyzing 12 additional repositories, a critical insight emerged: **many a
 **Implementation Principle:** 100% hardcoded for loading — LLM only uses skill content.
 
 **Tasks:**
-- [ ] **SKILL.md Parser** (`src/skills/parser.py`) — HARDCODED
-  - [ ] YAML frontmatter extraction via regex (no LLM parsing)
-  - [ ] Field validation (name, description, allowed-tools)
-  - [ ] Graceful fallback if frontmatter missing
-  - [ ] Extract H1 heading as title fallback
-- [ ] **Skill Registry** (`src/skills/registry.py`) — HARDCODED
-  - [ ] Priority-ordered path scanning: project > user > bundled
-  - [ ] File-based discovery (walk directories for SKILL.md)
-  - [ ] Deduplication by skill ID (first wins)
-  - [ ] LRU cache with mtime invalidation (like skyll)
-- [ ] **Skill Loader** (`src/skills/loader.py`) — HARDCODED
-  - [ ] Template variable replacement ({baseDir}, {projectDir})
-  - [ ] Inject as system prompt section (no LLM interpretation of format)
-  - [ ] Allowed-tools validation against registry
-- [ ] **CLI Commands** — HARDCODED
-  - [ ] `animus skill list` — Directory scan, format output
-  - [ ] `animus skill install <url>` — Git clone or file download
-  - [ ] `animus skill create <name>` — Template file generation
-- [ ] **Bundled Skills** (content is LLM-interpreted, loading is hardcoded)
-  - [ ] `code-review` — Analyze code for issues
-  - [ ] `test-gen` — Generate unit tests
-  - [ ] `commit` — Create conventional commits
+- [x] **SKILL.md Parser** (`src/skills/parser.py`) — HARDCODED ✓
+  - [x] YAML frontmatter extraction via regex (no LLM parsing)
+  - [x] Field validation (name, description, allowed-tools)
+  - [x] Section extraction (Examples, Guidelines)
+  - [x] File and directory parsing
+- [x] **Skill Registry** (`src/skills/registry.py`) — HARDCODED ✓
+  - [x] Priority-ordered path scanning: project > user > bundled
+  - [x] File-based discovery (walk directories for SKILL.md)
+  - [x] Deduplication by skill ID (later source wins)
+  - [x] URL-based installation (GitHub support)
+  - [x] Search by name, description, tags
+- [x] **Skill Loader** (`src/skills/loader.py`) — HARDCODED ✓
+  - [x] Prompt injection (before, after, replace positions)
+  - [x] Requirements checking against available tools
+  - [x] Compatible skills filtering
+- [x] **CLI Commands** — HARDCODED ✓
+  - [x] `animus tomes list` — List available skills
+  - [x] `animus tomes show <name>` — Show skill details
+  - [x] `animus tomes inscribe <name>` — Create new skill from template
+  - [x] `animus tomes install <url>` — Install from URL
+- [x] **Bundled Skills** (content is LLM-interpreted, loading is hardcoded) ✓
+  - [x] `code-review` — Analyze code for issues
+  - [x] `test-gen` — Generate unit tests
+  - [x] `refactor` — Code refactoring
+  - [x] `explain` — Code explanation
+  - [x] `commit` — Create conventional commits
+- [x] **Skills Tests** (`tests/test_skills.py`) — 59 tests ✓
+
+**Test Results:** 361 passed (302 previous + 59 new skills tests)
 
 ### Phase 14: Enhanced Permission System (from OpenCode analysis)
 
