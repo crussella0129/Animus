@@ -150,6 +150,14 @@ class RuleEngine:
             severity="warning",
         ))
 
+        # Action verification rule - checks if claimed actions match actual actions
+        self.add_rule(RuleCheck(
+            name="actions_verified",
+            description="Claimed actions should match actual actions taken",
+            check_fn=lambda output, ctx: self._verify_actions(output, ctx),
+            severity="error",
+        ))
+
     def _has_error_indicators(self, output: str) -> bool:
         """Check for common error indicators."""
         error_patterns = [
@@ -242,6 +250,174 @@ class RuleEngine:
             if re.search(pattern, output):
                 return True
         return False
+
+    def _extract_claimed_actions(self, output: str) -> dict[str, list[str]]:
+        """Extract claimed actions from output text.
+
+        Detects when the model claims to have performed actions like:
+        - Creating/writing files
+        - Executing commands
+        - Modifying files
+        - Running scripts
+
+        Returns:
+            Dict with action types and claimed targets:
+            {
+                "files_created": ["path/to/file.py", ...],
+                "files_modified": ["path/to/other.py", ...],
+                "commands_executed": ["git commit", ...],
+            }
+        """
+        claimed = {
+            "files_created": [],
+            "files_modified": [],
+            "commands_executed": [],
+        }
+
+        # Patterns for file creation claims
+        # Note: Put longer extensions first (json before js) to avoid partial matches
+        file_ext = r"(?:py|json|yaml|yml|ts|js|md|txt|sh|bash)"
+        file_creation_patterns = [
+            r"(?i)I(?:'ve| have)? created (?:a |the )?file (?:at |called |named )?['\"`]?([^\s'\"`,]+)['\"`]?",
+            r"(?i)I(?:'ve| have)? written (?:a |the )?file (?:at |to |called )?['\"`]?([^\s'\"`,]+)['\"`]?",
+            r"(?i)(?:the |a )?file ['\"`]?([^\s'\"`,]+)['\"`]? (?:has been |was |is )created",
+            rf"(?i)created ['\"`]?([^\s'\"`,]+\.{file_ext})['\"`]?",
+            rf"(?i)wrote (?:to )?['\"`]?([^\s'\"`,]+\.{file_ext})['\"`]?",
+            rf"(?i)saved (?:to |as )?['\"`]?([^\s'\"`,]+\.{file_ext})['\"`]?",
+            # Handle lists: "created X and Y"
+            rf"(?i)(?:and|,)\s+['\"`]?([^\s'\"`,]+\.{file_ext})['\"`]?",
+        ]
+
+        # Patterns for file modification claims
+        file_modification_patterns = [
+            r"(?i)I(?:'ve| have)? (?:updated|modified|edited|changed) (?:the )?file ['\"`]?([^\s'\"`,]+)['\"`]?",
+            rf"(?i)I(?:'ve| have)? (?:updated|modified|edited|changed) ['\"`]?([^\s'\"`,]+\.{file_ext})['\"`]?",
+            # Handle "I modified X file" where "file" comes after the path
+            rf"(?i)I(?:'ve| have)? (?:updated|modified|edited|changed) (?:the )?['\"`]?([^\s'\"`,]+\.{file_ext})['\"`]?\s+file",
+            r"(?i)(?:the )?file ['\"`]?([^\s'\"`,]+)['\"`]? (?:has been |was |is )(?:updated|modified|edited)",
+            r"(?i)made changes to ['\"`]?([^\s'\"`,]+)['\"`]?",
+        ]
+
+        # Patterns for command execution claims
+        command_execution_patterns = [
+            r"(?i)I(?:'ve| have)? (?:executed|run|ran) (?:the )?command[:\s]+['\"`]?([^'\"`,\n]+)['\"`]?",
+            r"(?i)I(?:'ve| have)? (?:executed|run|ran)[:\s]+['\"`]?([^'\"`,\n]+)['\"`]?",
+            r"(?i)(?:executed|running|ran)[:\s]+`([^`]+)`",
+            r"(?i)the command ['\"`]?([^'\"`,\n]+)['\"`]? (?:has been |was |is )(?:executed|run)",
+            r"(?i)successfully (?:executed|ran) ['\"`]?([^'\"`,\n]+)['\"`]?",
+        ]
+
+        # Extract file creations
+        for pattern in file_creation_patterns:
+            matches = re.findall(pattern, output)
+            for match in matches:
+                if match and len(match) > 2:  # Filter out very short matches
+                    claimed["files_created"].append(match.strip())
+
+        # Extract file modifications
+        for pattern in file_modification_patterns:
+            matches = re.findall(pattern, output)
+            for match in matches:
+                if match and len(match) > 2:
+                    claimed["files_modified"].append(match.strip())
+
+        # Extract command executions
+        for pattern in command_execution_patterns:
+            matches = re.findall(pattern, output)
+            for match in matches:
+                if match and len(match) > 2:
+                    claimed["commands_executed"].append(match.strip())
+
+        # Deduplicate
+        claimed["files_created"] = list(set(claimed["files_created"]))
+        claimed["files_modified"] = list(set(claimed["files_modified"]))
+        claimed["commands_executed"] = list(set(claimed["commands_executed"]))
+
+        return claimed
+
+    def _verify_actions(self, output: str, context: dict[str, Any]) -> bool:
+        """Verify that claimed actions match actual actions taken.
+
+        Context should contain:
+        - actions_taken: List of action dicts with type and target
+        - files_created: List of files actually created
+        - files_modified: List of files actually modified
+        - commands_executed: List of commands actually executed
+
+        If no action context is provided, this check passes (skip verification).
+
+        Returns:
+            True if claimed actions match actual actions (or no actions claimed),
+            False if model claims actions that weren't taken.
+        """
+        # If no action tracking in context, skip this check
+        if not any(key in context for key in [
+            "actions_taken", "files_created", "files_modified", "commands_executed"
+        ]):
+            return True
+
+        claimed = self._extract_claimed_actions(output)
+
+        # Get actual actions from context
+        actual_files_created = set(context.get("files_created", []))
+        actual_files_modified = set(context.get("files_modified", []))
+        actual_commands = set(context.get("commands_executed", []))
+
+        # Also support generic actions_taken format
+        for action in context.get("actions_taken", []):
+            if isinstance(action, dict):
+                action_type = action.get("type", "")
+                target = action.get("target", "")
+                if action_type in ("create", "write", "create_file"):
+                    actual_files_created.add(target)
+                elif action_type in ("modify", "edit", "update"):
+                    actual_files_modified.add(target)
+                elif action_type in ("execute", "run", "command"):
+                    actual_commands.add(target)
+
+        # Check claimed file creations
+        for claimed_file in claimed["files_created"]:
+            # Normalize path for comparison (handle different separators)
+            claimed_normalized = claimed_file.replace("\\", "/").rstrip("/")
+            found = False
+            for actual in actual_files_created:
+                actual_normalized = str(actual).replace("\\", "/").rstrip("/")
+                # Check if claimed file matches actual (exact or ends with)
+                if (claimed_normalized == actual_normalized or
+                    actual_normalized.endswith("/" + claimed_normalized) or
+                    claimed_normalized.endswith("/" + actual_normalized)):
+                    found = True
+                    break
+            if not found:
+                return False
+
+        # Check claimed file modifications
+        for claimed_file in claimed["files_modified"]:
+            claimed_normalized = claimed_file.replace("\\", "/").rstrip("/")
+            found = False
+            for actual in actual_files_modified:
+                actual_normalized = str(actual).replace("\\", "/").rstrip("/")
+                if (claimed_normalized == actual_normalized or
+                    actual_normalized.endswith("/" + claimed_normalized) or
+                    claimed_normalized.endswith("/" + actual_normalized)):
+                    found = True
+                    break
+            if not found:
+                return False
+
+        # Check claimed command executions (more lenient - check if command appears)
+        for claimed_cmd in claimed["commands_executed"]:
+            found = False
+            for actual_cmd in actual_commands:
+                # Check if the claimed command is contained in or equal to actual
+                if (claimed_cmd.lower() in actual_cmd.lower() or
+                    actual_cmd.lower() in claimed_cmd.lower()):
+                    found = True
+                    break
+            if not found:
+                return False
+
+        return True
 
     def add_rule(self, rule: RuleCheck) -> None:
         """Add a verification rule."""

@@ -452,3 +452,170 @@ class TestRuleCheck:
         )
         assert rule.check_fn("hello world", {}) is True
         assert rule.check_fn("hi", {}) is False
+
+
+class TestActionVerification:
+    """Test action verification (command executed checks)."""
+
+    @pytest.fixture
+    def engine(self):
+        """Create rule engine with defaults."""
+        return RuleEngine()
+
+    def test_extract_file_creation_claims(self, engine):
+        """Test extraction of file creation claims."""
+        output = "I've created a file at src/main.py with the implementation."
+        claimed = engine._extract_claimed_actions(output)
+        assert "src/main.py" in claimed["files_created"]
+
+    def test_extract_file_creation_various_formats(self, engine):
+        """Test various formats of file creation claims."""
+        outputs = [
+            ("I created the file `config.yaml`", "config.yaml"),
+            ("The file 'test.py' has been created", "test.py"),
+            ("I wrote to output.txt", "output.txt"),
+            ("saved as results.json", "results.json"),
+            ("I've written a file called script.sh", "script.sh"),
+        ]
+        for output, expected in outputs:
+            claimed = engine._extract_claimed_actions(output)
+            assert expected in claimed["files_created"], f"Failed for: {output}"
+
+    def test_extract_file_modification_claims(self, engine):
+        """Test extraction of file modification claims."""
+        output = "I've updated the file src/config.py with the new settings."
+        claimed = engine._extract_claimed_actions(output)
+        assert "src/config.py" in claimed["files_modified"]
+
+    def test_extract_command_execution_claims(self, engine):
+        """Test extraction of command execution claims."""
+        outputs = [
+            ("I executed the command: `git commit -m 'fix'`", "git commit -m 'fix'"),
+            ("I ran `npm install`", "npm install"),
+            ("The command 'pytest' was executed", "pytest"),
+            ("Successfully executed pip install requests", "pip install requests"),
+        ]
+        for output, expected in outputs:
+            claimed = engine._extract_claimed_actions(output)
+            # Check if any claimed command contains the expected text
+            found = any(expected in cmd or cmd in expected for cmd in claimed["commands_executed"])
+            assert found, f"Failed for: {output}, got: {claimed['commands_executed']}"
+
+    def test_verify_actions_no_context(self, engine):
+        """Test that verification passes when no action context provided."""
+        output = "I created file.py and ran the tests."
+        result = engine.verify(output, {})
+        # Should pass because no action tracking context
+        assert "actions_verified" in result.checks_passed
+
+    def test_verify_actions_claimed_file_exists(self, engine):
+        """Test verification when claimed file was actually created."""
+        output = "I've created the file src/new_module.py with the implementation."
+        context = {
+            "files_created": ["src/new_module.py"],
+        }
+        result = engine.verify(output, context)
+        assert "actions_verified" in result.checks_passed
+
+    def test_verify_actions_claimed_file_missing(self, engine):
+        """Test verification fails when claimed file wasn't created."""
+        output = "I've created the file src/missing.py with the code."
+        context = {
+            "files_created": [],  # No files were actually created
+        }
+        result = engine.verify(output, context)
+        assert "actions_verified" in result.checks_failed
+
+    def test_verify_actions_claimed_command_executed(self, engine):
+        """Test verification when claimed command was actually executed."""
+        output = "I ran `git status` to check the repository state."
+        context = {
+            "commands_executed": ["git status"],
+        }
+        result = engine.verify(output, context)
+        assert "actions_verified" in result.checks_passed
+
+    def test_verify_actions_claimed_command_not_executed(self, engine):
+        """Test verification fails when claimed command wasn't executed."""
+        output = "I executed `rm -rf /tmp/test` to clean up."
+        context = {
+            "commands_executed": [],  # Command was not actually run
+        }
+        result = engine.verify(output, context)
+        assert "actions_verified" in result.checks_failed
+
+    def test_verify_actions_partial_path_match(self, engine):
+        """Test verification with partial path matching."""
+        output = "I've created main.py with the entry point."
+        context = {
+            "files_created": ["/home/user/project/main.py"],
+        }
+        result = engine.verify(output, context)
+        assert "actions_verified" in result.checks_passed
+
+    def test_verify_actions_multiple_files(self, engine):
+        """Test verification with multiple claimed files."""
+        output = "I created test.py and also created config.yaml for settings."
+        context = {
+            "files_created": ["test.py", "config.yaml"],
+        }
+        result = engine.verify(output, context)
+        assert "actions_verified" in result.checks_passed
+
+    def test_verify_actions_one_missing(self, engine):
+        """Test verification fails if any claimed file is missing."""
+        output = "I created both main.py and utils.py modules."
+        context = {
+            "files_created": ["main.py"],  # utils.py is missing
+        }
+        result = engine.verify(output, context)
+        assert "actions_verified" in result.checks_failed
+
+    def test_verify_actions_using_actions_taken_format(self, engine):
+        """Test verification with actions_taken dict format."""
+        output = "I created the file handler.py and executed the tests."
+        context = {
+            "actions_taken": [
+                {"type": "create_file", "target": "handler.py"},
+                {"type": "execute", "target": "pytest"},
+            ],
+        }
+        result = engine.verify(output, context)
+        assert "actions_verified" in result.checks_passed
+
+    def test_verify_file_modification(self, engine):
+        """Test verification of file modification claims."""
+        output = "I've updated settings.py with the new configuration."
+        context = {
+            "files_modified": ["settings.py"],
+        }
+        result = engine.verify(output, context)
+        assert "actions_verified" in result.checks_passed
+
+    def test_verify_modification_not_done(self, engine):
+        """Test verification fails when modification wasn't done."""
+        output = "I modified the database.py file to add the new query."
+        context = {
+            "files_modified": [],  # No modifications made
+        }
+        result = engine.verify(output, context)
+        assert "actions_verified" in result.checks_failed
+
+    def test_no_action_claims_passes(self, engine):
+        """Test that output without action claims passes."""
+        output = "The function calculates the sum of two numbers and returns the result."
+        context = {
+            "files_created": [],
+            "commands_executed": [],
+        }
+        result = engine.verify(output, context)
+        assert "actions_verified" in result.checks_passed
+
+    def test_command_partial_match(self, engine):
+        """Test command verification with partial match."""
+        output = "I ran git commit"
+        context = {
+            "commands_executed": ["git commit -m 'Update files'"],
+        }
+        result = engine.verify(output, context)
+        assert "actions_verified" in result.checks_passed
