@@ -1,6 +1,22 @@
 # Tasks — ANIMUS
 
-**Last Updated:** 2026-02-01 (External repository analysis complete, Phases 12-15 defined)
+**Last Updated:** 2026-02-01 (Entry #16: Balanced hardcoding vs LLM recommendations, Phase 16 code hardening added)
+
+## Design Philosophy Update
+
+After analyzing 12 additional repositories, a critical insight emerged: **many agent frameworks over-rely on LLM inference for tasks that should be deterministic**. This causes unpredictable behavior, unnecessary latency, and security vulnerabilities.
+
+**New Guiding Principle:** Use LLMs only where ambiguity, creativity, or natural language understanding is required. Use hardcoded logic for everything else.
+
+| Task Type | Approach | Examples |
+|-----------|----------|----------|
+| Security | 100% Hardcoded | Permissions, deny lists, sandboxing |
+| Protocols | 100% Hardcoded | MCP, HTTP, JSON-RPC |
+| Validation | 100% Hardcoded | Schema, types, patterns |
+| File I/O | 100% Hardcoded | Skill loading, context persistence |
+| Search | Hybrid (70/30) | BM25 hardcoded, LLM reranking optional |
+| Context | Hybrid (80/20) | Truncation hardcoded, summarization LLM |
+| Agent Work | LLM | Task execution, generation, understanding |
 
 ## Legend
 
@@ -105,6 +121,42 @@
 ---
 
 ## Current Sprint
+
+### Phase 16: Code Hardening Audit (PRIORITY — from Entry #16 analysis)
+
+**Goal:** Audit and harden existing Animus code to properly separate deterministic logic from LLM inference.
+
+**Principle:** Move logic OUT of LLM interpretation into hardcoded validation/execution.
+
+**Tasks:**
+- [ ] **Tool Call Parsing Audit** (`src/core/agent.py`)
+  - [ ] Make JSON parsing PRIMARY (not regex fallback)
+  - [ ] Add strict schema validation BEFORE LLM interprets
+  - [ ] Reject malformed tool calls deterministically
+  - [ ] Remove "fuzzy" parsing that relies on LLM output format
+- [ ] **Mandatory Deny Lists** (`src/core/agent.py`, `src/tools/shell.py`)
+  - [ ] Add DANGEROUS_DIRECTORIES list (non-overridable)
+  - [ ] Add DANGEROUS_FILES list (non-overridable)
+  - [ ] Check BEFORE confirmation prompts
+  - [ ] Block at code level, not prompt level
+- [ ] **Permission Pre-Check** (`src/tools/base.py`)
+  - [ ] Validate permissions BEFORE tool execution
+  - [ ] Pattern-based file path checking (fnmatch)
+  - [ ] Command parsing via shlex (deterministic)
+- [ ] **Error Classification Hardening** (`src/core/errors.py`)
+  - [ ] Ensure all patterns are regex-based
+  - [ ] No LLM interpretation of error messages
+  - [ ] Hardcoded recovery strategies per category
+- [ ] **Token Counting** (`src/core/context.py`)
+  - [ ] Use character-based estimation (no LLM)
+  - [ ] Hardcoded thresholds (soft: 80%, critical: 95%)
+  - [ ] Automatic truncation before LLM summarization
+- [ ] **Template Variables for Sub-Agents** (`src/core/subagent.py`)
+  - [ ] Add {previous}, {task}, {scope_dir} template vars
+  - [ ] String replacement (no LLM interpretation)
+  - [ ] Validate templates before execution
+
+---
 
 ### Phase 8: Self-Improvement & Observability (from Hive analysis)
 
@@ -253,132 +305,133 @@
 
 **Goal:** Enable Animus to expose tools via MCP and connect to external MCP servers.
 
-**Inspiration:** OpenCode, BrowserOS, Metorial, Claude Code
+**Inspiration:** OpenCode, BrowserOS, stakpak/agent, sandbox-runtime
+
+**Implementation Principle:** 100% hardcoded — protocol handling is entirely deterministic.
 
 **Tasks:**
-- [ ] **MCP Server Implementation** (`src/mcp/server.py`)
-  - [ ] Expose Animus tools via Model Context Protocol
+- [ ] **MCP Server Implementation** (`src/mcp/server.py`) — HARDCODED
+  - [ ] JSON-RPC 2.0 message parsing (hardcoded validation)
+  - [ ] Method routing table (dict-based dispatch, no LLM)
+  - [ ] Tool schema generation from registry (programmatic)
   - [ ] Support stdio and HTTP transports
-  - [ ] Implement tool listing (ToolListChangedNotification)
   - [ ] Add `animus mcp-server` command
-  - [ ] Add authentication (API key, OAuth support)
-- [ ] **MCP Client Implementation** (`src/mcp/client.py`)
+  - [ ] Authentication via API key header validation
+- [ ] **MCP Client Implementation** (`src/mcp/client.py`) — HARDCODED
   - [ ] Connect to external MCP servers
-  - [ ] Auto-discover tools from connected servers
-  - [ ] Convert MCP tools to Animus tool format
-  - [ ] Handle OAuth flows for authenticated servers
-  - [ ] Add connection health monitoring
-- [ ] **MCP Configuration** (`src/mcp/config.py`)
-  - [ ] Define MCP server configs in ~/.animus/config.yaml
-  - [ ] Support multiple server connections
-  - [ ] Per-server tool allowlists
-- [ ] **Browser Control via MCP** (optional)
-  - [ ] Connect to BrowserOS MCP server
-  - [ ] Expose 31 browser control tools
-  - [ ] Enable web research without built-in browser
+  - [ ] Tool discovery via `tools/list` (parse JSON response)
+  - [ ] Convert MCP tool schemas to Animus format (schema mapping)
+  - [ ] Connection health via ping/timeout (hardcoded intervals)
+- [ ] **MCP Configuration** (`src/mcp/config.py`) — HARDCODED
+  - [ ] YAML-based config parsing
+  - [ ] Per-server tool allowlists (pattern matching)
+  - [ ] Transport type resolution (stdio vs HTTP)
 
 ### Phase 13: Skills System (from Anthropic skills repo)
 
 **Goal:** Enable modular capability extension via SKILL.md format.
 
-**Inspiration:** anthropics/skills, charmbracelet/crush (agentskills.io)
+**Inspiration:** pi-skills, skyll, anthropics/skills
+
+**Implementation Principle:** 100% hardcoded for loading — LLM only uses skill content.
 
 **Tasks:**
-- [ ] **SKILL.md Parser** (`src/skills/parser.py`)
-  - [ ] Parse YAML frontmatter (name, description)
-  - [ ] Extract markdown instructions
-  - [ ] Validate skill structure
-- [ ] **Skill Registry** (`src/skills/registry.py`)
-  - [ ] Load skills from ~/.animus/skills/
-  - [ ] Load skills from project ./skills/
-  - [ ] Priority: project > user > bundled
-  - [ ] Dynamic skill discovery
-- [ ] **Skill Loader** (`src/skills/loader.py`)
-  - [ ] Inject skill instructions into agent context
-  - [ ] Support optional scripts (Python, Bash)
-  - [ ] Handle skill dependencies
-- [ ] **CLI Commands**
-  - [ ] `animus skill list` — List available skills
-  - [ ] `animus skill install <url>` — Install from URL/GitHub
-  - [ ] `animus skill create <name>` — Create from template
-  - [ ] `animus skill run <name>` — Execute skill directly
-- [ ] **Bundled Skills**
+- [ ] **SKILL.md Parser** (`src/skills/parser.py`) — HARDCODED
+  - [ ] YAML frontmatter extraction via regex (no LLM parsing)
+  - [ ] Field validation (name, description, allowed-tools)
+  - [ ] Graceful fallback if frontmatter missing
+  - [ ] Extract H1 heading as title fallback
+- [ ] **Skill Registry** (`src/skills/registry.py`) — HARDCODED
+  - [ ] Priority-ordered path scanning: project > user > bundled
+  - [ ] File-based discovery (walk directories for SKILL.md)
+  - [ ] Deduplication by skill ID (first wins)
+  - [ ] LRU cache with mtime invalidation (like skyll)
+- [ ] **Skill Loader** (`src/skills/loader.py`) — HARDCODED
+  - [ ] Template variable replacement ({baseDir}, {projectDir})
+  - [ ] Inject as system prompt section (no LLM interpretation of format)
+  - [ ] Allowed-tools validation against registry
+- [ ] **CLI Commands** — HARDCODED
+  - [ ] `animus skill list` — Directory scan, format output
+  - [ ] `animus skill install <url>` — Git clone or file download
+  - [ ] `animus skill create <name>` — Template file generation
+- [ ] **Bundled Skills** (content is LLM-interpreted, loading is hardcoded)
   - [ ] `code-review` — Analyze code for issues
   - [ ] `test-gen` — Generate unit tests
-  - [ ] `refactor` — Suggest refactoring improvements
-  - [ ] `explain` — Explain code behavior
-  - [ ] `commit` — Create well-formatted commits
+  - [ ] `commit` — Create conventional commits
 
 ### Phase 14: Enhanced Permission System (from OpenCode analysis)
 
 **Goal:** Replace binary confirmation with three-tier allow/deny/ask system.
 
-**Inspiration:** OpenCode permission/next.ts, OpenClaw tool policies
+**Inspiration:** sandbox-runtime, OpenCode, stakpak/agent
+
+**Implementation Principle:** 100% hardcoded — LLMs NEVER make security decisions.
 
 **Tasks:**
-- [ ] **Permission Model** (`src/core/permission.py`)
-  - [ ] Three actions: "allow", "deny", "ask"
-  - [ ] Pattern-based matching (glob patterns for files)
-  - [ ] Permission categories: read, edit, bash, external_directory
-  - [ ] Merge strategy: defaults → user → agent
-- [ ] **Permission Configuration**
-  - [ ] Define in ~/.animus/config.yaml
-  - [ ] Per-agent permission profiles
-  - [ ] Project-level .animus/permissions.yaml
-- [ ] **Permission Evaluation** (`src/core/permission.py`)
-  - [ ] Evaluate before tool execution
-  - [ ] Pattern matching for file paths
-  - [ ] Command parsing for bash permissions
-- [ ] **Permission Prompts**
-  - [ ] Rich prompt with context (what, why, patterns)
-  - [ ] "Always allow" option for pattern
-  - [ ] "Deny all" option for session
-- [ ] **Default Profiles**
-  - [ ] `strict` — Ask for everything except reads
-  - [ ] `standard` — Auto-allow reads, ask edits/bash
-  - [ ] `trusted` — Auto-allow most, ask dangerous
-  - [ ] `yolo` — Allow everything (use with caution)
-- [ ] **Agent-Specific Permissions**
-  - [ ] Explore agent: read-only (deny edits)
-  - [ ] Plan agent: read-only, ask bash
-  - [ ] Build agent: standard permissions
+- [ ] **Mandatory Deny Lists** (`src/core/permission.py`) — HARDCODED, NON-OVERRIDABLE
+  - [ ] DANGEROUS_DIRECTORIES = ['.git/hooks/', '.claude/', '.vscode/', '.idea/']
+  - [ ] DANGEROUS_FILES = ['.bashrc', '.zshrc', '.gitconfig', '.env', 'credentials.json']
+  - [ ] BLOCKED_COMMANDS = ['rm -rf /', 'mkfs', 'dd if=/dev/zero', ':(){ :|:& };:']
+  - [ ] Check BEFORE any other permission logic
+- [ ] **Permission Model** (`src/core/permission.py`) — HARDCODED
+  - [ ] Three actions: PermissionAction.ALLOW, DENY, ASK (enum, not strings)
+  - [ ] fnmatch/glob pattern matching (no LLM interpretation)
+  - [ ] Categories: read, write, execute, external_directory
+  - [ ] Merge order: mandatory_deny → user_config → defaults
+- [ ] **Permission Evaluation** — HARDCODED
+  - [ ] Path normalization (resolve symlinks, check boundaries)
+  - [ ] Pattern matching via fnmatch.fnmatch()
+  - [ ] Command parsing via shlex.split() (deterministic)
+  - [ ] Cache evaluated permissions for session
+- [ ] **Symlink Boundary Validation** (from sandbox-runtime) — HARDCODED
+  - [ ] Resolve symlink targets
+  - [ ] Verify target within allowed boundaries
+  - [ ] Block symlink-based escapes
+- [ ] **Default Profiles** — HARDCODED configurations
+  - [ ] `strict`: ask_all except reads
+  - [ ] `standard`: allow reads, ask writes/bash
+  - [ ] `trusted`: allow most, ask destructive
+- [ ] **Per-Agent Permission Scopes** — HARDCODED
+  - [ ] Explore: read-only, no writes, no shell
+  - [ ] Plan: read-only, limited shell (read commands only)
+  - [ ] Build: standard permissions
 
 ### Phase 15: OpenAI-Compatible Local API (from Jan, Lemonade)
 
 **Goal:** Serve Animus capabilities via OpenAI-compatible API for ecosystem integration.
 
-**Inspiration:** Jan (localhost:1337), Lemonade, OpenCode server
+**Inspiration:** dropshot, Jan, Lemonade
+
+**Implementation Principle:** 100% hardcoded — HTTP/JSON handling is deterministic.
 
 **Tasks:**
-- [ ] **API Server** (`src/api/server.py`)
-  - [ ] HTTP server on localhost:8337 (configurable)
-  - [ ] OpenAI-compatible `/v1/chat/completions` endpoint
-  - [ ] Streaming support (SSE)
-  - [ ] Authentication (API key header)
-- [ ] **Model Endpoint** (`src/api/routes/models.py`)
-  - [ ] `/v1/models` — List available models
-  - [ ] Return native, Ollama, and API models
-- [ ] **Chat Completions** (`src/api/routes/chat.py`)
-  - [ ] `/v1/chat/completions` — Chat with model
-  - [ ] Support tools/functions parameter
-  - [ ] Stream responses with `stream: true`
-  - [ ] Include tool execution results
-- [ ] **Embeddings Endpoint** (`src/api/routes/embeddings.py`)
-  - [ ] `/v1/embeddings` — Generate embeddings
-  - [ ] Use native embedder
-- [ ] **Agent Endpoint** (Animus-specific)
-  - [ ] `/v1/agent/chat` — Chat with Animus agent (tools enabled)
-  - [ ] `/v1/agent/ingest` — Trigger ingestion
-  - [ ] `/v1/agent/search` — Search knowledge base
-- [ ] **CLI Command**
-  - [ ] `animus serve` — Start API server
-  - [ ] `--port` option (default 8337)
-  - [ ] `--host` option (default localhost)
-  - [ ] Background mode with `--daemon`
-- [ ] **Integration Testing**
-  - [ ] Test with VS Code Continue extension
-  - [ ] Test with Open WebUI
-  - [ ] Test with n8n automation
+- [ ] **API Server** (`src/api/server.py`) — HARDCODED
+  - [ ] FastAPI or Starlette (typed routes, OpenAPI auto-gen)
+  - [ ] Request validation via Pydantic models (compile-time)
+  - [ ] Response schemas (typed, auto-documented)
+  - [ ] API key validation via header check (no LLM)
+  - [ ] Rate limiting via token bucket (hardcoded algorithm)
+- [ ] **Model Endpoint** (`src/api/routes/models.py`) — HARDCODED
+  - [ ] `/v1/models` — List from registry (no LLM)
+  - [ ] Model info from config files (YAML parsing)
+  - [ ] Capabilities detection (programmatic checks)
+- [ ] **Chat Completions** (`src/api/routes/chat.py`) — HYBRID
+  - [ ] Request parsing: HARDCODED (Pydantic)
+  - [ ] Tool schema validation: HARDCODED (JSON Schema)
+  - [ ] LLM invocation: LLM (the actual generation)
+  - [ ] SSE streaming: HARDCODED (protocol handling)
+  - [ ] Response formatting: HARDCODED (OpenAI format)
+- [ ] **Embeddings Endpoint** (`src/api/routes/embeddings.py`) — HARDCODED
+  - [ ] Input validation (list of strings)
+  - [ ] Batch processing (programmatic chunking)
+  - [ ] Response formatting (OpenAI embedding format)
+- [ ] **Agent Endpoints** (Animus-specific) — HYBRID
+  - [ ] `/v1/agent/chat` — Request parsing hardcoded, agent uses LLM
+  - [ ] `/v1/agent/ingest` — 100% hardcoded (file I/O, chunking, embedding)
+  - [ ] `/v1/agent/search` — Hybrid (BM25 hardcoded, rerank optional LLM)
+- [ ] **CLI Command** — HARDCODED
+  - [ ] `animus serve` with Typer/Click
+  - [ ] Background mode via subprocess.Popen (not LLM-decided)
 
 ---
 
@@ -638,3 +691,46 @@
 | **anthropics/claude-code** | 63K | Agentic CLI, codebase understanding, git workflow, plugin architecture |
 | **anthropics/skills** | 60K | SKILL.md format, dynamic capability extension, production document skills |
 | **anthropics/claude-cookbooks** | 32K | RAG patterns, tool use, sub-agents, vision, prompt caching examples |
+
+### External Repositories (Analyzed 2026-02-01 — Batch 2)
+
+| Repository | Key Patterns Borrowed | Hardcoded vs LLM |
+|------------|----------------------|------------------|
+| **anthropic-experimental/sandbox-runtime** | OS-level sandboxing, mandatory deny lists, symlink validation, proxy filtering | 100% hardcoded |
+| **VoidenHQ/voiden** | Hook registry with priorities, IPC tool system, pipeline stages, state persistence | 95% hardcoded |
+| **automazeio/ccpm** | File-based context, parallel agent coordination, template variables, spec-driven | 90% hardcoded |
+| **mitsuhiko/agent-stuff** | Event-driven lifecycle, TUI components, session state, fuzzy matching | 85% hardcoded |
+| **badlogic/pi-skills** | SKILL.md format, YAML frontmatter, CLI tool abstraction | 100% hardcoded |
+| **nicobailon/pi-subagents** | Chain execution, fan-out/fan-in, async jobs, template replacement | 80% hardcoded |
+| **stakpak/agent** | Rust MCP, secret substitution, provider abstraction, mTLS | 100% hardcoded |
+| **supermemoryai/supermemory** | Normalized embeddings, multi-tier fallback, relevance scoring | 70% hardcoded |
+| **assafelovic/skyll** | Protocol-based sources, relevance ranking, LRU caching with TTL | 90% hardcoded |
+| **oxidecomputer/dropshot** | Type-safe extractors, trait-based APIs, OpenAPI generation from code | 100% hardcoded |
+| **adenhq/hive** | Node graphs, edge conditions, semantic failure detection | 60% hardcoded |
+
+---
+
+## Design Principle: Hardcoding vs LLM Inference
+
+**Critical Rule:** Use LLMs only where ambiguity, creativity, or NLU is required. Use hardcoded logic for everything else.
+
+### Always Hardcode (100%)
+- Security decisions (permissions, deny lists, sandbox boundaries)
+- Protocol handling (MCP, HTTP, JSON-RPC, IPC)
+- Schema validation (JSON Schema, Pydantic)
+- Error classification (regex patterns, recovery strategies)
+- File I/O (skill loading, context persistence)
+- Token counting (character-based estimation)
+- Template variable replacement
+
+### Hybrid Approach (70-90% Hardcoded)
+- Search (BM25 hardcoded + vector model + optional LLM reranking)
+- Context management (truncation hardcoded, summarization via LLM)
+- Sub-agent orchestration (flow control hardcoded, agent work via LLM)
+
+### LLM-Appropriate Tasks
+- Task decomposition and planning
+- Natural language understanding
+- Content summarization
+- Creative generation
+- Ambiguous decision-making

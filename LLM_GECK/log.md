@@ -1482,3 +1482,474 @@ None (analysis only)
 - Begin implementation of high-priority features
 
 ---
+
+## Entry #16 — 2026-02-01
+
+### Summary
+Analyzed 12 additional external repositories for Animus improvements. Created balanced recommendations that properly separate hardcoded deterministic logic from LLM inference—avoiding the trap of over-relying on LLMs for tasks that should be programmatic.
+
+### Repositories Analyzed
+
+| Repository | Purpose | Key Takeaways |
+|------------|---------|---------------|
+| **anthropic-experimental/sandbox-runtime** | OS-level sandboxing | Hardcoded security boundaries, pattern-based permissions, proxy architecture |
+| **VoidenHQ/voiden** | API client with extensions | Hook registry with priorities, IPC-based tool system, state persistence |
+| **automazeio/ccpm** | Claude context/project management | File-based context persistence, parallel agent coordination, spec-driven development |
+| **mitsuhiko/agent-stuff** | Pi agent extensions | Event-driven lifecycle hooks, TUI components, session state management |
+| **badlogic/pi-skills** | Skills for Pi agent | SKILL.md format, self-contained skills, CLI tool abstraction |
+| **nicobailon/pi-subagents** | Sub-agent orchestration | Chain execution, parallel fan-out/fan-in, template variables, async job management |
+| **stakpak/agent** | DevOps agent | Rust MCP implementation, secret substitution, provider-agnostic design |
+| **supermemoryai/supermemory** | AI memory layer | Normalized embeddings, multi-tier relevance fallback, MCP server |
+| **assafelovic/skyll** | Skill discovery API | Protocol-based sources, relevance ranking, caching with TTL |
+| **oxidecomputer/dropshot** | Rust API framework | Type-safe extractors, trait-based API definitions, OpenAPI generation from code |
+| **adenhq/hive** | Outcome-driven agents | Node graphs, self-adapting execution, semantic failure detection |
+
+---
+
+### Critical Insight: Balancing Hardcoding vs LLM Inference
+
+**The Problem:** Many agent frameworks over-rely on LLM inference for tasks that should be deterministic. This causes:
+- Unpredictable behavior
+- Unnecessary latency and cost
+- Difficulty debugging
+- Security vulnerabilities
+
+**The Principle:** Use LLMs only where ambiguity, creativity, or natural language understanding is required. Use hardcoded logic for everything else.
+
+---
+
+### Balanced Architecture Recommendations
+
+#### 1. **Security & Permissions — 100% HARDCODED**
+
+**Source:** sandbox-runtime, stakpak/agent
+
+LLMs should NEVER make security decisions. All security must be deterministic:
+
+```python
+# GOOD: Hardcoded permission system
+class PermissionSystem:
+    ALWAYS_DENY = ['.bashrc', '.zshrc', '.git/hooks', '.env', 'credentials.json']
+    ALWAYS_ALLOW_READ = ['*.md', '*.txt', '*.py', '*.js']
+
+    def check(self, path: str, operation: str) -> PermissionResult:
+        # Deterministic pattern matching
+        if any(fnmatch(path, p) for p in self.ALWAYS_DENY):
+            return PermissionResult.DENY
+        if operation == 'read' and any(fnmatch(path, p) for p in self.ALWAYS_ALLOW_READ):
+            return PermissionResult.ALLOW
+        return PermissionResult.ASK  # Only ASK triggers user prompt
+
+# BAD: LLM decides permissions
+response = llm.generate("Should I allow write to .bashrc?")  # NEVER DO THIS
+```
+
+**Key patterns from sandbox-runtime:**
+- Mandatory deny paths (hardcoded, non-overridable)
+- Symlink boundary validation (programmatic check)
+- Pattern-based file access (glob matching, not LLM interpretation)
+- Proxy-based network filtering (allowlist, not LLM judgment)
+
+#### 2. **Tool Execution Pipeline — MOSTLY HARDCODED**
+
+**Source:** voiden, pi-subagents
+
+The execution pipeline should be deterministic. LLMs only decide WHICH tool to call, not HOW to execute it:
+
+```python
+# GOOD: Hardcoded pipeline with LLM tool selection
+class ToolPipeline:
+    def execute(self, tool_call: ToolCall) -> Result:
+        # 1. HARDCODED: Validate tool exists
+        if tool_call.name not in self.registry:
+            return Error(f"Unknown tool: {tool_call.name}")
+
+        # 2. HARDCODED: Schema validation (Pydantic/JSON Schema)
+        try:
+            validated_args = self.registry[tool_call.name].schema.validate(tool_call.args)
+        except ValidationError as e:
+            return Error(f"Invalid arguments: {e}")
+
+        # 3. HARDCODED: Permission check
+        if not self.permissions.check(tool_call.name, validated_args):
+            return Error("Permission denied")
+
+        # 4. HARDCODED: Execute with timeout
+        with timeout(self.config.tool_timeout):
+            return self.registry[tool_call.name].execute(validated_args)
+
+# BAD: LLM interprets how to execute
+response = llm.generate(f"Execute this tool: {tool_call}")
+```
+
+**Key patterns from voiden:**
+- Hook registry with priority ordering (hardcoded priorities)
+- Pipeline stages with deterministic flow
+- Security boundary via IPC (credentials never in renderer)
+- Output batching (8ms intervals—hardcoded, not LLM-decided)
+
+#### 3. **Context Management — HYBRID (Mostly Hardcoded)**
+
+**Source:** ccpm, supermemory
+
+Context window management should be algorithmic. LLMs only help with summarization:
+
+```python
+# GOOD: Hardcoded context management with LLM summarization
+class ContextManager:
+    def __init__(self, max_tokens: int = 128000):
+        self.max_tokens = max_tokens
+        self.soft_limit = int(max_tokens * 0.8)  # Hardcoded 80%
+        self.critical_limit = int(max_tokens * 0.95)  # Hardcoded 95%
+
+    def add_turn(self, turn: Turn) -> None:
+        current_tokens = self.estimate_tokens()  # Hardcoded: ~4 chars/token
+
+        if current_tokens > self.critical_limit:
+            # HARDCODED: Truncation strategy
+            self.truncate_oldest()
+        elif current_tokens > self.soft_limit:
+            # LLM ONLY FOR SUMMARIZATION (creative task)
+            summary = self.llm.summarize(self.old_turns)
+            self.replace_old_turns_with_summary(summary)
+
+    def estimate_tokens(self) -> int:
+        # HARDCODED: Character-based estimation (no LLM)
+        return sum(len(t.content) // 4 for t in self.turns)
+```
+
+**Key patterns from ccpm:**
+- File-based context persistence (deterministic file I/O)
+- Accuracy-first with evidence requirements (validation rules, not LLM judgment)
+- Qualifying language flags (regex/pattern matching for uncertainty markers)
+
+#### 4. **Error Classification & Recovery — 100% HARDCODED**
+
+**Source:** stakpak/agent, Animus existing errors.py
+
+Error classification should be pattern-based, not LLM-interpreted:
+
+```python
+# GOOD: Hardcoded error classification
+class ErrorClassifier:
+    PATTERNS = {
+        ErrorCategory.CONTEXT_OVERFLOW: [
+            r"context.*(length|limit|exceeded)",
+            r"maximum.*tokens",
+            r"too (long|many)",
+        ],
+        ErrorCategory.RATE_LIMIT: [
+            r"rate.?limit",
+            r"429",
+            r"too many requests",
+        ],
+        ErrorCategory.AUTH_FAILURE: [
+            r"(401|403|unauthorized|forbidden)",
+            r"invalid.*(key|token|credential)",
+        ],
+    }
+
+    def classify(self, error: Exception) -> tuple[ErrorCategory, RecoveryStrategy]:
+        message = str(error).lower()
+        for category, patterns in self.PATTERNS.items():
+            if any(re.search(p, message) for p in patterns):
+                return category, self.RECOVERY_STRATEGIES[category]
+        return ErrorCategory.UNKNOWN, RecoveryStrategy.LOG_AND_FAIL
+
+# Hardcoded recovery strategies
+RECOVERY_STRATEGIES = {
+    ErrorCategory.CONTEXT_OVERFLOW: RecoveryStrategy(compact=True, retry=True),
+    ErrorCategory.RATE_LIMIT: RecoveryStrategy(backoff=True, max_wait=60),
+    ErrorCategory.AUTH_FAILURE: RecoveryStrategy(retry=False, escalate=True),
+}
+```
+
+#### 5. **Search & Retrieval — HYBRID (Algorithm + LLM)**
+
+**Source:** supermemory, skyll
+
+Search should use hardcoded algorithms with optional LLM enhancement:
+
+```python
+# GOOD: Algorithmic search with optional LLM reranking
+class HybridSearch:
+    def search(self, query: str, limit: int = 10) -> list[Result]:
+        # 1. HARDCODED: BM25 keyword search (fast, deterministic)
+        bm25_results = self.bm25_index.search(query, limit=limit*2)
+
+        # 2. HARDCODED: Vector similarity (cosine, dot product)
+        embeddings = self.embedder.encode(query)  # Model, but deterministic
+        vector_results = self.vector_store.search(embeddings, limit=limit*2)
+
+        # 3. HARDCODED: Score normalization and merging
+        merged = self.merge_scores(bm25_results, vector_results,
+                                   bm25_weight=0.3, vector_weight=0.7)
+
+        # 4. OPTIONAL LLM: Reranking for complex queries (can be disabled)
+        if self.config.enable_llm_rerank:
+            merged = self.llm_rerank(query, merged[:limit*2])
+
+        return merged[:limit]
+
+    def merge_scores(self, bm25, vector, bm25_weight, vector_weight) -> list:
+        # HARDCODED: Reciprocal rank fusion or weighted combination
+        # No LLM involved
+        ...
+```
+
+**Key insight from supermemory:**
+- Normalized embeddings enable O(1) cosine similarity via dot product
+- Multi-tier fallback: embedding → db_score → default (all hardcoded)
+- Relevance scoring: content availability (40pts) + references (15pts) + match (30pts) + popularity (15pts) — all deterministic
+
+#### 6. **Sub-Agent Orchestration — HYBRID**
+
+**Source:** pi-subagents, hive
+
+Agent coordination should use hardcoded workflow primitives with LLM task decomposition:
+
+```python
+# GOOD: Hardcoded orchestration, LLM for task interpretation
+class SubAgentOrchestrator:
+    def execute_chain(self, chain: list[ChainStep]) -> Result:
+        previous_output = ""
+
+        for step in chain:
+            # HARDCODED: Template variable replacement
+            task = step.task.replace("{previous}", previous_output)
+            task = task.replace("{chain_dir}", self.chain_dir)
+
+            # HARDCODED: Agent resolution
+            agent = self.load_agent(step.agent_id)
+            if not agent:
+                return Error(f"Agent not found: {step.agent_id}")
+
+            # HARDCODED: Scope restrictions
+            scoped_tools = self.filter_tools(agent.tools, step.scope)
+
+            # LLM: Only for task execution (the actual agent work)
+            result = agent.run(task, tools=scoped_tools)
+
+            # HARDCODED: Result handling
+            if not result.success:
+                return Error(f"Step {step.id} failed: {result.error}")
+
+            previous_output = result.output
+
+        return Success(previous_output)
+
+    def execute_parallel(self, tasks: list[Task], concurrency: int = 4) -> list[Result]:
+        # HARDCODED: Semaphore-based concurrency control
+        semaphore = asyncio.Semaphore(concurrency)
+
+        async def run_with_limit(task):
+            async with semaphore:
+                return await self.run_single(task)
+
+        # HARDCODED: Gather with error handling
+        return await asyncio.gather(*[run_with_limit(t) for t in tasks],
+                                    return_exceptions=True)
+```
+
+**Key patterns from pi-subagents:**
+- Template variables ({previous}, {task}, {chain_dir}) — string replacement, not LLM
+- Priority-based skill resolution (project > user > bundled) — hardcoded order
+- Progress file pre-allocation to prevent race conditions — filesystem ops
+- Async job persistence to temp files — deterministic I/O
+
+#### 7. **Skills/Plugins — 100% HARDCODED Loading**
+
+**Source:** pi-skills, skyll, ccpm
+
+Skill discovery and loading must be deterministic:
+
+```python
+# GOOD: Hardcoded skill discovery and loading
+class SkillRegistry:
+    SKILL_PATHS = [
+        Path("./.animus/skills"),      # Project-level (highest priority)
+        Path.home() / ".animus/skills", # User-level
+        Path(__file__).parent / "bundled_skills",  # Bundled (lowest)
+    ]
+
+    def discover(self) -> list[Skill]:
+        skills = []
+        seen_ids = set()
+
+        # HARDCODED: Priority order
+        for path in self.SKILL_PATHS:
+            if not path.exists():
+                continue
+
+            for skill_dir in path.iterdir():
+                skill_file = skill_dir / "SKILL.md"
+                if not skill_file.exists():
+                    continue
+
+                # HARDCODED: Parse YAML frontmatter
+                skill = self.parse_skill(skill_file)
+
+                if skill.id not in seen_ids:
+                    skills.append(skill)
+                    seen_ids.add(skill.id)
+
+        return skills
+
+    def parse_skill(self, path: Path) -> Skill:
+        content = path.read_text()
+
+        # HARDCODED: YAML frontmatter extraction (regex, not LLM)
+        match = re.match(r'^---\n(.*?)\n---\n(.*)$', content, re.DOTALL)
+        if match:
+            frontmatter = yaml.safe_load(match.group(1))
+            body = match.group(2)
+        else:
+            frontmatter = {}
+            body = content
+
+        return Skill(
+            id=frontmatter.get('name', path.parent.name),
+            description=frontmatter.get('description', ''),
+            allowed_tools=frontmatter.get('allowed-tools', []),
+            content=body,
+        )
+```
+
+#### 8. **MCP Protocol — 100% HARDCODED**
+
+**Source:** stakpak/agent, sandbox-runtime
+
+Protocol handling is entirely deterministic:
+
+```python
+# GOOD: Hardcoded MCP protocol handling
+class MCPServer:
+    def handle_request(self, request: dict) -> dict:
+        # HARDCODED: JSON-RPC validation
+        if 'jsonrpc' not in request or request['jsonrpc'] != '2.0':
+            return self.error(-32600, "Invalid Request")
+
+        method = request.get('method')
+        params = request.get('params', {})
+
+        # HARDCODED: Method routing
+        handlers = {
+            'initialize': self.handle_initialize,
+            'tools/list': self.handle_tools_list,
+            'tools/call': self.handle_tools_call,
+        }
+
+        if method not in handlers:
+            return self.error(-32601, f"Method not found: {method}")
+
+        # HARDCODED: Execute handler
+        try:
+            result = handlers[method](params)
+            return {'jsonrpc': '2.0', 'id': request.get('id'), 'result': result}
+        except Exception as e:
+            return self.error(-32000, str(e))
+```
+
+---
+
+### Updated Feature Priorities with Implementation Notes
+
+| Feature | Hardcoded % | LLM % | Priority | Notes |
+|---------|-------------|-------|----------|-------|
+| **Permission System** | 100% | 0% | HIGH | Pattern matching, no LLM decisions |
+| **MCP Server/Client** | 100% | 0% | HIGH | Protocol is deterministic |
+| **Skill Loading** | 100% | 0% | HIGH | File parsing, YAML frontmatter |
+| **Error Classification** | 100% | 0% | HIGH | Regex patterns, recovery strategies |
+| **Tool Pipeline** | 95% | 5% | HIGH | Schema validation hardcoded; LLM selects tool |
+| **Context Management** | 80% | 20% | HIGH | Token counting hardcoded; LLM summarizes |
+| **Hybrid Search** | 70% | 30% | MEDIUM | BM25+vector hardcoded; LLM reranking optional |
+| **Sub-Agent Orchestration** | 60% | 40% | MEDIUM | Flow control hardcoded; agents use LLM |
+| **Decision Recording** | 100% | 0% | MEDIUM | Schema, storage, indexing all deterministic |
+| **API Server** | 100% | 0% | MEDIUM | HTTP handling, OpenAPI gen all hardcoded |
+
+---
+
+### Key Code Patterns to Adopt
+
+**1. From sandbox-runtime — Mandatory Deny Lists**
+```python
+DANGEROUS_DIRECTORIES = ['.git/hooks/', '.claude/commands/', '.vscode/']
+DANGEROUS_FILES = ['.bashrc', '.zshrc', '.gitconfig', '.env']
+# Check these BEFORE any LLM-based analysis
+```
+
+**2. From voiden — Hook Registry with Priorities**
+```python
+class HookRegistry:
+    def register(self, stage: str, handler: Callable, priority: int = 100):
+        # Lower priority = runs first
+        self.hooks[stage].append((priority, handler))
+        self.hooks[stage].sort(key=lambda x: x[0])
+```
+
+**3. From pi-subagents — Template Variables**
+```python
+TEMPLATE_VARS = {
+    '{previous}': lambda ctx: ctx.previous_output,
+    '{task}': lambda ctx: ctx.original_task,
+    '{chain_dir}': lambda ctx: ctx.artifact_dir,
+}
+# Simple string replacement, no LLM interpretation
+```
+
+**4. From dropshot — Type-Safe Extractors**
+```python
+# Define once, generate OpenAPI automatically
+@dataclass
+class CreateTaskRequest:
+    title: str
+    description: Optional[str] = None
+    priority: Literal["low", "medium", "high"] = "medium"
+
+# Validation happens at boundary, not via LLM
+```
+
+**5. From ccpm — Context Persistence Structure**
+```
+.animus/context/
+├── progress.md           # Current status (append-only log)
+├── project-structure.md  # Directory tree (programmatic generation)
+├── tech-context.md       # Dependencies (parsed from package.json, requirements.txt)
+└── decisions.md          # Decision log (structured, not freeform)
+```
+
+---
+
+### Files Changed
+
+None (analysis only)
+
+### Commits
+
+None (analysis only)
+
+### Findings
+
+1. **Over-reliance on LLMs is common** — Most frameworks use LLMs for tasks that should be deterministic
+2. **Security must be 100% hardcoded** — sandbox-runtime and stakpak show how to do this properly
+3. **Protocol handling is always deterministic** — MCP, HTTP, JSON-RPC never need LLM interpretation
+4. **Search benefits from hybrid approach** — BM25 (hardcoded) + vector (model) + optional LLM reranking
+5. **State management is programmatic** — Template variables, file I/O, priority ordering
+6. **LLMs excel at**: task decomposition, summarization, natural language understanding, creative generation
+7. **LLMs are poor at**: security decisions, protocol handling, deterministic workflows, exact calculations
+
+### Issues
+
+- Need to audit existing Animus code for over-reliance on LLM parsing
+- Tool call parsing in agent.py uses regex fallbacks which is good, but should be primary not fallback
+- Consider moving more logic to hardcoded validation before LLM interpretation
+
+### Checkpoint
+**Status:** CONTINUE — Analysis complete with balanced recommendations. Ready to update tasks.md.
+
+### Next
+- Update tasks.md with implementation tasks
+- Audit existing code for balance between hardcoding and LLM inference
+- Prioritize permission system and MCP implementation
+
+---
