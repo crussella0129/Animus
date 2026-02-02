@@ -94,6 +94,9 @@ class AgentConfig:
     compaction_min_turns: int = 10
     max_context_tokens: int = 4096  # Max tokens for context window
 
+    # Parallel execution settings
+    parallel_tool_execution: bool = True  # Execute independent tools in parallel
+
 
 @dataclass
 class Turn:
@@ -613,6 +616,52 @@ class Agent:
                 metadata={"error_category": classified.category.value}
             )
 
+    async def _call_tools_parallel(self, tool_calls: list[dict]) -> list[ToolResult]:
+        """Execute multiple tool calls in parallel.
+
+        Uses asyncio.gather to run independent tools concurrently,
+        improving performance when multiple tools don't depend on each other.
+
+        Args:
+            tool_calls: List of tool call dicts with 'name' and 'arguments'.
+
+        Returns:
+            List of ToolResult in the same order as input tool_calls.
+        """
+        if not tool_calls:
+            return []
+
+        # If only one call or parallel disabled, execute sequentially
+        if len(tool_calls) == 1 or not self.config.parallel_tool_execution:
+            results = []
+            for call in tool_calls:
+                result = await self._call_tool(call["name"], call["arguments"])
+                results.append(result)
+            return results
+
+        # Execute all tool calls in parallel
+        tasks = [
+            self._call_tool(call["name"], call["arguments"])
+            for call in tool_calls
+        ]
+
+        # gather preserves order - results match input order
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Convert any exceptions to ToolResult errors
+        processed_results = []
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                processed_results.append(ToolResult(
+                    success=False,
+                    output="",
+                    error=f"Parallel execution error: {result}",
+                ))
+            else:
+                processed_results.append(result)
+
+        return processed_results
+
     def _fix_python_string_concat(self, content: str) -> str:
         """Fix Python-style adjacent string concatenation in JSON.
 
@@ -886,12 +935,9 @@ class Agent:
         )
         self.history.append(assistant_turn)
 
-        # Execute tool calls if any
+        # Execute tool calls if any (in parallel when enabled)
         if tool_calls:
-            tool_results = []
-            for call in tool_calls:
-                tool_result = await self._call_tool(call["name"], call["arguments"])
-                tool_results.append(tool_result)
+            tool_results = await self._call_tools_parallel(tool_calls)
 
             # Add tool results to history (truncated to prevent context bloat)
             results_parts = []
@@ -1002,12 +1048,9 @@ class Agent:
         )
         self.history.append(assistant_turn)
 
-        # Execute tool calls if any
+        # Execute tool calls if any (in parallel when enabled)
         if tool_calls:
-            tool_results = []
-            for call in tool_calls:
-                tool_result = await self._call_tool(call["name"], call["arguments"])
-                tool_results.append(tool_result)
+            tool_results = await self._call_tools_parallel(tool_calls)
 
             # Add tool results to history (truncated to prevent context bloat)
             results_parts = []

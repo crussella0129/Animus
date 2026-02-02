@@ -397,3 +397,102 @@ class TestAgentStreaming:
         # Should have at least one turn
         turn_chunks = [c for c in chunks if c.type == "turn"]
         assert len(turn_chunks) >= 1
+
+
+class TestParallelToolExecution:
+    """Tests for parallel tool execution."""
+
+    @pytest.fixture
+    def mock_provider(self):
+        """Create a mock provider."""
+        class MockProvider:
+            is_available = True
+            async def generate(self, **kwargs):
+                class Result:
+                    content = ""
+                return Result()
+        return MockProvider()
+
+    @pytest.fixture
+    def parallel_agent(self, mock_provider):
+        """Create an agent with parallel execution enabled."""
+        config = AgentConfig(parallel_tool_execution=True)
+        return Agent(provider=mock_provider, config=config)
+
+    @pytest.fixture
+    def sequential_agent(self, mock_provider):
+        """Create an agent with parallel execution disabled."""
+        config = AgentConfig(parallel_tool_execution=False)
+        return Agent(provider=mock_provider, config=config)
+
+    def test_parallel_execution_enabled_by_default(self):
+        """Test that parallel execution is enabled by default."""
+        config = AgentConfig()
+        assert config.parallel_tool_execution is True
+
+    def test_parallel_execution_can_be_disabled(self):
+        """Test that parallel execution can be disabled."""
+        config = AgentConfig(parallel_tool_execution=False)
+        assert config.parallel_tool_execution is False
+
+    @pytest.mark.asyncio
+    async def test_parallel_call_tools_empty_list(self, parallel_agent):
+        """Test parallel execution with empty tool list."""
+        results = await parallel_agent._call_tools_parallel([])
+        assert results == []
+
+    @pytest.mark.asyncio
+    async def test_parallel_call_tools_single_tool(self, parallel_agent):
+        """Test parallel execution with single tool (should still work)."""
+        results = await parallel_agent._call_tools_parallel([
+            {"name": "read_file", "arguments": {"path": "/nonexistent"}}
+        ])
+        assert len(results) == 1
+        # File doesn't exist, so should fail
+        assert results[0].success is False
+
+    @pytest.mark.asyncio
+    async def test_parallel_call_tools_multiple_tools(self, parallel_agent):
+        """Test parallel execution with multiple tools."""
+        results = await parallel_agent._call_tools_parallel([
+            {"name": "read_file", "arguments": {"path": "/nonexistent1"}},
+            {"name": "read_file", "arguments": {"path": "/nonexistent2"}},
+        ])
+        assert len(results) == 2
+        # Both should fail but execute
+        assert all(not r.success for r in results)
+
+    @pytest.mark.asyncio
+    async def test_sequential_execution_works(self, sequential_agent):
+        """Test that sequential execution still works when parallel is disabled."""
+        results = await sequential_agent._call_tools_parallel([
+            {"name": "read_file", "arguments": {"path": "/nonexistent1"}},
+            {"name": "read_file", "arguments": {"path": "/nonexistent2"}},
+        ])
+        assert len(results) == 2
+
+    @pytest.mark.asyncio
+    async def test_parallel_preserves_order(self, parallel_agent):
+        """Test that parallel execution preserves result order."""
+        import tempfile
+        import os
+
+        # Create temp files with different content
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file1 = os.path.join(tmpdir, "file1.txt")
+            file2 = os.path.join(tmpdir, "file2.txt")
+            with open(file1, "w") as f:
+                f.write("content1")
+            with open(file2, "w") as f:
+                f.write("content2")
+
+            results = await parallel_agent._call_tools_parallel([
+                {"name": "read_file", "arguments": {"path": file1}},
+                {"name": "read_file", "arguments": {"path": file2}},
+            ])
+
+            assert len(results) == 2
+            assert results[0].success is True
+            assert "content1" in results[0].output
+            assert results[1].success is True
+            assert "content2" in results[1].output
