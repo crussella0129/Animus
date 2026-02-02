@@ -15,7 +15,6 @@ MAX_TOOL_OUTPUT_LENGTH = 10000  # Truncate tool outputs longer than this
 
 from src.llm.base import ModelProvider, Message, GenerationConfig, GenerationResult
 from src.tools.base import Tool, ToolRegistry, ToolResult
-from src.tools import create_default_registry
 
 # Lazy import: Ingester is only used for type hints
 if TYPE_CHECKING:
@@ -238,7 +237,12 @@ class Agent:
         self.provider = provider
         self.config = config or AgentConfig()
         self.animus_config = animus_config
-        self.tool_registry = tool_registry or create_default_registry()
+        # Lazy import to avoid circular dependency
+        if tool_registry is None:
+            from src.tools import create_default_registry
+            self.tool_registry = create_default_registry()
+        else:
+            self.tool_registry = tool_registry
         self.memory = memory
         self.confirm_callback = confirm_callback
 

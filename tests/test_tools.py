@@ -177,3 +177,94 @@ class TestShellTool:
     def test_requires_confirmation(self):
         tool = ShellTool()
         assert tool.requires_confirmation is True
+
+
+class TestGitTool:
+    """Tests for GitTool."""
+
+    @pytest.fixture
+    def git_tool(self):
+        """Create a git tool with auto-confirm callback."""
+        async def auto_confirm(msg):
+            return True
+        from src.tools.git import GitTool
+        return GitTool(confirm_callback=auto_confirm)
+
+    @pytest.fixture
+    def git_tool_deny(self):
+        """Create a git tool that denies all confirmations."""
+        async def deny_confirm(msg):
+            return False
+        from src.tools.git import GitTool
+        return GitTool(confirm_callback=deny_confirm)
+
+    def test_git_tool_name(self, git_tool):
+        """Test git tool name."""
+        assert git_tool.name == "git"
+
+    def test_git_tool_requires_confirmation(self, git_tool):
+        """Test that git tool requires confirmation."""
+        assert git_tool.requires_confirmation is True
+
+    @pytest.mark.asyncio
+    async def test_git_status(self, git_tool):
+        """Test git status operation."""
+        result = await git_tool.execute(operation="status")
+        # Even outside a git repo, it should return a result
+        assert isinstance(result.success, bool)
+
+    @pytest.mark.asyncio
+    async def test_git_unknown_operation(self, git_tool):
+        """Test unknown git operation."""
+        result = await git_tool.execute(operation="unknown_op")
+        assert result.success is False
+        assert "Unknown operation" in result.error
+
+    @pytest.mark.asyncio
+    async def test_git_commit_requires_message(self, git_tool):
+        """Test that commit requires a message."""
+        result = await git_tool.execute(operation="commit")
+        assert result.success is False
+        assert "message required" in result.error.lower()
+
+    @pytest.mark.asyncio
+    async def test_git_add_requires_files(self, git_tool):
+        """Test that add requires files."""
+        result = await git_tool.execute(operation="add")
+        assert result.success is False
+        assert "specify files" in result.error.lower()
+
+    @pytest.mark.asyncio
+    async def test_git_checkout_requires_target(self, git_tool):
+        """Test that checkout requires a target."""
+        result = await git_tool.execute(operation="checkout")
+        assert result.success is False
+        assert "specify" in result.error.lower()
+
+    @pytest.mark.asyncio
+    async def test_git_push_confirmation_denied(self, git_tool_deny):
+        """Test that push can be cancelled."""
+        result = await git_tool_deny.execute(operation="push")
+        assert result.success is False
+        assert "cancelled" in result.error.lower()
+
+    @pytest.mark.asyncio
+    async def test_git_checkout_confirmation_denied(self, git_tool_deny):
+        """Test that checkout can be cancelled."""
+        result = await git_tool_deny.execute(operation="checkout", args="main")
+        assert result.success is False
+        assert "cancelled" in result.error.lower()
+
+    @pytest.mark.asyncio
+    async def test_git_raw_requires_args(self, git_tool):
+        """Test that raw operation requires arguments."""
+        result = await git_tool.execute(operation="raw")
+        assert result.success is False
+        assert "specify" in result.error.lower()
+
+    def test_git_tool_in_registry(self):
+        """Test that git tool is in default registry."""
+        registry = create_default_registry()
+        git = registry.get("git")
+        assert git is not None
+        assert git.name == "git"

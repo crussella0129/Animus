@@ -13,6 +13,7 @@ from src.tools.filesystem import (
     ListDirectoryTool,
 )
 from src.tools.shell import ShellTool
+from src.tools.git import GitTool
 
 __all__ = [
     # Base
@@ -27,6 +28,8 @@ __all__ = [
     "ListDirectoryTool",
     # Shell
     "ShellTool",
+    # Git
+    "GitTool",
 ]
 
 
@@ -37,4 +40,5 @@ def create_default_registry() -> ToolRegistry:
     registry.register(WriteFileTool())
     registry.register(ListDirectoryTool())
     registry.register(ShellTool())
+    registry.register(GitTool())
     return registry
