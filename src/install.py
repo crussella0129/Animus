@@ -236,6 +236,7 @@ class AnimusInstaller:
             "pydantic>=2.0.0",
             "pydantic-settings>=2.0.0",
             "httpx>=0.25.0",
+            "tiktoken>=0.5.0",
         ]
         return self._pip_install(packages)
 
@@ -521,7 +522,7 @@ class AnimusInstaller:
         verified = []
 
         # Check base dependencies
-        for pkg in ["typer", "rich", "yaml", "pydantic", "httpx"]:
+        for pkg in ["typer", "rich", "yaml", "pydantic", "httpx", "tiktoken"]:
             if self._check_package_installed(pkg):
                 verified.append(pkg)
 
