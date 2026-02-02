@@ -1,6 +1,6 @@
 # Tasks — ANIMUS
 
-**Last Updated:** 2026-02-02 (Entry #17: Phase 16 Code Hardening COMPLETE — permission system, template variables)
+**Last Updated:** 2026-02-02 (Entry #19: Bug fix for Python string concat in JSON, Phase 9 compaction integrated)
 
 ## Design Philosophy Update
 
@@ -162,7 +162,7 @@ After analyzing 12 additional repositories, a critical insight emerged: **many a
 - `src/core/permission.py` — 599 lines, 100% hardcoded
 - `tests/test_permission.py` — 290 lines, 40 tests
 
-**Test Results:** 244 passed
+**Test Results:** 246 passed (244 + 2 new Python string concat tests)
 
 ---
 
@@ -209,7 +209,7 @@ After analyzing 12 additional repositories, a critical insight emerged: **many a
   - [x] Auto-trigger when approaching context limit
   - [x] Preserve recent turns + summary of older turns
   - [x] Multiple strategies: truncate, sliding, summarize, hybrid
-  - [ ] Add compaction to Agent class (integration pending)
+  - [x] Add compaction to Agent class (integration complete)
 - [x] **Error Classification** (`src/core/errors.py`) ✓
   - [x] Define error categories: `context_overflow`, `auth_failure`, `rate_limit`, `timeout`, `tool_failure`
   - [x] Implement error-specific recovery strategies
@@ -584,7 +584,7 @@ After analyzing 12 additional repositories, a critical insight emerged: **many a
 - [ ] Triangulated verification for output validation
 
 ### Resilience (Phase 9)
-- [ ] Session compaction prevents context overflow
+- [x] Session compaction prevents context overflow (integrated into Agent)
 - [x] Error classification enables appropriate recovery
 - [x] Retry logic with exponential backoff
 
@@ -627,14 +627,15 @@ After analyzing 12 additional repositories, a critical insight emerged: **many a
 
 ---
 
-## Known Issues (from Windows Systests 2026-01-27)
+## Known Issues (from Windows Systests 2026-01-27, 2026-02-02)
 
-| Issue | Severity | Category | Notes |
-|-------|----------|----------|-------|
-| Model outputs text instead of JSON tool calls | High | Model | Some models don't follow JSON format in system prompt |
-| Model claims to be Anthropic/Claude | Medium | Model | Qwen abliterated model has identity confusion |
-| Hallucinated file contents | High | Model | Model fabricates outputs instead of executing tools |
-| Excessive safety refusals | Medium | Model | Model refuses benign tasks citing ethics |
+| Issue | Severity | Category | Status | Notes |
+|-------|----------|----------|--------|-------|
+| Model outputs text instead of JSON tool calls | High | Model | Open | Some models don't follow JSON format in system prompt |
+| Model claims to be Anthropic/Claude | Medium | Model | Open | Qwen abliterated model has identity confusion |
+| Hallucinated file contents | High | Model | Open | Model fabricates outputs instead of executing tools |
+| Excessive safety refusals | Medium | Model | Open | Model refuses benign tasks citing ethics |
+| Python-style string concat in JSON | High | Parsing | **FIXED** | Qwen3-VL outputs malformed JSON with Python string concat; fixed via `_fix_python_string_concat()` |
 
 **Recommended Actions:**
 - [ ] Test additional models (Qwen2.5-Coder-Instruct, DeepSeek-Coder, CodeGemma)
@@ -646,7 +647,9 @@ After analyzing 12 additional repositories, a critical insight emerged: **many a
 
 ## Completed (Recent)
 
-- Phase 16: Code Hardening Audit (permission.py, template variables, 244 tests pass)
+- Bug Fix: Python string concatenation in JSON parsing (Qwen3-VL compatibility)
+- Phase 9: Session Compaction integrated into Agent class (246 tests pass)
+- Phase 16: Code Hardening Audit (permission.py, template variables)
 - Phase 7: Agent Autonomy fixes (Windows 11 detection, auto-execute, tool parsing)
 - Phase 6: Native Model Loading (GGUF support, native embeddings, Ollama-free)
 - Phase 5: Sub-Agent Orchestration (roles, scopes, parallel execution)

@@ -35,6 +35,12 @@ from src.core.permission import (
     is_mandatory_deny_command,
     is_mandatory_deny_path,
 )
+from src.core.compaction import (
+    SessionCompactor,
+    CompactionConfig,
+    CompactionStrategy,
+    CompactionResult,
+)
 
 
 @dataclass
@@ -76,6 +82,14 @@ class AgentConfig:
     max_retries: int = 3
     retry_backoff_base: float = 1.0
     retry_backoff_multiplier: float = 2.0
+
+    # Compaction settings
+    enable_compaction: bool = True
+    compaction_strategy: str = "hybrid"  # summarize, truncate, sliding, hybrid
+    compaction_keep_recent: int = 5
+    compaction_trigger_ratio: float = 0.85
+    compaction_min_turns: int = 10
+    max_context_tokens: int = 4096  # Max tokens for context window
 
 
 @dataclass
@@ -220,6 +234,11 @@ class Agent:
         # Decision recording
         self._decision_recorder = DecisionRecorder()
 
+        # Session compaction
+        self._compactor: Optional[SessionCompactor] = None
+        if self.config.enable_compaction:
+            self._init_compactor()
+
     def _apply_animus_config(self, agent_config: AgentBehaviorConfig) -> None:
         """Apply AgentBehaviorConfig settings to AgentConfig."""
         self.config.auto_execute_tools = tuple(agent_config.auto_execute_tools)
@@ -227,6 +246,73 @@ class Agent:
         self.config.blocked_commands = tuple(agent_config.blocked_commands)
         self.config.track_working_directory = agent_config.track_working_directory
         self.config.max_turns = agent_config.max_autonomous_turns
+
+    def _init_compactor(self) -> None:
+        """Initialize the session compactor with current config."""
+        strategy_map = {
+            "summarize": CompactionStrategy.SUMMARIZE,
+            "truncate": CompactionStrategy.TRUNCATE,
+            "sliding": CompactionStrategy.SLIDING_WINDOW,
+            "hybrid": CompactionStrategy.HYBRID,
+        }
+        strategy = strategy_map.get(
+            self.config.compaction_strategy,
+            CompactionStrategy.HYBRID,
+        )
+
+        compaction_config = CompactionConfig(
+            strategy=strategy,
+            keep_recent_turns=self.config.compaction_keep_recent,
+            trigger_ratio=self.config.compaction_trigger_ratio,
+            min_turns_to_compact=self.config.compaction_min_turns,
+        )
+
+        self._compactor = SessionCompactor(
+            config=compaction_config,
+            provider=self.provider,
+        )
+
+    def _estimate_tokens(self, text: str) -> int:
+        """Estimate token count for text.
+
+        Uses a simple heuristic of ~4 characters per token.
+        This is a rough approximation that works for English text.
+        """
+        return len(text) // 4
+
+    def _estimate_total_tokens(self) -> int:
+        """Estimate total tokens in conversation history."""
+        total = self._estimate_tokens(self.system_prompt)
+        for turn in self.history:
+            total += self._estimate_tokens(turn.content)
+            if turn.tool_calls:
+                total += self._estimate_tokens(json.dumps(turn.tool_calls))
+        return total
+
+    async def _check_and_compact(self) -> Optional[CompactionResult]:
+        """Check if compaction is needed and perform it if so.
+
+        Returns:
+            CompactionResult if compaction was performed, None otherwise.
+        """
+        if not self._compactor or not self.config.enable_compaction:
+            return None
+
+        total_tokens = self._estimate_total_tokens()
+        max_tokens = self.config.max_context_tokens
+        turn_count = len(self.history)
+
+        if not self._compactor.should_compact(total_tokens, max_tokens, turn_count):
+            return None
+
+        # Perform compaction
+        new_turns, result = await self._compactor.compact_turns(self.history)
+
+        if result.success:
+            # Replace history with compacted turns
+            self.history = new_turns
+
+        return result
 
     @property
     def system_prompt(self) -> str:
@@ -497,6 +583,37 @@ class Agent:
                 metadata={"error_category": classified.category.value}
             )
 
+    def _fix_python_string_concat(self, content: str) -> str:
+        """Fix Python-style adjacent string concatenation in JSON.
+
+        Some LLMs output JSON with Python-style string literals:
+            "content": "line1\\n"
+                       "line2\\n"
+
+        This is valid Python but invalid JSON. We need to join these
+        adjacent string literals into a single string.
+
+        Args:
+            content: Raw content that may contain malformed JSON.
+
+        Returns:
+            Content with adjacent strings joined.
+        """
+        import re
+
+        # Pattern: end quote, optional whitespace/newline, start quote
+        # This matches: "string1"\s*"string2" -> "string1string2"
+        pattern = r'"\s*\n\s*"'
+
+        # Keep replacing until no more matches (handles multiple consecutive strings)
+        prev = None
+        result = content
+        while result != prev:
+            prev = result
+            result = re.sub(pattern, '', result)
+
+        return result
+
     def _extract_json_objects(self, content: str, max_depth: int = MAX_JSON_DEPTH) -> list[dict]:
         """
         Extract all valid JSON objects from content using bracket matching.
@@ -511,6 +628,9 @@ class Agent:
         Returns:
             List of extracted JSON dictionaries
         """
+        # First, try to fix Python-style string concatenation
+        content = self._fix_python_string_concat(content)
+
         objects = []
         found_ranges = []  # Track which character ranges we've already extracted
         i = 0
@@ -683,6 +803,9 @@ class Agent:
 
             self.history.append(Turn(role="user", content=enhanced_input))
 
+        # Check and perform compaction if needed
+        await self._check_and_compact()
+
         # Build messages for LLM
         messages = self._build_messages()
 
@@ -794,6 +917,8 @@ class Agent:
         self.history = []
         self._current_turn = 0
         self._decision_recorder.clear()
+        if self._compactor:
+            self._compactor.clear_history()
 
     def get_history(self) -> list[Turn]:
         """Get conversation history."""
@@ -817,3 +942,29 @@ class Agent:
             Success rate as float (0.0 to 1.0).
         """
         return self._decision_recorder.get_success_rate(decision_type)
+
+    def get_compaction_history(self) -> list[CompactionResult]:
+        """Get history of compaction operations.
+
+        Returns:
+            List of CompactionResult objects.
+        """
+        if self._compactor:
+            return self._compactor.get_compaction_history()
+        return []
+
+    def get_estimated_tokens(self) -> int:
+        """Get estimated token count for current conversation.
+
+        Returns:
+            Estimated token count.
+        """
+        return self._estimate_total_tokens()
+
+    def is_compaction_enabled(self) -> bool:
+        """Check if compaction is enabled.
+
+        Returns:
+            True if compaction is enabled.
+        """
+        return self._compactor is not None and self.config.enable_compaction

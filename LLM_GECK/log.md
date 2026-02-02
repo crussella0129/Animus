@@ -2150,3 +2150,86 @@ Speak your command. Say farewell to end.
 
 ### Checkpoint
 **Status:** COMPLETE — Techromancy theme fully implemented.
+
+---
+
+## Entry #19 — 2026-02-02
+
+### Summary
+Fixed critical tool execution bug and integrated session compaction into Agent class.
+
+### Problem Identified (from systests/Windows/Animus_Test_Windows_4.txt)
+Animus was failing to execute tools. The LLM (Qwen3-VL model) was outputting malformed JSON with **Python-style string concatenation**:
+
+```python
+{
+    "tool": "write_file",
+    "arguments": {
+        "content": "# Comment\n"
+                   "def main():\n"   # <-- Invalid JSON (Python syntax)
+    }
+}
+```
+
+This caused:
+1. JSON parser to fail silently (returns empty tool_calls list)
+2. No tools executed
+3. LLM hallucinating fake "Tool result: File written successfully" text
+
+### Bug Fix Implemented
+
+**1. Added `_fix_python_string_concat()` method in `src/core/agent.py`**
+- Pre-processes JSON content before parsing
+- Uses regex to join adjacent quoted strings: `"string1"\n"string2"` → `"string1string2"`
+- Handles arbitrary whitespace/indentation between strings
+- Integrated into `_extract_json_objects()` method
+
+**2. Added Tests**
+- `test_parse_python_string_concat`: Tests full parsing of malformed JSON
+- `test_fix_python_string_concat`: Tests the helper method directly
+
+### Session Compaction Integration (Phase 9 Completion)
+
+**Integrated `SessionCompactor` from `src/core/compaction.py` into `Agent` class:**
+
+1. **Added compaction config to `AgentConfig`:**
+   - `enable_compaction`: bool (default True)
+   - `compaction_strategy`: "hybrid" | "summarize" | "truncate" | "sliding"
+   - `compaction_keep_recent`: int (default 5)
+   - `compaction_trigger_ratio`: float (default 0.85)
+   - `compaction_min_turns`: int (default 10)
+   - `max_context_tokens`: int (default 4096)
+
+2. **Added methods to Agent:**
+   - `_init_compactor()`: Initialize compactor with config
+   - `_estimate_tokens()`: Estimate token count (chars / 4)
+   - `_estimate_total_tokens()`: Estimate total conversation tokens
+   - `_check_and_compact()`: Check and perform compaction if needed
+   - `get_compaction_history()`: Get list of CompactionResult objects
+   - `get_estimated_tokens()`: Get current token estimate
+   - `is_compaction_enabled()`: Check if compaction is enabled
+
+3. **Integration points:**
+   - Compactor initialized in `Agent.__init__` if enabled
+   - Compaction check called in `step()` before building messages
+   - Compaction history cleared in `reset()`
+
+### Files Changed
+
+| File | Change Type | Purpose |
+|------|-------------|---------|
+| `src/core/agent.py` | MODIFIED | Bug fix + compaction integration |
+| `tests/test_agent_behavior.py` | MODIFIED | Added 2 new tests |
+
+### Test Results
+```
+246 passed in 6.99s
+```
+
+### Checkpoint
+**Status:** CONTINUE — Phase 9 compaction integration complete. Tool execution bug fixed.
+
+### Next
+- Test with Qwen model to verify bug fix works in practice
+- Consider adding diagnostic logging when JSON parsing fails
+- Continue with MCP (Phase 12) or Skills (Phase 13)

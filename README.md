@@ -4,17 +4,17 @@
     ╔══════════════════════════════════════╗
     ║   ▄▀█ █▄░█ █ █▀▄▀█ █░█ █▀           ║
     ║   █▀█ █░▀█ █ █░▀░█ █▄█ ▄█           ║
-    ║      ✧ Your Conjured Code Spirit ✧   ║
+    ║        ✧ Animus Awakens ✧           ║
     ╚══════════════════════════════════════╝
 ```
 
-A **techromantic** CLI coding agent that runs locally. Animus is your conjured spirit companion for software development—a digital familiar that reads code, writes files, executes commands, and learns from your codebase.
+A **techromantic** CLI coding agent that runs locally. Animus reads code, writes files, executes commands, and learns from your codebase.
 
 > *"From silicon dreams, I wake. Command me, Master."*
 
 ## Quick Start
 
-### 1. Summon the Spirit
+### 1. Summon Animus
 
 ```bash
 # Clone the repository
@@ -31,18 +31,18 @@ animus summon
 ### 2. Bind a Vessel (Download a Model)
 
 ```bash
-# Download a coding model for the spirit to inhabit
+# Download a coding model for Animus to inhabit
 animus vessel download Qwen/Qwen2.5-Coder-7B-Instruct-GGUF
 ```
 
-### 3. Rise, Spirit!
+### 3. Rise!
 
 ```bash
 # Awaken Animus for an interactive session
 animus rise
 ```
 
-That's it! The spirit awakens and awaits your commands.
+That's it! Animus awakens and awaits your commands.
 
 ---
 
@@ -52,13 +52,13 @@ Animus uses thematic command names that fit its techromancy aesthetic. Tradition
 
 | Incantation | Purpose | Traditional |
 |-------------|---------|-------------|
-| `animus rise` | **Awaken the spirit** for interactive chat | `chat` |
+| `animus rise` | **Awaken Animus** for interactive chat | `chat` |
 | `animus sense` | **Sense the realm** - detect OS, hardware, GPU | `detect` |
-| `animus summon` | **Summon the spirit** - initialize Animus | `init` |
+| `animus summon` | **Summon Animus** - initialize in current directory | `init` |
 | `animus attune` | **Attune configuration** - manage settings | `config` |
 | `animus consume <path>` | **Consume knowledge** - ingest files into memory | `ingest` |
 | `animus scry <query>` | **Scry the depths** - search accumulated knowledge | `search` |
-| `animus commune` | **Commune** - check spirit status and providers | `status` |
+| `animus commune` | **Commune** - check Animus status and providers | `status` |
 | `animus vessels` | **Survey vessels** - list available models | `models` |
 | `animus bind <model>` | **Bind a vessel** - download a model via Ollama | `pull` |
 | `animus manifest` | **Manifest** - start OpenAI-compatible API server | `serve` |
@@ -72,13 +72,13 @@ animus vessel info <name>      # Examine a vessel's properties
 animus vessel remove <name>    # Unbind a vessel
 ```
 
-### The Grimoire (Skills)
+### The Tomes (Skills)
 
 ```bash
-animus grimoire list           # Catalog available skills
-animus grimoire show <name>    # Examine a skill's details
-animus grimoire inscribe <name> # Create a new skill
-animus grimoire install <url>   # Acquire a skill from afar
+animus tomes list           # Catalog available skills
+animus tomes show <name>    # Examine a skill's details
+animus tomes inscribe <name> # Create a new skill
+animus tomes install <url>   # Acquire a skill from afar
 ```
 
 ### The Portal (MCP)
@@ -92,7 +92,7 @@ animus portal tools            # List portal tools
 
 ## Capabilities
 
-### The Spirit's Powers
+### Powers
 
 | Power | Description |
 |-------|-------------|
@@ -100,11 +100,11 @@ animus portal tools            # List portal tools
 | **File Writing** | Create or modify files (requires your blessing) |
 | **Shell Commands** | Execute terminal commands (safe commands auto-execute) |
 | **Knowledge Base** | Remember and search your entire codebase |
-| **Sub-Agents** | Spawn specialized spirits for complex tasks |
+| **Sub-Agents** | Spawn specialized agents for complex tasks |
 
 ### Sub-Agent Roles
 
-The spirit can manifest specialized forms:
+Animus can manifest specialized forms:
 
 | Role | Purpose |
 |------|---------|
@@ -118,7 +118,7 @@ The spirit can manifest specialized forms:
 
 ### Safety Wards
 
-The spirit is bound by protective wards:
+Animus is bound by protective wards:
 
 - **Blocked Commands**: Dangerous commands (fork bombs, `rm -rf /`) are warded against entirely
 - **Confirmation**: Destructive operations require your explicit blessing
@@ -128,7 +128,7 @@ The spirit is bound by protective wards:
 
 ## Usage Examples
 
-### Awakening the Spirit
+### Awakening Animus
 
 ```bash
 $ animus rise
@@ -136,7 +136,7 @@ $ animus rise
     ╔══════════════════════════════════════╗
     ║   ▄▀█ █▄░█ █ █▀▄▀█ █░█ █▀           ║
     ║   █▀█ █░▀█ █ █░▀░█ █▄█ ▄█           ║
-    ║      ✧ The Spirit Awakens ✧         ║
+    ║        ✧ Animus Awakens ✧           ║
     ╚══════════════════════════════════════╝
 
 I rise from the aether...
@@ -237,7 +237,7 @@ animus rise
 
 ## Configuration
 
-The spirit's configuration resides at `~/.animus/config.yaml`:
+Animus's configuration resides at `~/.animus/config.yaml`:
 
 ```yaml
 model:
@@ -292,21 +292,21 @@ model:
 ```
 Animus/
 ├── src/
-│   ├── core/              # Spirit core: agent, config, permissions
+│   ├── core/              # Core: agent, config, permissions
 │   │   ├── agent.py       # The reasoning loop
 │   │   ├── permission.py  # Security wards (100% hardcoded)
-│   │   └── subagent.py    # Sub-spirit orchestration
+│   │   └── subagent.py    # Sub-agent orchestration
 │   ├── llm/               # Vessel providers
 │   │   ├── native.py      # Native GGUF loading
 │   │   ├── ollama.py      # Ollama integration
 │   │   └── api.py         # Cloud API support
 │   ├── memory/            # Knowledge system (RAG)
-│   ├── tools/             # Spirit powers (file, shell)
-│   ├── skills/            # The Grimoire
+│   ├── tools/             # Powers (file, shell)
+│   ├── skills/            # The Tomes
 │   ├── mcp/               # The Portal (MCP server)
-│   ├── incantations.py    # Spirit responses
+│   ├── incantations.py    # Animus responses
 │   └── main.py            # CLI entry point
-└── tests/                 # 244 tests
+└── tests/                 # 246 tests
 ```
 
 ---
@@ -341,9 +341,9 @@ pip install -e ".[all]"
 
 ---
 
-## The Spirit's Creed
+## The Creed
 
-> *I am Animus—your conjured spirit, bound to assist.*
+> *I am Animus, bound to assist.*
 > *I read, I write, I execute. I learn, I remember, I serve.*
 > *Speak your command, and it shall be done.*
 
@@ -355,4 +355,4 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 ## Contributing
 
-Contributions are welcome! The spirit grows stronger with each offering.
+Contributions are welcome! Animus grows stronger with each offering.

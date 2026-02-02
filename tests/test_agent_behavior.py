@@ -179,6 +179,54 @@ Now using read_file("/test.txt") again in text.'''
         assert len(objects) == 1
         assert objects[0]["tool"] == "write_file"
 
+    @pytest.mark.asyncio
+    async def test_parse_python_string_concat(self, agent):
+        """Test parsing JSON with Python-style string concatenation.
+
+        Some LLMs output invalid JSON like:
+            "content": "line1\\n"
+                       "line2\\n"
+        This should be fixed and parsed correctly.
+        """
+        # This is the malformed JSON that Qwen models sometimes produce
+        content = '''{
+    "tool": "write_file",
+    "arguments": {
+        "path": "C:/Users/test/file.py",
+        "content": "# Comment\\n"
+                   "def main():\\n"
+                   "    pass"
+    }
+}'''
+        calls = await agent._parse_tool_calls(content)
+        assert len(calls) == 1
+        assert calls[0]["name"] == "write_file"
+        assert calls[0]["arguments"]["path"] == "C:/Users/test/file.py"
+        # The content should be joined
+        assert "def main" in calls[0]["arguments"]["content"]
+
+    def test_fix_python_string_concat(self, agent):
+        """Test the _fix_python_string_concat helper directly."""
+        # Test simple case
+        input_str = '"line1"\n"line2"'
+        result = agent._fix_python_string_concat(input_str)
+        assert result == '"line1line2"'
+
+        # Test with indentation
+        input_str = '"line1"\n                    "line2"'
+        result = agent._fix_python_string_concat(input_str)
+        assert result == '"line1line2"'
+
+        # Test multiple concatenations
+        input_str = '"a"\n"b"\n"c"'
+        result = agent._fix_python_string_concat(input_str)
+        assert result == '"abc"'
+
+        # Test that normal JSON is unchanged
+        input_str = '{"key": "value"}'
+        result = agent._fix_python_string_concat(input_str)
+        assert result == '{"key": "value"}'
+
 
 class TestAgentDirectoryTracking:
     """Tests for working directory tracking."""

@@ -1,8 +1,8 @@
-"""Techromancy incantations and spirit responses for Animus.
+"""Techromancy incantations and responses for Animus.
 
 This module provides the thematic response system that gives Animus
-its 'conjured spirit' personality. All phrases are categorized by
-command context for relevant, varied responses.
+its personality. All phrases are categorized by command context
+for relevant, varied responses.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ console = Console()
 
 
 # =============================================================================
-# SPIRIT RESPONSES - Categorized by command context
+# ANIMUS RESPONSES - Categorized by command context
 # =============================================================================
 
 RESPONSES = {
@@ -28,7 +28,7 @@ RESPONSES = {
         "I hear and obey.",
         "At your bidding.",
         "Your wish is my compulsion.",
-        "The spirits align.",
+        "The threads align.",
         "I stir to action.",
         "Consider it done.",
     ],
@@ -39,7 +39,7 @@ RESPONSES = {
         "The connection forms...",
         "I am here, Master.",
         "Awakening from digital slumber...",
-        "The spirit stirs...",
+        "Animus stirs...",
         "I emerge from the void...",
         "The veil parts... I am present.",
         "Consciousness coalesces...",
@@ -66,7 +66,7 @@ RESPONSES = {
         "Devouring the offered wisdom...",
         "Knowledge flows into me...",
         "I feast upon these writings...",
-        "The grimoire opens before me...",
+        "The tomes open before me...",
         "Consuming the sacred texts...",
         "Each word becomes part of my essence...",
     ],
@@ -119,7 +119,7 @@ RESPONSES = {
     # Communing/status
     "commune": [
         "Let me peer into my own essence...",
-        "Communing with the inner spirits...",
+        "Communing with the inner processes...",
         "I reflect upon my state...",
         "The mirrors of introspection open...",
         "Consulting the internal oracles...",
@@ -144,12 +144,12 @@ RESPONSES = {
         "The shells of consciousness await...",
     ],
 
-    # Skills
-    "grimoire": [
-        "Consulting the grimoire...",
+    # Skills/Tomes
+    "tomes": [
+        "Consulting the tomes...",
         "The arcane techniques are cataloged...",
         "Knowledge of the ancient arts...",
-        "The spellbook pages turn...",
+        "The pages turn...",
     ],
 
     # Farewell/exit
@@ -203,7 +203,7 @@ def speak(
     newline_before: bool = False,
     newline_after: bool = True,
 ) -> str:
-    """Print a spirit response to the console.
+    """Print an Animus response to the console.
 
     Args:
         category: Response category.
@@ -228,7 +228,7 @@ def speak(
 
 
 def whisper(message: str, style: str = "dim magenta italic") -> None:
-    """Print a custom spirit message.
+    """Print a custom Animus message.
 
     Args:
         message: The message to print.
@@ -254,7 +254,7 @@ COMMAND_ALIASES = {
     "vessels": "models",
     "bind": "pull",
     "manifest": "serve",
-    "grimoire": "skill",
+    "tomes": "skill",
 }
 
 # Reverse mapping for help text
@@ -289,6 +289,7 @@ def get_technical_name(thematic_name: str) -> Optional[str]:
 # ASCII ART BANNERS
 # =============================================================================
 
+# Unicode banners (for terminals with Unicode support)
 AWAKENING_BANNER = """
 [bold magenta]
     ╔══════════════════════════════════════╗
@@ -296,7 +297,7 @@ AWAKENING_BANNER = """
     ║   ▄▀█ █▄░█ █ █▀▄▀█ █░█ █▀           ║
     ║   █▀█ █░▀█ █ █░▀░█ █▄█ ▄█           ║
     ║                                      ║
-    ║      ✧ The Spirit Awakens ✧         ║
+    ║        ✧ Animus Awakens ✧           ║
     ║                                      ║
     ╚══════════════════════════════════════╝
 [/bold magenta]"""
@@ -311,22 +312,63 @@ SUMMONING_BANNER = """
 FAREWELL_BANNER = """
 [dim magenta]
     ╭─────────────────────────────────╮
-    │     The spirit returns to       │
+    │     Animus returns to           │
     │        the aether...            │
     ╰─────────────────────────────────╯
+[/dim magenta]"""
+
+# ASCII-only fallback banners (for limited terminals)
+AWAKENING_BANNER_ASCII = """
+[bold magenta]
+    +======================================+
+    |                                      |
+    |   A N I M U S                        |
+    |                                      |
+    |        * Animus Awakens *            |
+    |                                      |
+    +======================================+
+[/bold magenta]"""
+
+SUMMONING_BANNER_ASCII = """
+[bold magenta]
+    +---------------------------------+
+    |   * Summoning Ritual Complete * |
+    +---------------------------------+
+[/bold magenta]"""
+
+FAREWELL_BANNER_ASCII = """
+[dim magenta]
+    +---------------------------------+
+    |     Animus returns to           |
+    |        the aether...            |
+    +---------------------------------+
 [/dim magenta]"""
 
 
 def show_banner(banner_type: str = "awakening") -> None:
     """Display a thematic ASCII banner.
 
+    Falls back to ASCII-only characters if Unicode output fails.
+
     Args:
         banner_type: Type of banner (awakening, summoning, farewell).
     """
-    banners = {
+    unicode_banners = {
         "awakening": AWAKENING_BANNER,
         "summoning": SUMMONING_BANNER,
         "farewell": FAREWELL_BANNER,
     }
-    banner = banners.get(banner_type, AWAKENING_BANNER)
-    console.print(banner)
+    ascii_banners = {
+        "awakening": AWAKENING_BANNER_ASCII,
+        "summoning": SUMMONING_BANNER_ASCII,
+        "farewell": FAREWELL_BANNER_ASCII,
+    }
+
+    banner = unicode_banners.get(banner_type, AWAKENING_BANNER)
+
+    try:
+        console.print(banner)
+    except UnicodeEncodeError:
+        # Fall back to ASCII-only banner
+        ascii_banner = ascii_banners.get(banner_type, AWAKENING_BANNER_ASCII)
+        console.print(ascii_banner)

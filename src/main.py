@@ -1,13 +1,27 @@
 """Animus CLI - Main entry point.
 
-A techromantic CLI coding agent - your conjured spirit companion for software development.
+A techromantic CLI coding agent that runs locally.
 """
 
 from __future__ import annotations
 
 import sys
+import os
 from pathlib import Path
 from typing import Optional
+
+# Configure UTF-8 encoding for Windows to support Unicode banners
+if sys.platform == "win32":
+    # Try to enable UTF-8 mode for Windows console
+    try:
+        import codecs
+        # Set UTF-8 encoding for stdout/stderr if not already set
+        if hasattr(sys.stdout, 'reconfigure'):
+            sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        if hasattr(sys.stderr, 'reconfigure'):
+            sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass  # Ignore encoding setup failures
 
 import typer
 from rich.console import Console
@@ -22,7 +36,7 @@ from src.incantations import speak, whisper, show_banner, get_response
 # Initialize Typer app
 app = typer.Typer(
     name="animus",
-    help="A techromantic CLI coding agent - your conjured spirit companion.",
+    help="A techromantic CLI coding agent that runs locally.",
     add_completion=False,
     no_args_is_help=True,
 )
@@ -184,7 +198,7 @@ def config(
         help="Show configuration file path.",
     ),
 ) -> None:
-    """Attune the spirit - manage Animus configuration."""
+    """Attune Animus - manage configuration."""
     whisper(get_response("attune"))
     manager = ConfigManager()
 
@@ -222,7 +236,7 @@ def init(
         help="Overwrite existing configuration.",
     ),
 ) -> None:
-    """Summon the spirit - initialize Animus in the current directory."""
+    """Summon Animus - initialize in the current directory."""
     whisper(get_response("summon"))
     manager = ConfigManager()
 
@@ -278,7 +292,7 @@ def models(
         help="Provider to list models from (ollama, api).",
     ),
 ) -> None:
-    """Survey vessels - list available models the spirit may inhabit."""
+    """Survey vessels - list available models Animus may inhabit."""
     whisper(get_response("vessels"))
     import asyncio
     from src.llm import OllamaProvider, APIProvider, ProviderType
@@ -356,7 +370,7 @@ def pull(
         help="Provider to bind from (default: ollama).",
     ),
 ) -> None:
-    """Bind a vessel - pull/download a model for the spirit to inhabit."""
+    """Bind a vessel - pull/download a model for Animus to inhabit."""
     whisper(get_response("bind"))
     import asyncio
     from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
@@ -424,7 +438,7 @@ def ingest(
     chunk_size: int = typer.Option(512, "--chunk-size", "-c", help="Chunk size in tokens."),
     overlap: int = typer.Option(50, "--overlap", "-o", help="Overlap between chunks."),
 ) -> None:
-    """Consume knowledge - ingest documents into the spirit's memory."""
+    """Consume knowledge - ingest documents into Animus's memory."""
     whisper(get_response("consume"))
     import asyncio
     from pathlib import Path as PathLib
@@ -502,7 +516,7 @@ def search(
     query: str = typer.Argument(..., help="Search query."),
     k: int = typer.Option(5, "--results", "-k", help="Number of results."),
 ) -> None:
-    """Scry the depths - search the spirit's accumulated knowledge."""
+    """Scry the depths - search Animus's accumulated knowledge."""
     whisper(get_response("scry"))
     import asyncio
     from src.memory import Ingester
@@ -543,7 +557,7 @@ def search(
 # Model management subcommand group (vessel)
 model_app = typer.Typer(
     name="vessel",
-    help="Manage vessels (GGUF models) the spirit may inhabit.",
+    help="Manage vessels (GGUF models) Animus may inhabit.",
     no_args_is_help=True,
 )
 app.add_typer(model_app, name="vessel")
@@ -695,21 +709,21 @@ def model_remove(
     console.print(f"[green]Deleted:[/green] {model_path.name}")
 
 
-# Skills subcommand group (grimoire)
+# Skills subcommand group (tomes)
 skill_app = typer.Typer(
-    name="grimoire",
-    help="The Grimoire - manage arcane skills that extend the spirit's capabilities.",
+    name="tomes",
+    help="The Tomes - manage arcane skills that extend Animus's capabilities.",
     no_args_is_help=True,
 )
-app.add_typer(skill_app, name="grimoire")
+app.add_typer(skill_app, name="tomes")
 
 
 @skill_app.command("list")
 def skill_list(
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed info."),
 ) -> None:
-    """Catalog the grimoire - list available arcane skills."""
-    whisper(get_response("grimoire"))
+    """Catalog the tomes - list available arcane skills."""
+    whisper(get_response("tomes"))
     from pathlib import Path
     from src.skills import SkillRegistry
 
@@ -915,7 +929,7 @@ def model_info(
 
 @app.command("commune")
 def status() -> None:
-    """Commune with the spirit - show provider status and available vessels."""
+    """Commune with Animus - show provider status and available vessels."""
     whisper(get_response("commune"))
     import asyncio
     from src.llm import NativeProvider, OllamaProvider, TRTLLMProvider, APIProvider, LLAMA_CPP_AVAILABLE
@@ -998,7 +1012,7 @@ def chat(
         help="Show token usage after each turn.",
     ),
 ) -> None:
-    """Rise, spirit! Begin an interactive session with Animus."""
+    """Rise! Begin an interactive session with Animus."""
     import asyncio
     from rich.prompt import Prompt, Confirm
     from rich.markdown import Markdown
@@ -1107,7 +1121,7 @@ def chat(
 # MCP subcommand group (portal)
 mcp_app = typer.Typer(
     name="portal",
-    help="The Portal - Model Context Protocol server for inter-spirit communication.",
+    help="The Portal - Model Context Protocol server for inter-agent communication.",
     no_args_is_help=True,
 )
 app.add_typer(mcp_app, name="portal")
@@ -1167,7 +1181,7 @@ def serve(
     port: int = typer.Option(8337, "--port", "-p", help="Port to listen on."),
     api_key: Optional[str] = typer.Option(None, "--api-key", "-k", help="API key for authentication."),
 ) -> None:
-    """Manifest the spirit - start the OpenAI-compatible API server."""
+    """Manifest Animus - start the OpenAI-compatible API server."""
     whisper(get_response("manifest"))
     from src.api import create_app
     from http.server import HTTPServer
@@ -1290,9 +1304,10 @@ def _serve_alias(
     serve(host, port, api_key)
 
 
-# Add subcommand group aliases
+# Add subcommand group aliases (backward compatibility)
 app.add_typer(model_app, name="model", hidden=True)
 app.add_typer(skill_app, name="skill", hidden=True)
+app.add_typer(skill_app, name="grimoire", hidden=True)  # Old name
 app.add_typer(mcp_app, name="mcp", hidden=True)
 
 
