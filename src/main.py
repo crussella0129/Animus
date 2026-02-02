@@ -195,7 +195,7 @@ def install_cmd(
             console.print(f"\n{i}. {step}")
 
 
-@app.command("sense")
+@app.command("detect")
 def detect(
     json_output: bool = typer.Option(
         False,
@@ -210,8 +210,7 @@ def detect(
         help="Show detailed information.",
     ),
 ) -> None:
-    """Sense the realm - detect system environment (OS, hardware, GPU)."""
-    whisper(get_response("sense"))
+    """Detect system environment (OS, hardware, GPU)."""
     info = detect_environment()
 
     if json_output:
@@ -306,7 +305,7 @@ def detect(
         ))
 
 
-@app.command("attune")
+@app.command("config")
 def config(
     show: bool = typer.Option(
         False,
@@ -327,8 +326,7 @@ def config(
         help="Show configuration file path.",
     ),
 ) -> None:
-    """Attune Animus - manage configuration."""
-    whisper(get_response("attune"))
+    """Manage Animus configuration."""
     manager = ConfigManager()
 
     if path:
@@ -356,7 +354,7 @@ def config(
     console.print("Use [cyan]--show[/cyan] to view config, [cyan]--init[/cyan] to initialize, or [cyan]--path[/cyan] to show path.")
 
 
-@app.command("summon")
+@app.command("init")
 def init(
     force: bool = typer.Option(
         False,
@@ -365,8 +363,7 @@ def init(
         help="Overwrite existing configuration.",
     ),
 ) -> None:
-    """Summon Animus - initialize in the current directory."""
-    whisper(get_response("summon"))
+    """Initialize Animus in the current directory."""
     manager = ConfigManager()
 
     if manager.config_path.exists() and not force:
@@ -411,10 +408,9 @@ def init(
     console.print("  3. Run [cyan]animus rise[/cyan] to start chatting")
 
 
-@app.command("vessels")
+@app.command("models")
 def models() -> None:
-    """Survey vessels - list available local GGUF models."""
-    whisper(get_response("vessels"))
+    """List available local GGUF models."""
     import asyncio
     from src.llm import NativeProvider, LLAMA_CPP_AVAILABLE
     from src.core.config import ConfigManager
@@ -476,7 +472,6 @@ def pull_model(
     ),
 ) -> None:
     """Pull a model - download a GGUF model from Hugging Face."""
-    whisper(get_response("bind"))
     import asyncio
     from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
     from src.llm import NativeProvider, HF_HUB_AVAILABLE
@@ -525,14 +520,13 @@ def pull_model(
     asyncio.run(download())
 
 
-@app.command("consume")
+@app.command("ingest")
 def ingest(
     path: str = typer.Argument(..., help="File or directory to consume."),
     chunk_size: int = typer.Option(512, "--chunk-size", "-c", help="Chunk size in tokens."),
     overlap: int = typer.Option(50, "--overlap", "-o", help="Overlap between chunks."),
 ) -> None:
-    """Consume knowledge - ingest documents into Animus's memory."""
-    whisper(get_response("consume"))
+    """Ingest documents into Animus's memory for RAG."""
     import asyncio
     from pathlib import Path as PathLib
     from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
@@ -604,13 +598,12 @@ def ingest(
     asyncio.run(run_ingestion())
 
 
-@app.command("scry")
+@app.command("search")
 def search(
     query: str = typer.Argument(..., help="Search query."),
     k: int = typer.Option(5, "--results", "-k", help="Number of results."),
 ) -> None:
-    """Scry the depths - search Animus's accumulated knowledge."""
-    whisper(get_response("scry"))
+    """Search Animus's accumulated knowledge."""
     import asyncio
     from src.memory import Ingester
     from src.core.config import ConfigManager
@@ -649,11 +642,11 @@ def search(
 
 # Model management subcommand group (vessel)
 model_app = typer.Typer(
-    name="vessel",
-    help="Manage vessels (GGUF models) Animus may inhabit.",
+    name="model",
+    help="Manage GGUF models.",
     no_args_is_help=True,
 )
-app.add_typer(model_app, name="vessel")
+app.add_typer(model_app, name="model")
 
 
 @model_app.command("download")
@@ -804,19 +797,18 @@ def model_remove(
 
 # Skills subcommand group (tomes)
 skill_app = typer.Typer(
-    name="tomes",
-    help="The Tomes - manage arcane skills that extend Animus's capabilities.",
+    name="skill",
+    help="Manage skills that extend Animus's capabilities.",
     no_args_is_help=True,
 )
-app.add_typer(skill_app, name="tomes")
+app.add_typer(skill_app, name="skill")
 
 
 @skill_app.command("list")
 def skill_list(
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed info."),
 ) -> None:
-    """Catalog the tomes - list available arcane skills."""
-    whisper(get_response("tomes"))
+    """List available skills."""
     from pathlib import Path
     from src.skills import SkillRegistry
 
@@ -1020,7 +1012,7 @@ def model_info(
         console.print(f"\n[yellow]Install llama-cpp-python to use this model[/yellow]")
 
 
-@app.command("reflect")
+@app.command("analyze")
 def analyze(
     goal: Optional[str] = typer.Argument(
         None,
@@ -1057,8 +1049,7 @@ def analyze(
         help="Output as JSON.",
     ),
 ) -> None:
-    """Reflect on past journeys - analyze runs and suggest improvements."""
-    whisper(get_response("reflect"))
+    """Analyze past runs and suggest improvements."""
     from src.core.builder import BuilderQuery, SuggestionPriority
 
     builder = BuilderQuery()
@@ -1166,10 +1157,9 @@ def analyze(
         console.print("\n[green]No significant issues found.[/green]")
 
 
-@app.command("commune")
+@app.command("status")
 def status() -> None:
-    """Commune with Animus - show provider status and available vessels."""
-    whisper(get_response("commune"))
+    """Show provider status and available models."""
     import asyncio
     from src.llm import NativeProvider, TRTLLMProvider, APIProvider, LLAMA_CPP_AVAILABLE
     from src.core.config import ConfigManager
@@ -1229,7 +1219,7 @@ def chat(
         None,
         "--model",
         "-m",
-        help="Model/vessel to inhabit.",
+        help="Model to use.",
     ),
     no_confirm: bool = typer.Option(
         False,
@@ -1263,7 +1253,7 @@ def chat(
         model_name = model or config.model.model_name
 
         if not provider.is_available:
-            whisper("The ethereal connection fails...", "red")
+            console.print("[red]Provider not available.[/red]")
             console.print("llama-cpp-python not available.\n")
             console.print("Install with: [cyan]pip install llama-cpp-python[/cyan]")
             console.print("Or configure an API in [cyan]~/.animus/config.yaml[/cyan]")
@@ -1278,7 +1268,7 @@ def chat(
                 if model_name:
                     model_path = native._get_model_path(model_name)
                     if not model_path:
-                        whisper("Vessel not found...", "yellow")
+                        console.print("[yellow]Model not found.[/yellow]")
                         console.print(f"Model [cyan]{model_name}[/cyan] not found.\n")
                         console.print("Download a GGUF model:")
                         console.print("  [cyan]animus pull Qwen/Qwen2.5-Coder-7B-Instruct-GGUF[/cyan]\n")
@@ -1289,7 +1279,7 @@ def chat(
                     # No model specified, check if any exist
                     models = await native.list_models()
                     if not models:
-                        whisper("No vessels found...", "yellow")
+                        console.print("[yellow]No models found.[/yellow]")
                         console.print("No local models found.\n")
                         console.print("Download a model:")
                         console.print("  [cyan]animus pull Qwen/Qwen2.5-Coder-7B-Instruct-GGUF[/cyan]")
@@ -1387,11 +1377,11 @@ def chat(
 
 # MCP subcommand group (portal)
 mcp_app = typer.Typer(
-    name="portal",
-    help="The Portal - Model Context Protocol server for inter-agent communication.",
+    name="mcp",
+    help="Model Context Protocol (MCP) server.",
     no_args_is_help=True,
 )
-app.add_typer(mcp_app, name="portal")
+app.add_typer(mcp_app, name="mcp")
 
 
 @mcp_app.command("server")
@@ -1442,14 +1432,13 @@ def mcp_tools() -> None:
     console.print(f"\n[dim]{len(server._tools)} tool(s) available[/dim]")
 
 
-@app.command("manifest")
+@app.command("serve")
 def serve(
     host: str = typer.Option("localhost", "--host", "-h", help="Host to bind to."),
     port: int = typer.Option(8337, "--port", "-p", help="Port to listen on."),
     api_key: Optional[str] = typer.Option(None, "--api-key", "-k", help="API key for authentication."),
 ) -> None:
-    """Manifest Animus - start the OpenAI-compatible API server."""
-    whisper(get_response("manifest"))
+    """Start the OpenAI-compatible API server."""
     from src.api import create_app
     from http.server import HTTPServer
 
@@ -1479,88 +1468,7 @@ def serve(
 
 # =============================================================================
 # BACKWARD COMPATIBILITY ALIASES
-# Users can use either thematic or technical command names
 # =============================================================================
-
-# Create hidden aliases for technical names (for scripts and muscle memory)
-# These point to the same functions but with the original names
-
-@app.command("detect", hidden=True)
-def _detect_alias(
-    json_output: bool = typer.Option(False, "--json", "-j"),
-    verbose: bool = typer.Option(False, "--verbose", "-V"),
-) -> None:
-    """Alias for 'sense'."""
-    detect(json_output, verbose)
-
-
-@app.command("config", hidden=True)
-def _config_alias(
-    show: bool = typer.Option(False, "--show", "-s"),
-    init: bool = typer.Option(False, "--init", "-i"),
-    path: bool = typer.Option(False, "--path", "-p"),
-) -> None:
-    """Alias for 'attune'."""
-    config(show, init, path)
-
-
-@app.command("init", hidden=True)
-def _init_alias(force: bool = typer.Option(False, "--force", "-f")) -> None:
-    """Alias for 'summon'."""
-    init(force)
-
-
-@app.command("models", hidden=True)
-def _models_alias(provider: Optional[str] = typer.Option(None, "--provider", "-p")) -> None:
-    """Alias for 'vessels'."""
-    models(provider)
-
-
-@app.command("download", hidden=True)
-def _download_alias(
-    model_name: str = typer.Argument(...),
-) -> None:
-    """Alias for 'pull'."""
-    pull_model(model_name)
-
-
-@app.command("ingest", hidden=True)
-def _ingest_alias(
-    path: str = typer.Argument(...),
-    chunk_size: int = typer.Option(512, "--chunk-size", "-c"),
-    overlap: int = typer.Option(50, "--overlap", "-o"),
-) -> None:
-    """Alias for 'consume'."""
-    ingest(path, chunk_size, overlap)
-
-
-@app.command("search", hidden=True)
-def _search_alias(
-    query: str = typer.Argument(...),
-    k: int = typer.Option(5, "--results", "-k"),
-) -> None:
-    """Alias for 'scry'."""
-    search(query, k)
-
-
-@app.command("analyze", hidden=True)
-def _analyze_alias(
-    goal: Optional[str] = typer.Argument(None),
-    days: Optional[int] = typer.Option(None, "--days", "-d"),
-    limit: Optional[int] = typer.Option(None, "--limit", "-n"),
-    run_id: Optional[str] = typer.Option(None, "--run", "-r"),
-    trends: bool = typer.Option(False, "--trends", "-t"),
-    json_output: bool = typer.Option(False, "--json", "-j"),
-) -> None:
-    """Alias for 'reflect'."""
-    analyze(goal, days, limit, run_id, trends, json_output)
-
-
-@app.command("status", hidden=True)
-def _status_alias() -> None:
-    """Alias for 'commune'."""
-    status()
-
 
 @app.command("chat", hidden=True)
 def _chat_alias(
@@ -1573,21 +1481,12 @@ def _chat_alias(
     chat(model, no_confirm, max_context, show_tokens)
 
 
-@app.command("serve", hidden=True)
-def _serve_alias(
-    host: str = typer.Option("localhost", "--host", "-h"),
-    port: int = typer.Option(8337, "--port", "-p"),
-    api_key: Optional[str] = typer.Option(None, "--api-key", "-k"),
+@app.command("download", hidden=True)
+def _download_alias(
+    model_name: str = typer.Argument(...),
 ) -> None:
-    """Alias for 'manifest'."""
-    serve(host, port, api_key)
-
-
-# Add subcommand group aliases (backward compatibility)
-app.add_typer(model_app, name="model", hidden=True)
-app.add_typer(skill_app, name="skill", hidden=True)
-app.add_typer(skill_app, name="grimoire", hidden=True)  # Old name
-app.add_typer(mcp_app, name="mcp", hidden=True)
+    """Alias for 'pull'."""
+    pull_model(model_name)
 
 
 if __name__ == "__main__":
