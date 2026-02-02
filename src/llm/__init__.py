@@ -1,4 +1,4 @@
-"""LLM module - Model providers (Native, Ollama, TensorRT-LLM, API)."""
+"""LLM module - Model providers (Native, TensorRT-LLM, API)."""
 
 from src.llm.base import (
     ModelProvider,
@@ -10,7 +10,6 @@ from src.llm.base import (
 )
 # Note: NativeProvider import is lazy - doesn't trigger heavy llama_cpp import
 from src.llm.native import NativeProvider
-from src.llm.ollama import OllamaProvider
 from src.llm.trtllm import TRTLLMProvider
 from src.llm.api import APIProvider
 from src.llm.factory import create_provider, get_default_provider, get_available_provider
@@ -25,7 +24,6 @@ __all__ = [
     "ModelInfo",
     # Providers
     "NativeProvider",
-    "OllamaProvider",
     "TRTLLMProvider",
     "APIProvider",
     # Availability flags (lazy-loaded)

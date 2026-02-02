@@ -9,7 +9,6 @@ from src.llm.base import (
     ProviderType,
 )
 from src.llm.native import NativeProvider
-from src.llm.ollama import OllamaProvider
 from src.llm.api import APIProvider
 from src.llm.trtllm import TRTLLMProvider
 from src.llm.factory import create_provider
@@ -37,18 +36,12 @@ def test_model_info_creation():
     """Test ModelInfo dataclass creation."""
     info = ModelInfo(
         name="test-model",
-        provider=ProviderType.OLLAMA,
+        provider=ProviderType.NATIVE,
         size_bytes=1024 * 1024 * 1024,
     )
     assert info.name == "test-model"
-    assert info.provider == ProviderType.OLLAMA
+    assert info.provider == ProviderType.NATIVE
     assert info.size_bytes == 1024 * 1024 * 1024
-
-
-def test_ollama_provider_type():
-    """Test OllamaProvider returns correct type."""
-    provider = OllamaProvider()
-    assert provider.provider_type == ProviderType.OLLAMA
 
 
 def test_api_provider_type():
@@ -79,12 +72,6 @@ def test_api_provider_available_with_key():
     """Test APIProvider reports available with key."""
     provider = APIProvider(api_key="test-key")
     assert provider.is_available is True
-
-
-def test_create_provider_ollama():
-    """Test factory creates OllamaProvider."""
-    provider = create_provider("ollama")
-    assert isinstance(provider, OllamaProvider)
 
 
 def test_create_provider_api():

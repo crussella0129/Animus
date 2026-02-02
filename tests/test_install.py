@@ -308,7 +308,7 @@ class TestAnimusInstaller:
         steps = installer._generate_next_steps()
 
         assert len(steps) >= 2
-        assert any("vessel download" in s for s in steps)
+        assert any("pull" in s for s in steps)
         assert any("rise" in s for s in steps)
 
     def test_generate_next_steps_without_native(self, installer):
@@ -318,7 +318,8 @@ class TestAnimusInstaller:
 
         steps = installer._generate_next_steps()
 
-        assert any("ollama" in s.lower() for s in steps)
+        # Should still show pull command (native is default)
+        assert any("pull" in s for s in steps)
 
     def test_generate_next_steps_jetson(self, installer, mock_system_info_jetson):
         """Test Jetson-specific next steps."""

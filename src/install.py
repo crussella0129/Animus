@@ -176,11 +176,11 @@ class AnimusInstaller:
                 self.installed.append("llama-cpp-python")
                 report(InstallStep.NATIVE_BACKEND, "Native backend installed")
             else:
-                self.warnings.append("Native backend installation failed - using Ollama fallback")
+                self.warnings.append("Native backend installation failed")
                 report(
                     InstallStep.NATIVE_BACKEND,
                     "Native backend skipped",
-                    warning="Will use Ollama as fallback",
+                    warning="Local inference will not be available",
                 )
         else:
             report(InstallStep.NATIVE_BACKEND, "Skipping native backend (--skip-native)")
@@ -499,8 +499,8 @@ class AnimusInstaller:
                     config.model.provider = "trtllm"
                 elif self._check_package_installed("llama_cpp"):
                     config.model.provider = "native"
-                else:
-                    config.model.provider = "ollama"
+                # Default to native even if llama_cpp not installed yet
+                # User will need to install it for local inference
 
                 # Set GPU layers based on detection
                 if info.gpu and not self.force_cpu:
@@ -545,17 +545,10 @@ class AnimusInstaller:
         info = self.system_info
 
         # Step 1: Get a model
-        if "llama-cpp-python" in self.installed:
-            steps.append(
-                "Download a model:\n"
-                "  animus vessel download TheBloke/Llama-2-7B-Chat-GGUF"
-            )
-        else:
-            steps.append(
-                "Start Ollama and pull a model:\n"
-                "  ollama serve\n"
-                "  animus bind llama2"
-            )
+        steps.append(
+            "Download a model:\n"
+            "  animus pull Qwen/Qwen2.5-Coder-7B-Instruct-GGUF"
+        )
 
         # Step 2: Start chatting
         steps.append(

@@ -11,22 +11,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class ModelConfig(BaseModel):
     """Model provider configuration."""
-    provider: str = Field(default="native", description="Model provider: native, ollama, trtllm, api")
+    provider: str = Field(default="native", description="Model provider: native, trtllm, api")
     model_name: str = Field(default="", description="Model name/identifier (empty = auto-detect)")
     api_base: Optional[str] = Field(default=None, description="API base URL for remote providers")
     api_key: Optional[str] = Field(default=None, description="API key for authenticated providers")
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     max_tokens: int = Field(default=4096, ge=1)
-
-
-class OllamaConfig(BaseModel):
-    """Ollama-specific configuration."""
-    host: str = Field(default="localhost", description="Ollama server host")
-    port: int = Field(default=11434, description="Ollama server port")
-
-    @property
-    def base_url(self) -> str:
-        return f"http://{self.host}:{self.port}"
 
 
 def _default_models_dir() -> Path:
@@ -138,7 +128,6 @@ def _default_logs_dir() -> Path:
 class AnimusConfig(BaseModel):
     """Main Animus configuration."""
     model: ModelConfig = Field(default_factory=ModelConfig)
-    ollama: OllamaConfig = Field(default_factory=OllamaConfig)
     native: NativeConfig = Field(default_factory=NativeConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     agent: AgentBehaviorConfig = Field(default_factory=AgentBehaviorConfig)

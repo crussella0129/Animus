@@ -94,7 +94,7 @@ class Run:
     goal: str                                # What the user asked for
     status: RunStatus = RunStatus.PENDING
     model: str = ""                          # Model used
-    provider: str = ""                       # Provider used (native, ollama, api)
+    provider: str = ""                       # Provider used (native, trtllm, api)
     started_at: Optional[datetime] = None
     ended_at: Optional[datetime] = None
     metrics: RunMetrics = field(default_factory=RunMetrics)

@@ -11,9 +11,8 @@ from typing import AsyncIterator, Optional, Any
 class ProviderType(str, Enum):
     """Supported LLM provider types."""
     NATIVE = "native"  # Direct model loading via llama-cpp-python
-    OLLAMA = "ollama"
-    TRTLLM = "trtllm"
-    API = "api"
+    TRTLLM = "trtllm"  # TensorRT-LLM for Jetson
+    API = "api"        # Remote API (OpenAI-compatible)
 
 
 @dataclass
@@ -63,7 +62,7 @@ class ModelProvider(ABC):
     Abstract base class for LLM providers.
 
     All providers must implement these methods to provide a unified
-    interface for model inference across Ollama, TensorRT-LLM, and APIs.
+    interface for model inference across local GGUF models and remote APIs.
     """
 
     @property

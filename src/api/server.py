@@ -201,15 +201,6 @@ class APIServer:
             for m in native_models:
                 models.append(ModelInfo(id=m.name, owned_by="native"))
 
-        # Add Ollama models
-        from src.llm import OllamaProvider
-        ollama = OllamaProvider(host=config.ollama.host, port=config.ollama.port)
-        if ollama.is_available:
-            ollama_models = await ollama.list_models()
-            for m in ollama_models:
-                models.append(ModelInfo(id=m.name, owned_by="ollama"))
-            await ollama.close()
-
         return models
 
     async def handle_embeddings(self, text: str | list[str], model: str = "") -> dict:

@@ -8,7 +8,6 @@ from typing import Optional
 from src.core.config import AnimusConfig
 from src.llm.base import ModelProvider, ProviderType
 from src.llm.native import NativeProvider
-from src.llm.ollama import OllamaProvider
 from src.llm.trtllm import TRTLLMProvider
 from src.llm.api import APIProvider
 
@@ -21,7 +20,7 @@ def create_provider(
     Create an LLM provider based on type and configuration.
 
     Args:
-        provider_type: Type of provider to create ("native", "ollama", "trtllm", "api").
+        provider_type: Type of provider to create ("native", "trtllm", "api").
         config: Animus configuration. Uses defaults if not provided.
 
     Returns:
@@ -50,12 +49,6 @@ def create_provider(
             use_mmap=config.native.use_mmap,
             use_mlock=config.native.use_mlock,
             verbose=config.native.verbose,
-        )
-
-    elif provider_type == ProviderType.OLLAMA:
-        return OllamaProvider(
-            host=config.ollama.host,
-            port=config.ollama.port,
         )
 
     elif provider_type == ProviderType.TRTLLM:
@@ -99,10 +92,9 @@ async def get_available_provider(config: Optional[AnimusConfig] = None) -> Optio
 
     Tries providers in order of preference:
     1. Configured default provider
-    2. Native (direct model loading, no external service)
-    3. Ollama (local server)
-    4. TensorRT-LLM (if on Jetson)
-    5. API (if configured)
+    2. Native (direct model loading via llama-cpp-python)
+    3. TensorRT-LLM (if on Jetson)
+    4. API (if configured)
 
     Args:
         config: Animus configuration.
@@ -135,14 +127,6 @@ async def get_available_provider(config: Optional[AnimusConfig] = None) -> Optio
         models = await native.list_models()
         if models:
             return native
-
-    # Try Ollama
-    ollama = OllamaProvider(
-        host=config.ollama.host,
-        port=config.ollama.port,
-    )
-    if ollama.is_available:
-        return ollama
 
     # Try TensorRT-LLM
     trtllm = TRTLLMProvider(

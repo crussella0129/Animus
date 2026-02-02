@@ -35,7 +35,7 @@ cd Animus
 python install.py
 
 # 3. Download a model
-animus vessel download Qwen/Qwen2.5-Coder-7B-Instruct-GGUF
+animus pull Qwen/Qwen2.5-Coder-7B-Instruct-GGUF
 
 # 4. Rise!
 animus rise
@@ -68,17 +68,18 @@ Animus uses thematic command names that fit its techromancy aesthetic. Tradition
 | `animus scry <query>` | **Scry the depths** - search accumulated knowledge | `search` |
 | `animus commune` | **Commune** - check Animus status and providers | `status` |
 | `animus reflect` | **Reflect** - analyze past runs and get suggestions | `analyze` |
-| `animus vessels` | **Survey vessels** - list available models | `models` |
-| `animus bind <model>` | **Bind a vessel** - download a model via Ollama | `pull` |
+| `animus vessels` | **Survey vessels** - list local models | `models` |
+| `animus pull <repo>` | **Pull a vessel** - download GGUF model from Hugging Face | `download` |
 | `animus manifest` | **Manifest** - start OpenAI-compatible API server | `serve` |
 
 ### Vessel Management
 
 ```bash
-animus vessel download <repo>  # Bind a new vessel from Hugging Face
-animus vessel list             # Survey local vessels
-animus vessel info <name>      # Examine a vessel's properties
-animus vessel remove <name>    # Unbind a vessel
+animus pull <repo>        # Download a GGUF model from Hugging Face
+animus vessels            # List local models
+animus vessel list        # Same as above
+animus vessel info <name> # Examine a vessel's properties
+animus vessel remove <name> # Remove a local model
 ```
 
 ### The Tomes (Skills)

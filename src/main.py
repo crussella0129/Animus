@@ -398,8 +398,7 @@ def init(
         else:
             console.print("[green]Configured for native provider (CPU)[/green]")
     else:
-        config.model.provider = "ollama"
-        console.print("[green]Configured for Ollama (install llama-cpp-python for native mode)[/green]")
+        console.print("[yellow]Note: llama-cpp-python not installed. Install for local inference.[/yellow]")
 
     manager.save(config)
 
@@ -407,158 +406,115 @@ def init(
     console.print(f"Config: [cyan]{manager.config_path}[/cyan]")
     console.print(f"Data:   [cyan]{config.data_dir}[/cyan]")
     console.print(f"\nNext steps:")
-    console.print("  1. Run [cyan]animus detect[/cyan] to verify your environment")
-    console.print("  2. Run [cyan]animus pull <model>[/cyan] to download a model")
-    console.print("  3. Run [cyan]animus chat[/cyan] to start chatting")
+    console.print("  1. Run [cyan]animus sense[/cyan] to verify your environment")
+    console.print("  2. Run [cyan]animus pull Qwen/Qwen2.5-Coder-7B-Instruct-GGUF[/cyan] to download a model")
+    console.print("  3. Run [cyan]animus rise[/cyan] to start chatting")
 
 
 @app.command("vessels")
-def models(
-    provider: Optional[str] = typer.Option(
-        None,
-        "--provider",
-        "-p",
-        help="Provider to list models from (ollama, api).",
-    ),
-) -> None:
-    """Survey vessels - list available models Animus may inhabit."""
+def models() -> None:
+    """Survey vessels - list available local GGUF models."""
     whisper(get_response("vessels"))
     import asyncio
-    from src.llm import OllamaProvider, APIProvider, ProviderType
+    from src.llm import NativeProvider, LLAMA_CPP_AVAILABLE
     from src.core.config import ConfigManager
 
     async def list_models() -> None:
         config = ConfigManager().config
-        provider_type = provider or config.model.provider
+        provider = NativeProvider(models_dir=config.native.models_dir)
 
-        if provider_type == "ollama":
-            prov = OllamaProvider(
-                host=config.ollama.host,
-                port=config.ollama.port,
+        console.print(f"[bold]Local Models[/bold]")
+        console.print(f"[dim]Directory: {config.native.models_dir}[/dim]\n")
+
+        model_list = await provider.list_models()
+
+        if not model_list:
+            console.print("[yellow]No local models found.[/yellow]")
+            console.print("\nDownload a model with:")
+            console.print("  [cyan]animus pull Qwen/Qwen2.5-Coder-7B-Instruct-GGUF[/cyan]")
+            return
+
+        table = Table(title="Local GGUF Models")
+        table.add_column("Name", style="cyan")
+        table.add_column("Size", style="green")
+        table.add_column("Quantization", style="yellow")
+
+        for model in model_list:
+            table.add_row(
+                model.name,
+                size,
+                model.quantization or "",
             )
-            if not prov.is_available:
-                console.print("[red]Ollama server not running.[/red]")
-                console.print("Start Ollama with: [cyan]ollama serve[/cyan]")
-                raise typer.Exit(1)
-        elif provider_type == "api":
-            if not config.model.api_key:
-                console.print("[red]API key not configured.[/red]")
-                console.print("Set it in [cyan]~/.animus/config.yaml[/cyan]")
-                raise typer.Exit(1)
-            prov = APIProvider(
-                api_base=config.model.api_base or "https://api.openai.com/v1",
-                api_key=config.model.api_key,
-            )
+
+        console.print(table)
+
+        # Show llama-cpp-python status
+        console.print()
+        if LLAMA_CPP_AVAILABLE:
+            gpu_backend = provider.gpu_backend
+            console.print(f"[green]llama-cpp-python:[/green] Installed ({gpu_backend})")
         else:
-            console.print(f"[red]Unknown provider: {provider_type}[/red]")
-            raise typer.Exit(1)
-
-        try:
-            model_list = await prov.list_models()
-
-            if not model_list:
-                console.print(f"[yellow]No models found for {provider_type}.[/yellow]")
-                if provider_type == "ollama":
-                    console.print("Pull a model with: [cyan]animus pull <model>[/cyan]")
-                return
-
-            table = Table(title=f"Available Models ({provider_type})")
-            table.add_column("Name", style="cyan")
-            table.add_column("Size", style="green")
-            table.add_column("Quantization", style="yellow")
-
-            for model in model_list:
-                size = ""
-                if model.size_bytes:
-                    size_gb = model.size_bytes / (1024 ** 3)
-                    size = f"{size_gb:.1f} GB"
-                elif model.parameter_count:
-                    size = model.parameter_count
-
-                table.add_row(
-                    model.name,
-                    size,
-                    model.quantization or "",
-                )
-
-            console.print(table)
-        finally:
-            if hasattr(prov, 'close'):
-                await prov.close()
+            console.print("[yellow]llama-cpp-python:[/yellow] Not installed")
+            console.print("Install with: [cyan]pip install llama-cpp-python[/cyan]")
 
     asyncio.run(list_models())
 
 
-@app.command("bind")
-def pull(
-    model_name: str = typer.Argument(..., help="Name of the model to bind."),
-    provider: Optional[str] = typer.Option(
-        None,
-        "--provider",
-        "-p",
-        help="Provider to bind from (default: ollama).",
+@app.command("pull")
+def pull_model(
+    model_name: str = typer.Argument(
+        ...,
+        help="Model to download (e.g., Qwen/Qwen2.5-Coder-7B-Instruct-GGUF)",
     ),
 ) -> None:
-    """Bind a vessel - pull/download a model for Animus to inhabit."""
+    """Pull a model - download a GGUF model from Hugging Face."""
     whisper(get_response("bind"))
     import asyncio
-    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
-    from src.llm import OllamaProvider
+    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
+    from src.llm import NativeProvider, HF_HUB_AVAILABLE
     from src.core.config import ConfigManager
 
-    async def pull_model() -> None:
+    if not HF_HUB_AVAILABLE:
+        console.print("[red]huggingface-hub not installed.[/red]")
+        console.print("Install with: [cyan]pip install huggingface-hub[/cyan]")
+        raise typer.Exit(1)
+
+    async def download() -> None:
         config = ConfigManager().config
-        provider_type = provider or config.model.provider
+        provider = NativeProvider(models_dir=config.native.models_dir)
 
-        if provider_type != "ollama":
-            console.print(f"[yellow]Only Ollama supports model pulling.[/yellow]")
-            console.print("API models are accessed remotely and don't need to be downloaded.")
-            console.print("TensorRT models must be compiled locally.")
-            return
-
-        prov = OllamaProvider(
-            host=config.ollama.host,
-            port=config.ollama.port,
-        )
-
-        if not prov.is_available:
-            console.print("[red]Ollama server not running.[/red]")
-            console.print("Start Ollama with: [cyan]ollama serve[/cyan]")
-            raise typer.Exit(1)
-
-        console.print(f"[bold]Pulling model:[/bold] {model_name}")
+        console.print(f"[bold]Downloading model:[/bold] {model_name}")
+        console.print(f"[dim]Target directory: {config.native.models_dir}[/dim]\n")
 
         with Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
             BarColumn(),
-            TaskProgressColumn(),
             console=console,
         ) as progress:
-            task = progress.add_task("Downloading...", total=None)
+            task = progress.add_task("Starting...", total=None)
 
-            try:
-                async for update in prov.pull_model(model_name):
-                    status = update.get("status", "")
-                    completed = update.get("completed", 0)
-                    total = update.get("total", 0)
+            async for update in provider.pull_model(model_name):
+                status = update.get("status", "")
 
-                    if total > 0:
-                        progress.update(task, total=total, completed=completed)
+                if status == "error":
+                    progress.update(task, description=f"[red]Error: {update.get('error')}[/red]")
+                    console.print(f"\n[red]Download failed:[/red] {update.get('error')}")
+                    raise typer.Exit(1)
+                elif status == "searching":
+                    progress.update(task, description=update.get("message", "Searching..."))
+                elif status == "selected":
+                    progress.update(task, description=f"Selected: {update.get('filename')}")
+                elif status == "downloading":
+                    progress.update(task, description=f"Downloading: {update.get('filename')}")
+                elif status == "complete":
+                    progress.update(task, description="Done!")
+                    size_mb = update.get("size", 0) / (1024 * 1024)
+                    console.print(f"\n[bold green]Download complete![/bold green]")
+                    console.print(f"  Path: [cyan]{update.get('path')}[/cyan]")
+                    console.print(f"  Size: {size_mb:.1f} MB")
 
-                    if "pulling" in status.lower():
-                        digest = update.get("digest", "")[:12]
-                        progress.update(task, description=f"Pulling {digest}...")
-                    elif status:
-                        progress.update(task, description=status)
-
-                progress.update(task, description="Done!", completed=progress.tasks[0].total or 100)
-            finally:
-                await prov.close()
-
-        console.print(f"\n[bold green]Model '{model_name}' pulled successfully![/bold green]")
-
-    asyncio.run(pull_model())
+    asyncio.run(download())
 
 
 @app.command("consume")
@@ -767,7 +723,7 @@ def model_list() -> None:
         if not models:
             console.print("[yellow]No local models found.[/yellow]")
             console.print("\nDownload a model with:")
-            console.print("  [cyan]animus vessel download Qwen/Qwen2.5-Coder-7B-Instruct-GGUF[/cyan]")
+            console.print("  [cyan]animus pull Qwen/Qwen2.5-Coder-7B-Instruct-GGUF[/cyan]")
             return
 
         table = Table(title="Local GGUF Models")
@@ -1207,7 +1163,7 @@ def status() -> None:
     """Commune with Animus - show provider status and available vessels."""
     whisper(get_response("commune"))
     import asyncio
-    from src.llm import NativeProvider, OllamaProvider, TRTLLMProvider, APIProvider, LLAMA_CPP_AVAILABLE
+    from src.llm import NativeProvider, TRTLLMProvider, APIProvider, LLAMA_CPP_AVAILABLE
     from src.core.config import ConfigManager
 
     async def check_status() -> None:
@@ -1217,7 +1173,7 @@ def status() -> None:
 
         # Show configured provider and model
         console.print(f"Configured Provider: [cyan]{config.model.provider}[/cyan]")
-        console.print(f"Configured Model: [cyan]{config.model.model_name}[/cyan]")
+        console.print(f"Configured Model: [cyan]{config.model.model_name or '(auto-detect)'}[/cyan]")
         console.print()
 
         # Check Native (llama-cpp-python)
@@ -1228,21 +1184,18 @@ def status() -> None:
             console.print(f"Native (llama-cpp-python): {native_status}")
             if models:
                 console.print(f"  Local models: {len(models)}")
+                for m in models[:3]:
+                    console.print(f"    - {m.name}")
+                if len(models) > 3:
+                    console.print(f"    ... and {len(models) - 3} more")
+            else:
+                console.print("  [yellow]No local models found[/yellow]")
+                console.print("  Download with: [cyan]animus pull Qwen/Qwen2.5-Coder-7B-Instruct-GGUF[/cyan]")
         else:
             console.print("Native (llama-cpp-python): [dim]Not Installed[/dim]")
+            console.print("  Install with: [cyan]pip install llama-cpp-python[/cyan]")
 
-        # Check Ollama
-        ollama = OllamaProvider(host=config.ollama.host, port=config.ollama.port)
-        ollama_status = "[green]Running[/green]" if ollama.is_available else "[red]Not Running[/red]"
-        console.print(f"Ollama ({config.ollama.base_url}): {ollama_status}")
-
-        if ollama.is_available:
-            models = await ollama.list_models()
-            if models:
-                console.print(f"  Models: {len(models)} available")
-            await ollama.close()
-
-        # Check TensorRT-LLM
+        # Check TensorRT-LLM (Jetson)
         trtllm = TRTLLMProvider(engine_dir=config.data_dir / "engines")
         trtllm_status = "[green]Available[/green]" if trtllm.is_available else "[dim]Not Installed[/dim]"
         console.print(f"TensorRT-LLM: {trtllm_status}")
@@ -1303,37 +1256,39 @@ def chat(
 
         if not provider.is_available:
             whisper("The ethereal connection fails...", "red")
-            console.print("Start Ollama with: [cyan]ollama serve[/cyan]")
-            console.print("Or configure an API key in [cyan]~/.animus/config.yaml[/cyan]")
+            console.print("llama-cpp-python not available.\n")
+            console.print("Install with: [cyan]pip install llama-cpp-python[/cyan]")
+            console.print("Or configure an API in [cyan]~/.animus/config.yaml[/cyan]")
             raise typer.Exit(1)
 
-        # Check for model configuration mismatch
-        if config.model.provider == "native" and ":" in model_name:
-            whisper("Configuration mismatch detected...", "yellow")
-            console.print(f"Model [cyan]{model_name}[/cyan] looks like an Ollama model")
-            console.print(f"but provider is set to [cyan]native[/cyan].\n")
-            console.print("Options:")
-            console.print("  1. Switch to Ollama:")
-            console.print("     [dim]Edit ~/.animus/config.yaml: provider: ollama[/dim]")
-            console.print("     [dim]Then: ollama pull {model_name}[/dim]\n")
-            console.print("  2. Download a GGUF model for native:")
-            console.print("     [dim]animus vessel download Qwen/Qwen2.5-Coder-7B-Instruct-GGUF[/dim]")
-            raise typer.Exit(1)
-
-        # For native provider, check if model exists
-        if config.model.provider == "native" and model_name:
+        # For native provider, check if we have any models
+        if config.model.provider == "native":
             from src.llm.native import NativeProvider
             native = provider if isinstance(provider, NativeProvider) else None
             if native:
-                model_path = native._get_model_path(model_name)
-                if not model_path:
-                    whisper("No vessel bound...", "yellow")
-                    console.print(f"Model [cyan]{model_name}[/cyan] not found.\n")
-                    console.print("Download a GGUF model:")
-                    console.print("  [dim]animus vessel download Qwen/Qwen2.5-Coder-7B-Instruct-GGUF[/dim]\n")
-                    console.print("Or list available models:")
-                    console.print("  [dim]animus vessel list[/dim]")
-                    raise typer.Exit(1)
+                # If specific model requested, check if it exists
+                if model_name:
+                    model_path = native._get_model_path(model_name)
+                    if not model_path:
+                        whisper("Vessel not found...", "yellow")
+                        console.print(f"Model [cyan]{model_name}[/cyan] not found.\n")
+                        console.print("Download a GGUF model:")
+                        console.print("  [cyan]animus pull Qwen/Qwen2.5-Coder-7B-Instruct-GGUF[/cyan]\n")
+                        console.print("Or list available models:")
+                        console.print("  [cyan]animus vessels[/cyan]")
+                        raise typer.Exit(1)
+                else:
+                    # No model specified, check if any exist
+                    models = await native.list_models()
+                    if not models:
+                        whisper("No vessels found...", "yellow")
+                        console.print("No local models found.\n")
+                        console.print("Download a model:")
+                        console.print("  [cyan]animus pull Qwen/Qwen2.5-Coder-7B-Instruct-GGUF[/cyan]")
+                        raise typer.Exit(1)
+                    # Auto-select first model
+                    model_name = models[0].name
+                    console.print(f"[dim]Using model: {model_name}[/dim]")
 
         async def confirm_tool(tool_name: str, description: str) -> bool:
             if no_confirm:
