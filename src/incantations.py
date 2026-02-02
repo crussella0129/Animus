@@ -292,14 +292,15 @@ def get_technical_name(thematic_name: str) -> Optional[str]:
 # Unicode banners (for terminals with Unicode support)
 AWAKENING_BANNER = """
 [bold magenta]
-    ╔══════════════════════════════════════╗
-    ║                                      ║
-    ║   ▄▀█ █▄░█ █ █▀▄▀█ █░█ █▀           ║
-    ║   █▀█ █░▀█ █ █░▀░█ █▄█ ▄█           ║
-    ║                                      ║
-    ║        ✧ Animus Awakens ✧           ║
-    ║                                      ║
-    ╚══════════════════════════════════════╝
+ ▄▀▀█▄   ▄▀▀▄ ▀▄  ▄▀▀█▀▄    ▄▀▀▄ ▄▀▄  ▄▀▀▄ ▄▀▀▄  ▄▀▀▀▀▄
+▐ ▄▀ ▀▄ █  █ █ █ █   █  █  █  █ ▀  █ █   █    █ █ █   ▐
+  █▄▄▄█ ▐  █  ▀█ ▐   █  ▐  ▐  █    █ ▐  █    █     ▀▄
+ ▄▀   █   █   █      █       █    █    █    █   ▀▄   █
+█   ▄▀  ▄▀   █    ▄▀▀▀▀▀▄  ▄▀   ▄▀      ▀▄▄▄▄▀   █▀▀▀
+▐   ▐   █    ▐   █       █ █    █                ▐
+        ▐        ▐       ▐ ▐    ▐
+
+              ✧ Animus Awakens ✧
 [/bold magenta]"""
 
 SUMMONING_BANNER = """
@@ -320,13 +321,13 @@ FAREWELL_BANNER = """
 # ASCII-only fallback banners (for limited terminals)
 AWAKENING_BANNER_ASCII = """
 [bold magenta]
-    +======================================+
-    |                                      |
-    |   A N I M U S                        |
-    |                                      |
-    |        * Animus Awakens *            |
-    |                                      |
-    +======================================+
+    _    _   _ ___ __  __ _   _ ____
+   / \\  | \\ | |_ _|  \\/  | | | / ___|
+  / _ \\ |  \\| || || |\\/| | | | \\___ \\
+ / ___ \\| |\\  || || |  | | |_| |___) |
+/_/   \\_\\_| \\_|___|_|  |_|\\___/|____/
+
+          * Animus Awakens *
 [/bold magenta]"""
 
 SUMMONING_BANNER_ASCII = """
