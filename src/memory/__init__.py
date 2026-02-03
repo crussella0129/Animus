@@ -7,6 +7,7 @@ from src.memory.chunker import (
     TokenChunker,
     SentenceChunker,
     CodeChunker,
+    TreeSitterChunker,
     get_chunker,
 )
 from src.memory.extractor import (
@@ -52,6 +53,7 @@ __all__ = [
     "TokenChunker",
     "SentenceChunker",
     "CodeChunker",
+    "TreeSitterChunker",
     "get_chunker",
     # Extractor
     "ExtractedText",

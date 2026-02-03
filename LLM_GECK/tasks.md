@@ -272,8 +272,8 @@ After analyzing 12 additional repositories, a critical insight emerged: **many a
   - [ ] Persistent storage (~/.animus/vectordb.sqlite)
   - [ ] Atomic batch writes
   - [ ] Index maintenance and compaction
-- [ ] **Improved Chunking**
-  - [ ] Add Tree-sitter for AST-aware code chunking
+- [~] **Improved Chunking** (In Progress — Entry #29)
+  - [x] Add Tree-sitter for AST-aware code chunking (`TreeSitterChunker`)
   - [ ] Markdown-aware chunking (preserve headers, lists)
   - [ ] Configurable overlap strategies
 

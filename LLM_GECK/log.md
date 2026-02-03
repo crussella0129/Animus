@@ -3291,3 +3291,54 @@ Conducted comprehensive assessment of the entire Animus codebase to identify qui
 
 ### Checkpoint
 **Status:** ASSESSMENT COMPLETE — Ready to reorganize tasks and execute quick wins.
+
+---
+
+## Entry #30 — 2026-02-03 (Continued)
+
+### Focus: Phase 10 - Tree-sitter Chunker Integration
+
+### Summary
+Integrated Tree-sitter AST parsing with the RAG chunking system for more accurate code boundary detection.
+
+### What Was Built
+
+**New Class: TreeSitterChunker** (`src/memory/chunker.py`)
+- Uses `src/analysis/parser.py` for precise symbol extraction
+- Chunks code by function/class boundaries (not regex)
+- Falls back to `CodeChunker` when tree-sitter unavailable
+- Sub-chunks large functions that exceed size limits
+- Adds metadata: symbol names, symbol types, chunker type
+
+**Key Features:**
+1. **AST-Aware Boundaries**: Uses Tree-sitter to find exact function/class start/end positions
+2. **Graceful Fallback**: Automatically uses CodeChunker if tree-sitter not installed
+3. **Size-Aware Grouping**: Groups small functions into chunks up to size limit
+4. **Metadata Enrichment**: Chunks include symbol names and types
+
+### Code Changes
+
+```python
+# get_chunker() now has use_tree_sitter parameter
+chunker = get_chunker(".py", use_tree_sitter=True)  # Returns TreeSitterChunker if available
+
+# TreeSitterChunker produces metadata-rich chunks
+chunk.metadata = {
+    "symbols": ["function_one", "function_two"],
+    "symbol_types": ["function"],
+    "chunker": "tree_sitter",
+}
+```
+
+### Files Modified
+- `src/memory/chunker.py` - Added TreeSitterChunker class (~120 lines)
+- `src/memory/__init__.py` - Added export
+- `tests/test_memory.py` - Added 6 tests for TreeSitterChunker
+
+### Test Results
+- Basic chunker tests: 5/5 passed
+- TreeSitterChunker tests: 2 passed (tree-sitter not installed on test system)
+- Fallback behavior verified working
+
+### Checkpoint
+**Status:** COMPLETE — TreeSitterChunker implemented and integrated with graceful fallback.

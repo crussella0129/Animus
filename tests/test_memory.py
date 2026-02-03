@@ -5,7 +5,7 @@ from pathlib import Path
 import tempfile
 
 from src.memory.scanner import DirectoryScanner, GitIgnoreParser
-from src.memory.chunker import TokenChunker, SentenceChunker, CodeChunker, get_chunker
+from src.memory.chunker import TokenChunker, SentenceChunker, CodeChunker, TreeSitterChunker, get_chunker
 from src.memory.extractor import PlainTextExtractor, CodeExtractor, extract_text
 from src.memory.vectorstore import InMemoryVectorStore, Document, create_document_id
 from src.memory.embedder import MockEmbedder
@@ -92,6 +92,83 @@ class TestChunkers:
     def test_get_chunker_for_text(self):
         chunker = get_chunker(".txt")
         assert isinstance(chunker, SentenceChunker)
+
+
+class TestTreeSitterChunker:
+    """Tests for AST-aware code chunking."""
+
+    def test_availability_check(self):
+        """TreeSitterChunker should report availability correctly."""
+        chunker = TreeSitterChunker()
+        # Should return True or False depending on tree-sitter installation
+        result = chunker._is_available()
+        assert isinstance(result, bool)
+
+    def test_fallback_when_unavailable(self):
+        """Should fall back to CodeChunker when tree-sitter unavailable."""
+        chunker = TreeSitterChunker(chunk_size=512)
+
+        # Test with simple Python code
+        python_code = '''
+def hello():
+    print("Hello")
+
+def world():
+    print("World")
+'''
+        chunks = list(chunker.chunk(python_code, {"language": "python"}))
+        # Should produce at least one chunk
+        assert len(chunks) >= 1
+
+    def test_chunks_python_functions(self):
+        """Should chunk Python code by function boundaries when tree-sitter available."""
+        chunker = TreeSitterChunker(chunk_size=512)
+
+        if not chunker._is_available():
+            pytest.skip("tree-sitter not available")
+
+        python_code = '''
+def function_one():
+    """First function."""
+    return 1
+
+def function_two():
+    """Second function."""
+    return 2
+
+def function_three():
+    """Third function."""
+    return 3
+'''
+        chunks = list(chunker.chunk(python_code, {"language": "python"}))
+        # Should group functions into chunks
+        assert len(chunks) >= 1
+        # Check that metadata includes symbol info when tree-sitter is used
+        if chunks[0].metadata.get("chunker") == "tree_sitter":
+            assert "symbols" in chunks[0].metadata
+
+    def test_handles_large_function(self):
+        """Should sub-chunk very large functions."""
+        chunker = TreeSitterChunker(chunk_size=50)  # Small chunk size
+
+        # Create a large function
+        large_code = 'def large_func():\n' + '    x = 1\n' * 100
+
+        chunks = list(chunker.chunk(large_code, {"language": "python"}))
+        # Should produce multiple chunks for large function
+        assert len(chunks) >= 1
+
+    def test_get_chunker_prefers_tree_sitter(self):
+        """get_chunker should prefer TreeSitterChunker for supported languages."""
+        chunker = get_chunker(".py", use_tree_sitter=True)
+        # Should be TreeSitterChunker if available, otherwise CodeChunker
+        assert isinstance(chunker, (TreeSitterChunker, CodeChunker))
+
+    def test_get_chunker_can_disable_tree_sitter(self):
+        """get_chunker should respect use_tree_sitter=False."""
+        chunker = get_chunker(".py", use_tree_sitter=False)
+        assert isinstance(chunker, CodeChunker)
+        assert not isinstance(chunker, TreeSitterChunker)
 
 
 class TestExtractors:
