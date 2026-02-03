@@ -366,11 +366,25 @@ class NativeProvider(ModelProvider):
                     }
                     return
 
+                # Filter out split files (e.g., model-00001-of-00002.gguf)
+                # These require downloading multiple parts and aren't usable alone
+                split_pattern = re.compile(r'-\d{5}-of-\d{5}')
+                single_files = [f for f in gguf_files if not split_pattern.search(f)]
+
+                # Use single files if available, otherwise fall back to all files
+                candidates = single_files if single_files else gguf_files
+
+                if not single_files and gguf_files:
+                    yield {
+                        "status": "warning",
+                        "message": f"Only split model files found. Consider downloading single-file version.",
+                    }
+
                 # Prefer Q4_K_M, then Q5_K_M, then any
                 preferred = ["Q4_K_M", "Q5_K_M", "Q4_K_S", "Q5_K_S", "Q8_0"]
                 filename = None
                 for pref in preferred:
-                    for f in gguf_files:
+                    for f in candidates:
                         if pref in f.upper():
                             filename = f
                             break
@@ -378,7 +392,7 @@ class NativeProvider(ModelProvider):
                         break
 
                 if not filename:
-                    filename = gguf_files[0]
+                    filename = candidates[0]
 
                 yield {"status": "selected", "filename": filename}
 

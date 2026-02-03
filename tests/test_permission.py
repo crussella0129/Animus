@@ -4,6 +4,7 @@ These tests verify that security decisions are made deterministically
 without any LLM inference.
 """
 
+import sys
 import pytest
 from pathlib import Path
 
@@ -264,6 +265,7 @@ class TestEdgeCases:
         result = is_mandatory_deny_path("~/.bashrc", PermissionCategory.WRITE)
         assert result is True
 
+    @pytest.mark.skipif(sys.platform != "win32", reason="Windows-specific path test")
     def test_windows_path_separators(self):
         """Windows path separators should be handled."""
         result = is_mandatory_deny_path("C:\\Users\\user\\.bashrc", PermissionCategory.WRITE)

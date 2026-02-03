@@ -3222,3 +3222,72 @@ systests/Linux/installation_test_log.md - Phase 2 notes
 - [ ] Container isolation with `--paranoid` flag
 - [ ] Dockerfile for fetch-sandbox
 - [ ] MCP protocol integration for containerized fetch
+
+---
+
+## Entry #29 — 2026-02-03
+
+### Focus: Full Codebase Assessment
+
+### Summary
+Conducted comprehensive assessment of the entire Animus codebase to identify quick wins and reorganize priorities.
+
+### Codebase Statistics
+
+| Metric | Count |
+|--------|-------|
+| Python Files in src/ | 57 |
+| Total Lines of Code | 18,785 |
+| Test Files | 25 |
+| Test Functions | 755 |
+| CLI Commands | 28 |
+| Built-in Skills | 5 |
+| Built-in Tools | 13+ |
+
+### Module Breakdown
+
+| Module | Lines | Purpose |
+|--------|-------|---------|
+| src/core/ | 6,700+ | Agent, config, permissions, validation |
+| src/llm/ | 1,400+ | Model providers (Native, TRT-LLM, API) |
+| src/tools/ | 1,200+ | File, git, shell, web, delegate tools |
+| src/memory/ | 1,200+ | RAG system, embeddings, vector store |
+| src/analysis/ | 1,100+ | Tree-sitter AST parsing |
+| src/skills/ | 500+ | Skill system (parser, registry, loader) |
+| src/api/ | 800+ | REST API & WebSocket servers |
+| src/mcp/ | 500+ | MCP protocol implementation |
+| src/main.py | 1,764 | CLI entry point |
+
+### Key Findings
+
+**Completed but not marked in tasks.md:**
+1. API Server (`src/api/server.py`) - 473 lines, OpenAI-compatible
+2. WebSocket Server (`src/api/websocket_server.py`) - 494 lines, IDE integration
+3. Tree-sitter parsing (`src/analysis/parser.py`) - 599 lines, 8 language support
+4. Ubuntu 22.04 documentation - Added to README.md
+5. IDE Integration - VSCode extension with WebSocket support
+6. `animus serve` command - Already implemented
+7. `animus ide` command - Already implemented
+
+**Task list items that need updating:**
+- Phase 12 MCP: Core complete, only config and health check remain
+- Phase 13 Skills: Fully complete with 5 bundled skills
+- Phase 15 API Server: Mostly complete, missing only rate limiting
+- Tree-sitter in Phase 10: Already exists in src/analysis/
+
+**Code Quality:**
+- No critical issues found
+- One intentional NotImplementedError (MCPMessage base class)
+- Clean separation of concerns
+- Async-first design throughout
+
+### Quick Wins Identified
+
+1. **Mark completed items in tasks.md** - 15 minutes
+2. **Fix split-file model download** - 30 minutes  
+3. **Add rate limiting to API server** - 30 minutes
+4. **Add MCP config YAML parsing** - 30 minutes
+5. **Clean up stale backlog items** - 15 minutes
+
+### Checkpoint
+**Status:** ASSESSMENT COMPLETE — Ready to reorganize tasks and execute quick wins.

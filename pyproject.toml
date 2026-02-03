@@ -65,8 +65,12 @@ analysis = [
 ide = [
     "websockets>=12.0",
 ]
+web = [
+    "bleach>=6.0.0",
+    "readability-lxml>=0.8.0",
+]
 all = [
-    "animus[dev,native,memory,analysis,ide]",
+    "animus[dev,native,memory,analysis,ide,web]",
 ]
 
 [project.scripts]

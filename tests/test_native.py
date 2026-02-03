@@ -34,6 +34,42 @@ class TestQuantizationDetection:
         assert detect_quantization("model.gguf") is None
 
 
+class TestSplitFileDetection:
+    """Test split file detection for model downloads."""
+
+    def test_split_file_pattern_matches(self):
+        import re
+        split_pattern = re.compile(r'-\d{5}-of-\d{5}')
+
+        # These should match (split files)
+        assert split_pattern.search("model-00001-of-00002.gguf")
+        assert split_pattern.search("qwen2.5-coder-7b-instruct-q4_k_m-00001-of-00002.gguf")
+        assert split_pattern.search("llama-00003-of-00005.gguf")
+
+    def test_split_file_pattern_not_matches(self):
+        import re
+        split_pattern = re.compile(r'-\d{5}-of-\d{5}')
+
+        # These should NOT match (single files)
+        assert not split_pattern.search("model-q4_k_m.gguf")
+        assert not split_pattern.search("qwen2.5-coder-7b-instruct-q4_k_m.gguf")
+        assert not split_pattern.search("llama-7b-Q4_K_M.gguf")
+
+    def test_filter_split_files(self):
+        import re
+        split_pattern = re.compile(r'-\d{5}-of-\d{5}')
+
+        gguf_files = [
+            "model-q4_k_m.gguf",  # single file
+            "model-q4_k_m-00001-of-00002.gguf",  # split
+            "model-q4_k_m-00002-of-00002.gguf",  # split
+            "model-q5_k_m.gguf",  # single file
+        ]
+
+        single_files = [f for f in gguf_files if not split_pattern.search(f)]
+        assert single_files == ["model-q4_k_m.gguf", "model-q5_k_m.gguf"]
+
+
 class TestGPUBackendDetection:
     def test_returns_string(self):
         backend = detect_gpu_backend()
