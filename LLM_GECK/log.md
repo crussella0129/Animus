@@ -3154,3 +3154,71 @@ INJECTION_PATTERNS = [
 - Test web search in live Animus session
 - Implement Phase 2 LLM validator
 - Add bleach and httpx to dependencies if not present
+
+---
+
+## Entry #28 — 2026-02-03 (Continued)
+
+### Focus: Ungabunga-Box Phase 2 Complete
+
+### Summary
+Completed Phase 2 of the Ungabunga-Box web security pattern - LLM-based semantic validation using a smaller model (Qwen-1.5B).
+
+### What Was Built
+
+**New Files:**
+- `src/core/web_validator.py` - Complete LLM validation pipeline
+- `tests/test_web_validator.py` - 25 tests (all passing)
+
+**Components:**
+
+1. **WebContentRuleEngine** - Extends base RuleEngine with web-specific checks:
+   - Reuses injection patterns from `src/tools/web.py`
+   - Adds base64 blob detection
+   - Adds excessive special character detection
+
+2. **WebContentLLMValidator** - Uses Qwen-1.5B for semantic validation:
+   - THREAT/FALSE_POSITIVE classification prompt
+   - Low temperature (0.1) for consistent judgments
+   - Truncates content to fit context window
+   - Fallback keywords for ambiguous responses
+
+3. **WebContentJudge** - Hybrid judge combining all layers:
+   - Rules pass clean → APPROVE (no LLM needed)
+   - Rules flag critical → REJECT (no LLM needed)
+   - Rules flag warning → LLM validates → APPROVE/REJECT/HUMAN
+   - Uncertain → Human escalation
+
+### Key Design Decisions
+
+1. **Different model = defense-in-depth**: Using Qwen-1.5B (different from main agent) makes it harder to craft attacks that bypass both.
+
+2. **THREAT/FALSE_POSITIVE prompting**: Clearer than SAFE/UNSAFE - LLM determines if flagged content is actually dangerous.
+
+3. **Rules first**: Clean content never touches LLM (saves time). Critical threats blocked immediately.
+
+### Test Results
+
+```
+tests/test_web_tools.py: 24 passed, 2 skipped (network)
+tests/test_web_validator.py: 25 passed
+Total: 49 passed
+```
+
+### Files Changed
+
+```
+src/core/web_validator.py (new) - 503 lines
+tests/test_web_validator.py (new) - 280 lines
+src/core/__init__.py - Added exports
+README.md - Validator model instructions
+systests/Linux/installation_test_log.md - Phase 2 notes
+```
+
+### Checkpoint
+**Status:** COMPLETE — Phase 2 LLM validator implemented and tested. Pushed to GitHub.
+
+### Remaining Work (Phase 3)
+- [ ] Container isolation with `--paranoid` flag
+- [ ] Dockerfile for fetch-sandbox
+- [ ] MCP protocol integration for containerized fetch
