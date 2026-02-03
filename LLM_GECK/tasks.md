@@ -483,11 +483,11 @@ After analyzing 12 additional repositories, a critical insight emerged: **many a
   - [x] Added build tools requirement
   - [x] Added troubleshooting section
 
-- [ ] **Universal JSON Output Mode**
-  - Standardize JSON output for tool calling across all prompts
-  - Add structured generation enforcement option
-  - Consider grammar-constrained decoding for llama-cpp-python
-  - Update system prompt to emphasize JSON output format
+- [x] **Universal JSON Output Mode** ✓ (Entry #30)
+  - [x] Standardize JSON output for tool calling across all prompts
+  - [x] Add structured generation enforcement option (`json_mode` config)
+  - [x] Update system prompt with explicit JSON syntax rules and examples
+  - [ ] Consider grammar-constrained decoding for llama-cpp-python (future)
   - Rationale: Qwen2.5-Coder excels at JSON, leverage this consistently
 
 - [ ] **Auth Profile Rotation** (from Clawdbot)

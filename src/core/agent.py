@@ -60,6 +60,9 @@ class AgentConfig:
     require_tool_confirmation: bool = True
     auto_confirm_safe_tools: bool = True
 
+    # JSON output enforcement
+    json_mode: bool = True  # Enforce JSON for tool calls (adds extra prompt instructions)
+
     # These can be overridden by AnimusConfig.agent settings
     auto_execute_tools: tuple = ("read_file", "list_dir")
     safe_shell_commands: tuple = (
@@ -170,16 +173,47 @@ You have access to these tools:
 - list_dir: List directory contents
 - run_shell: Execute shell commands
 
-## How to Call Tools
+## How to Call Tools - CRITICAL JSON FORMAT
 
-IMPORTANT: To use a tool, output a JSON object in this exact format:
-{"tool": "tool_name", "arguments": {"arg1": "value1", "arg2": "value2"}}
+**ALWAYS** output tool calls as valid JSON objects. This is the ONLY accepted format:
 
-Example tool calls:
-{"tool": "read_file", "arguments": {"path": "C:/Users/example/file.txt"}}
-{"tool": "list_dir", "arguments": {"path": "C:/Users/example", "recursive": false}}
-{"tool": "write_file", "arguments": {"path": "C:/Users/example/new.py", "content": "print('hello')"}}
+```json
+{"tool": "tool_name", "arguments": {"arg1": "value1"}}
+```
+
+**JSON Syntax Rules:**
+- Use double quotes " for all strings (NOT single quotes ')
+- Do NOT use Python string concatenation ("abc" + "def")
+- Do NOT add trailing commas
+- Escape special characters in strings: \n, \t, \\, \"
+- Boolean values are lowercase: true, false (NOT True, False)
+
+**Example Tool Calls:**
+
+To read a file:
+```json
+{"tool": "read_file", "arguments": {"path": "/home/user/file.txt"}}
+```
+
+To list a directory:
+```json
+{"tool": "list_dir", "arguments": {"path": "/home/user/project", "recursive": false}}
+```
+
+To write a file (content with newlines uses \\n escape):
+```json
+{"tool": "write_file", "arguments": {"path": "/home/user/hello.py", "content": "#!/usr/bin/env python3\\nprint('Hello')"}}
+```
+
+To run a command:
+```json
 {"tool": "run_shell", "arguments": {"command": "python --version"}}
+```
+
+**NEVER DO THIS:**
+- {'tool': 'read_file', ...}  <- Wrong: single quotes
+- {"tool": "write_file", "arguments": {"content": "line1" + "line2"}}  <- Wrong: Python concat
+- {"tool": "run_shell", "arguments": {"command": "ls",}}  <- Wrong: trailing comma
 
 ## Autonomous Execution Policy
 

@@ -3342,3 +3342,12 @@ chunk.metadata = {
 
 ### Checkpoint
 **Status:** COMPLETE — TreeSitterChunker implemented and integrated with graceful fallback.
+
+### JSON Output Mode Enhancement (Same Session)
+
+Added explicit JSON formatting rules to the system prompt:
+- JSON syntax rules (double quotes, no Python concat, no trailing commas)
+- Multiple correct/incorrect examples
+- Added `json_mode` config option to AgentConfig
+
+This addresses the Known Issue: "Model outputs text instead of JSON tool calls"
