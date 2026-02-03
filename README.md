@@ -19,7 +19,7 @@ animus rise
 
 ## Requirements
 
-- Python 3.10+
+- Python 3.11+ (3.10 is NOT supported)
 - ~8GB RAM (for 7B models)
 - GPU recommended (CUDA, Metal, or ROCm)
 
@@ -64,6 +64,33 @@ CMAKE_ARGS="-DGGML_HIPBLAS=on" pip install llama-cpp-python --force-reinstall
 | macOS (Intel/Apple Silicon) | Metal |
 | Linux (x86_64, ARM64) | CUDA, ROCm |
 | NVIDIA Jetson | CUDA (JetPack) |
+
+### Ubuntu 22.04 LTS (Fresh Install)
+
+Ubuntu 22.04 ships with Python 3.10, but Animus requires Python 3.11+. Install prerequisites first:
+
+```bash
+# 1. Install system dependencies
+sudo apt update
+sudo apt install -y python3-pip build-essential cmake ninja-build
+
+# 2. Install Python 3.11 from deadsnakes PPA
+sudo add-apt-repository ppa:deadsnakes/ppa -y
+sudo apt update
+sudo apt install -y python3.11 python3.11-venv python3.11-dev
+
+# 3. Clone and install Animus
+git clone https://github.com/crussella0129/Animus.git
+cd Animus
+python3.11 install.py
+
+# 4. If llama-cpp-python compilation fails, install manually:
+python3.11 -m pip install llama-cpp-python --no-cache-dir
+
+# 5. Download a model and start
+animus pull Qwen/Qwen2.5-Coder-7B-Instruct-GGUF
+animus rise
+```
 
 ## Commands
 
