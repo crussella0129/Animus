@@ -490,6 +490,25 @@ After analyzing 12 additional repositories, a critical insight emerged: **many a
 
 ### High Priority (Near-term)
 
+- [ ] **Universal JSON Output Mode**
+  - Standardize JSON output for tool calling across all prompts
+  - Add structured generation enforcement option
+  - Consider grammar-constrained decoding for llama-cpp-python
+  - Update system prompt to emphasize JSON output format
+  - Rationale: Qwen2.5-Coder excels at JSON, leverage this consistently
+
+- [ ] **Fix Split-File Model Download**
+  - `animus pull` sometimes downloads split files (00001-of-00002)
+  - Users get incomplete models that fail to load
+  - Fix: Prefer single-file GGUF when available
+  - OR: Download all parts and validate complete model loads
+
+- [ ] **Ubuntu 22.04 Prerequisites Documentation**
+  - Add installation instructions for fresh Ubuntu 22.04
+  - Document Python 3.11 installation from deadsnakes PPA
+  - Document build tools requirement (build-essential, cmake, ninja-build)
+  - Add troubleshooting section for common install issues
+
 - [ ] **Auth Profile Rotation** (from Clawdbot)
   - Multiple API keys with cooldown tracking
   - Automatic failover on auth failures

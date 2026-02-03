@@ -2882,3 +2882,275 @@ return len(text) // 4  # Rough approximation for English
 - Address P0 critical issues
 - Phase 10: Hybrid Search (BM25 + vector)
 - Phase 11: Sub-Agent improvements
+
+---
+
+## Entry #26 — 2026-02-03
+
+### Summary
+Linux Installation Test - Fresh Ubuntu 22.04 system. Successfully installed Animus with workarounds. All functionality tests passed.
+
+### System Under Test
+
+| Component | Value |
+|-----------|-------|
+| CPU | AMD Ryzen 7 8845HS (8 cores/16 threads) |
+| RAM | 14 GB |
+| GPU | AMD Radeon 780M (Integrated - not used) |
+| OS | Ubuntu 22.04.5 LTS |
+| Kernel | 6.8.0-94-generic |
+
+### Installation Issues Encountered
+
+**Issue 1: Python Version**
+- Ubuntu 22.04 ships with Python 3.10
+- Animus requires Python 3.11+
+- **Fix:** Install from deadsnakes PPA
+
+**Issue 2: pip Not Installed**
+- Fresh Ubuntu doesn't include pip
+- **Fix:** `sudo apt install python3-pip`
+
+**Issue 3: Build Tools Missing**
+- llama-cpp-python compilation failed
+- Missing: build-essential, cmake, ninja-build
+- **Fix:** `sudo apt install build-essential cmake ninja-build`
+
+**Issue 4: Model Download - Split Files**
+- `animus pull` downloaded split file (00001-of-00002) instead of single file
+- Model failed to load
+- **Fix:** Download single-file version directly via huggingface_hub
+
+### Required Prerequisites for Ubuntu 22.04
+
+```bash
+# 1. Install system dependencies
+sudo apt update
+sudo apt install -y python3-pip build-essential cmake ninja-build
+
+# 2. Install Python 3.11 from deadsnakes PPA
+sudo add-apt-repository ppa:deadsnakes/ppa -y
+sudo apt update
+sudo apt install -y python3.11 python3.11-venv python3.11-dev
+
+# 3. Clone and install Animus
+cd /path/to/Animus
+python3.11 install.py
+
+# 4. If llama-cpp-python fails, install manually:
+python3.11 -m pip install llama-cpp-python --no-cache-dir
+
+# 5. Download model (use single-file version)
+animus pull Qwen/Qwen2.5-Coder-7B-Instruct-GGUF
+# OR for direct single-file download:
+python3.11 -c "
+from huggingface_hub import hf_hub_download
+import os
+hf_hub_download(
+    repo_id='Qwen/Qwen2.5-Coder-7B-Instruct-GGUF',
+    filename='qwen2.5-coder-7b-instruct-q4_k_m.gguf',
+    local_dir=os.path.expanduser('~/.animus/models')
+)
+"
+```
+
+### Model Selection Rationale
+
+**Chosen:** Qwen2.5-Coder-7B-Instruct (Q4_K_M, 4.36 GB)
+
+| Criterion | Assessment |
+|-----------|------------|
+| JSON Output | Excellent - Qwen2.5 excels at structured output |
+| Coding | Excellent - Purpose-built coder model |
+| Memory Fit | Good - 4.36 GB fits well in 14 GB RAM |
+| Speed | Acceptable - ~15-30s per response on CPU |
+
+### Functionality Test Results
+
+| Test | Description | Status |
+|------|-------------|--------|
+| Basic Response | Math: 2+2=4 | ✅ PASS |
+| Code Generation | is_prime() function | ✅ PASS |
+| File Reading | Read README.md | ✅ PASS |
+| File Creation | Create hello_test.py | ✅ PASS |
+| Shell Command | python3.11 --version | ✅ PASS |
+
+**Overall: 5/5 tests passed**
+
+### Performance Notes
+
+- Model load: ~20 seconds
+- Simple query: ~25 seconds
+- Code generation: ~15-30 seconds
+- File operations (with tool calls): ~30-60 seconds
+
+### Files Created
+
+| File | Purpose |
+|------|---------|
+| `systests/Linux/installation_test_log.md` | Full installation transcript |
+| `systests/Linux/test_animus.py` | Automated test script |
+| `systests/Linux/test_output.log` | Test execution log |
+| `systests/Linux/hello_test.py` | Created by Animus during testing |
+
+### Tasks Identified
+
+**NEW TASK: Make JSON output universal**
+- Animus prefers JSON output for tool calling
+- This should be standardized across all prompts
+- Add to system prompt or enforce via structured generation
+
+**README UPDATE NEEDED:**
+Add Ubuntu 22.04 prerequisites section:
+```markdown
+### Ubuntu 22.04 LTS (Fresh Install)
+
+Ubuntu 22.04 ships with Python 3.10, but Animus requires 3.11+.
+
+```bash
+# Install prerequisites
+sudo apt update
+sudo apt install -y python3-pip build-essential cmake ninja-build
+
+# Install Python 3.11
+sudo add-apt-repository ppa:deadsnakes/ppa -y
+sudo apt update
+sudo apt install -y python3.11 python3.11-venv python3.11-dev
+
+# Then proceed with installation
+python3.11 install.py
+```
+```
+
+### Bug Found: Model Download Split Files
+
+**Issue:** `animus pull` command downloads split GGUF files when single-file versions are available.
+
+**Location:** Model download logic in `src/main.py` or `src/llm/native.py`
+
+**Impact:** Users get incomplete models that fail to load
+
+**Suggested Fix:**
+- Prefer single-file GGUF when available
+- OR automatically download all parts of split files
+- Add validation that downloaded model loads correctly
+
+### Checkpoint
+**Status:** COMPLETE — Linux installation test successful. All functionality verified.
+
+### Next Steps
+- Update README with Ubuntu 22.04 prerequisites
+- Fix split-file model download issue
+- Add JSON output standardization task to backlog
+
+---
+
+## Entry #27 — 2026-02-03
+
+### Summary
+Implemented secure web search and fetch tools with multi-layer security architecture.
+
+### Security Architecture Decisions
+
+| Decision | Choice |
+|----------|--------|
+| Default isolation | Process isolation (subprocess with `env={}`) |
+| Container option | Available via `--paranoid` flag (Phase 3) |
+| LLM validator | Different/smaller model (Phase 2) |
+| Suspicious content | Always ask user (human escalation) |
+
+### Implementation: Phase 1 MVP
+
+Created `src/tools/web.py` with:
+
+**1. Process Isolation**
+- Fetch runs in subprocess with `env={}` (no credentials leak)
+- 30-second timeout, 1MB max size
+- Only allows http/https schemes
+- Rejects file://, javascript:, data: URLs
+
+**2. Content Sanitization**
+- HTML stripped to plain text using bleach (with fallback regex)
+- Scripts, styles, iframes all removed
+- HTML entities decoded
+- Whitespace normalized
+- Max 10,000 characters
+
+**3. Rule-Based Validation (30+ patterns)**
+- Instruction override detection ("ignore previous instructions")
+- Role manipulation detection ("you are now a hacker")
+- Prompt extraction detection ("reveal your system prompt")
+- Command injection detection ("run shell command")
+- Data exfiltration detection ("send this data to")
+- Encoded payload detection (base64, eval, exec)
+- Suspicious URL scheme detection
+
+**4. Human Escalation**
+- Suspicious but not clearly malicious content triggers user prompt
+- User can Allow or Reject
+- If no callback provided, suspicious content auto-rejected
+
+### Files Created/Changed
+
+| File | Change |
+|------|--------|
+| `src/tools/web.py` | NEW - WebSearchTool, WebFetchTool |
+| `src/tools/__init__.py` | Export web tools, add to registry |
+| `tests/test_web_tools.py` | NEW - 26 tests (24 pass, 2 skipped network tests) |
+| `docs/web_search_security_design.md` | NEW - Security architecture documentation |
+
+### Test Results
+```
+24 passed, 2 skipped in 0.18s
+```
+
+### Security Flow
+
+```
+User Request
+    ↓
+web_search("query")
+    ↓
+[Isolated Subprocess] → DuckDuckGo API → Raw results
+    ↓
+[Sanitizer] → Strip HTML → Plain text only
+    ↓
+[Rule Engine] → 30+ regex patterns
+    ↓
+If suspicious → [Human Escalation] → "Allow this? [y/N]"
+    ↓
+If approved or clean → Return to Agent
+```
+
+### Prompt Injection Patterns Implemented
+
+```python
+INJECTION_PATTERNS = [
+    # Instruction override (4 patterns)
+    # Role manipulation (5 patterns)
+    # Prompt extraction (2 patterns)
+    # Command injection (5 patterns)
+    # Data exfiltration (2 patterns)
+    # Encoded payloads (2 patterns)
+]
+```
+
+### Remaining Work
+
+**Phase 2: LLM Validator**
+- [ ] Download Qwen-1.5B-Instruct as validator model
+- [ ] Create `WebContentJudge` extending HybridJudge
+- [ ] Confidence-based escalation (>0.8 auto-allow, <0.8 human review)
+
+**Phase 3: Container Isolation**
+- [ ] Dockerfile for fetch-sandbox
+- [ ] MCP protocol integration
+- [ ] `--paranoid` CLI flag
+
+### Checkpoint
+**Status:** CONTINUE — Phase 1 MVP complete. Web search tools functional with process isolation and rule-based validation.
+
+### Next Steps
+- Test web search in live Animus session
+- Implement Phase 2 LLM validator
+- Add bleach and httpx to dependencies if not present
