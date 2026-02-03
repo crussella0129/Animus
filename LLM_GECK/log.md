@@ -3351,3 +3351,24 @@ Added explicit JSON formatting rules to the system prompt:
 - Added `json_mode` config option to AgentConfig
 
 This addresses the Known Issue: "Model outputs text instead of JSON tool calls"
+
+### Hybrid Search Implementation (Same Session)
+
+Created BM25+Vector hybrid search for improved RAG retrieval:
+
+**New File: `src/memory/hybrid.py`**
+- `BM25Index`: Okapi BM25 keyword search implementation
+- `HybridSearch`: Combines BM25 and vector similarity
+- Configurable weights for keyword vs semantic
+- Score normalization for fair combination
+
+**Key Features:**
+- Simple tokenization (lowercase, alphanumeric)
+- IDF smoothing for unseen terms
+- Weighted score combination
+- Works with any VectorStore implementation
+
+**Tests:** 9 tests added (all pass)
+
+### Checkpoint
+**Status:** Phase 10 significantly progressed - TreeSitterChunker + HybridSearch complete

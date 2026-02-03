@@ -42,6 +42,12 @@ from src.memory.ingest import (
     IngestionProgress,
     IngestionStats,
 )
+from src.memory.hybrid import (
+    BM25Index,
+    BM25Config,
+    HybridSearch,
+    HybridSearchConfig,
+)
 
 __all__ = [
     # Scanner
@@ -83,4 +89,9 @@ __all__ = [
     "Ingester",
     "IngestionProgress",
     "IngestionStats",
+    # Hybrid Search
+    "BM25Index",
+    "BM25Config",
+    "HybridSearch",
+    "HybridSearchConfig",
 ]

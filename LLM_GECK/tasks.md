@@ -262,11 +262,11 @@ After analyzing 12 additional repositories, a critical insight emerged: **many a
 **Inspiration:** Clawdbot's SQLite-vec hybrid search, Hive's decision-aware retrieval.
 
 **Tasks:**
-- [ ] **Hybrid Search** (`src/memory/hybrid.py`)
-  - [ ] Implement BM25 keyword search
-  - [ ] Combine with existing vector search
-  - [ ] Configurable weighting (keyword vs semantic)
-  - [ ] Score normalization and result merging
+- [x] **Hybrid Search** (`src/memory/hybrid.py`) ✓ (Entry #30)
+  - [x] Implement BM25 keyword search (BM25Index class)
+  - [x] Combine with existing vector search (HybridSearch class)
+  - [x] Configurable weighting (keyword vs semantic)
+  - [x] Score normalization and result merging
 - [ ] **SQLite-vec Backend** (`src/memory/sqlite_vec.py`)
   - [ ] Replace InMemoryVectorStore with SQLite-vec
   - [ ] Persistent storage (~/.animus/vectordb.sqlite)

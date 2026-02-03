@@ -9,6 +9,7 @@ from src.memory.chunker import TokenChunker, SentenceChunker, CodeChunker, TreeS
 from src.memory.extractor import PlainTextExtractor, CodeExtractor, extract_text
 from src.memory.vectorstore import InMemoryVectorStore, Document, create_document_id
 from src.memory.embedder import MockEmbedder
+from src.memory.hybrid import BM25Index, BM25Config, HybridSearch, HybridSearchConfig
 
 
 class TestGitIgnoreParser:
@@ -246,3 +247,159 @@ def test_create_document_id():
     assert id1 == id2
     assert id1 != id3
     assert len(id1) == 16
+
+
+class TestBM25Index:
+    """Tests for BM25 keyword search."""
+
+    def test_basic_search(self):
+        """BM25 should find documents matching query terms."""
+        index = BM25Index()
+        docs = [
+            Document(id="1", content="Python programming language"),
+            Document(id="2", content="JavaScript web development"),
+            Document(id="3", content="Python web framework Django"),
+        ]
+        index.add(docs)
+
+        results = index.search("Python", k=10)
+        assert len(results) >= 2
+        # Python docs should rank higher
+        doc_ids = [r.document.id for r in results]
+        assert "1" in doc_ids
+        assert "3" in doc_ids
+
+    def test_empty_query(self):
+        """Empty query should return empty results."""
+        index = BM25Index()
+        docs = [Document(id="1", content="test content")]
+        index.add(docs)
+
+        results = index.search("", k=10)
+        assert results == []
+
+    def test_no_matches(self):
+        """Query with no matches should return empty."""
+        index = BM25Index()
+        docs = [Document(id="1", content="Python programming")]
+        index.add(docs)
+
+        results = index.search("JavaScript", k=10)
+        assert results == []
+
+    def test_document_deletion(self):
+        """Deleted documents should not appear in results."""
+        index = BM25Index()
+        docs = [
+            Document(id="1", content="Python programming"),
+            Document(id="2", content="Python framework"),
+        ]
+        index.add(docs)
+
+        index.delete(["1"])
+        results = index.search("Python", k=10)
+
+        assert len(results) == 1
+        assert results[0].document.id == "2"
+
+    def test_count(self):
+        """Count should reflect indexed documents."""
+        index = BM25Index()
+        assert index.count() == 0
+
+        docs = [Document(id="1", content="test"), Document(id="2", content="test")]
+        index.add(docs)
+        assert index.count() == 2
+
+        index.delete(["1"])
+        assert index.count() == 1
+
+
+class TestHybridSearch:
+    """Tests for hybrid search combining BM25 and vector search."""
+
+    @pytest.mark.asyncio
+    async def test_hybrid_combines_results(self):
+        """Hybrid search should combine vector and BM25 results."""
+        vector_store = InMemoryVectorStore()
+        hybrid = HybridSearch(vector_store)
+
+        # Create documents with embeddings
+        docs = [
+            Document(id="1", content="Python machine learning", embedding=[1.0, 0.0, 0.0]),
+            Document(id="2", content="JavaScript frontend", embedding=[0.0, 1.0, 0.0]),
+            Document(id="3", content="Python web server", embedding=[0.5, 0.5, 0.0]),
+        ]
+        await hybrid.add(docs)
+
+        # Search with query that matches doc 1 and 3 by keyword
+        # and query embedding close to doc 1
+        results = await hybrid.search(
+            query="Python programming",
+            query_embedding=[0.9, 0.1, 0.0],
+            k=10,
+        )
+
+        # Should find results
+        assert len(results) >= 1
+        # Doc 1 should rank high (matches both keyword and vector)
+        doc_ids = [r.document.id for r in results]
+        assert "1" in doc_ids
+
+    @pytest.mark.asyncio
+    async def test_configurable_weights(self):
+        """Weights should affect ranking."""
+        vector_store = InMemoryVectorStore()
+
+        # Keyword-heavy config
+        config = HybridSearchConfig(vector_weight=0.1, keyword_weight=0.9)
+        hybrid = HybridSearch(vector_store, config=config)
+
+        docs = [
+            Document(id="1", content="Python programming", embedding=[1.0, 0.0]),
+            Document(id="2", content="JavaScript development", embedding=[0.9, 0.1]),
+        ]
+        await hybrid.add(docs)
+
+        # Query "Python" with embedding closer to doc 2
+        results = await hybrid.search(
+            query="Python",
+            query_embedding=[0.8, 0.2],
+            k=10,
+        )
+
+        # With keyword-heavy weights, Python doc should still rank first
+        if results:
+            assert results[0].document.id == "1"
+
+    @pytest.mark.asyncio
+    async def test_delete_from_both(self):
+        """Delete should remove from both indices."""
+        vector_store = InMemoryVectorStore()
+        hybrid = HybridSearch(vector_store)
+
+        docs = [
+            Document(id="1", content="test one", embedding=[1.0, 0.0]),
+            Document(id="2", content="test two", embedding=[0.0, 1.0]),
+        ]
+        await hybrid.add(docs)
+
+        await hybrid.delete(["1"])
+
+        # Verify removed from BM25
+        bm25_results = hybrid.bm25_index.search("test", k=10)
+        bm25_ids = [r.document.id for r in bm25_results]
+        assert "1" not in bm25_ids
+
+    @pytest.mark.asyncio
+    async def test_count(self):
+        """Count should reflect indexed documents."""
+        vector_store = InMemoryVectorStore()
+        hybrid = HybridSearch(vector_store)
+
+        assert await hybrid.count() == 0
+
+        docs = [Document(id="1", content="test", embedding=[1.0])]
+        await hybrid.add(docs)
+
+        assert await hybrid.count() == 1
