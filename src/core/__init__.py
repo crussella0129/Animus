@@ -99,6 +99,13 @@ from src.core.planner import (
     PlanStep,
     StepStatus,
 )
+from src.core.web_validator import (
+    WebContentJudge,
+    WebContentRuleEngine,
+    WebContentLLMValidator,
+    LLMValidatorConfig,
+    create_web_content_judge,
+)
 
 __all__ = [
     # Config
@@ -198,4 +205,10 @@ __all__ = [
     "ExecutionPlan",
     "PlanStep",
     "StepStatus",
+    # Web Content Validation (Ungabunga-Box)
+    "WebContentJudge",
+    "WebContentRuleEngine",
+    "WebContentLLMValidator",
+    "LLMValidatorConfig",
+    "create_web_content_judge",
 ]

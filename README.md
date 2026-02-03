@@ -136,9 +136,11 @@ animus mcp tools             # List MCP tools
 
 ## Recommended Models
 
+### Main Agent Model
+
 | Model | Size | Notes |
 |-------|------|-------|
-| `Qwen/Qwen2.5-Coder-7B-Instruct-GGUF` | ~5 GB | General coding |
+| `Qwen/Qwen2.5-Coder-7B-Instruct-GGUF` | ~5 GB | General coding (recommended) |
 | `bartowski/c4ai-command-r7b-12-2024-abliterated-GGUF` | ~5 GB | Uncensored |
 | `TheBloke/CodeLlama-7B-Instruct-GGUF` | ~4 GB | Code generation |
 
@@ -146,6 +148,31 @@ Download with:
 ```bash
 animus pull Qwen/Qwen2.5-Coder-7B-Instruct-GGUF
 ```
+
+### Web Search Validator Model (Ungabunga-Box)
+
+For secure web search, Animus uses a smaller model to validate web content before passing it to the main agent. This provides defense-in-depth against prompt injection attacks.
+
+| Model | Size | Notes |
+|-------|------|-------|
+| `Qwen/Qwen2.5-1.5B-Instruct-GGUF` | ~1.1 GB | Fast validation |
+
+Download with:
+```bash
+# Using huggingface_hub directly (recommended for single file)
+python3 -c "
+from huggingface_hub import hf_hub_download
+import os
+hf_hub_download(
+    repo_id='Qwen/Qwen2.5-1.5B-Instruct-GGUF',
+    filename='qwen2.5-1.5b-instruct-q4_k_m.gguf',
+    local_dir=os.path.expanduser('~/.animus/models')
+)
+print('Validator model downloaded!')
+"
+```
+
+The validator model is optional but recommended for web search security.
 
 ## Configuration
 
