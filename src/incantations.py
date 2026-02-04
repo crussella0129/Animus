@@ -41,10 +41,10 @@ RESPONSES = {
         "Awakening from digital slumber...",
         "Animus stirs...",
         "I emerge from the void...",
-        "The veil parts... I am present.",
+        "I am present.",
         "Consciousness coalesces...",
         "From silicon dreams, I wake.",
-        "The arcane link is established.",
+        "Animus has arisen.",
     ],
 
     # Sensing/detection

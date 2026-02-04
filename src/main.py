@@ -23,6 +23,9 @@ if sys.platform == "win32":
     except Exception:
         pass  # Ignore encoding setup failures
 
+    # ConnectionResetError from ProactorEventLoop is suppressed
+    # via a custom exception handler set inside run_chat()
+
 import typer
 from rich.console import Console
 from rich.panel import Panel
@@ -378,24 +381,20 @@ def init(
     # Create directories and save config
     manager.ensure_directories()
 
-    # Adjust defaults based on detected hardware and available providers
-    from src.llm import LLAMA_CPP_AVAILABLE
-
+    # Adjust defaults based on detected hardware
     config = manager.config
     if info.hardware_type == HardwareType.JETSON:
         config.model.provider = "trtllm"
         console.print("[green]Jetson detected - configured for TensorRT-LLM[/green]")
-    elif LLAMA_CPP_AVAILABLE:
-        # Native provider available - use it for full independence
-        config.model.provider = "native"
-        if info.hardware_type == HardwareType.APPLE_SILICON:
-            console.print("[green]Apple Silicon detected - configured for native provider with Metal[/green]")
-        elif info.gpu and info.gpu.cuda_available:
-            console.print("[green]NVIDIA GPU detected - configured for native provider with CUDA[/green]")
-        else:
-            console.print("[green]Configured for native provider (CPU)[/green]")
     else:
-        console.print("[yellow]Note: llama-cpp-python not installed. Install for local inference.[/yellow]")
+        # Default: LiteLLM provider with managed llama-server
+        config.model.provider = "litellm"
+        if info.hardware_type == HardwareType.APPLE_SILICON:
+            console.print("[green]Apple Silicon detected - configured for LiteLLM + llama-server (Metal)[/green]")
+        elif info.gpu and info.gpu.cuda_available:
+            console.print("[green]NVIDIA GPU detected - configured for LiteLLM + llama-server (CUDA)[/green]")
+        else:
+            console.print("[green]Configured for LiteLLM + llama-server (CPU)[/green]")
 
     manager.save(config)
 
@@ -403,8 +402,8 @@ def init(
     console.print(f"Config: [cyan]{manager.config_path}[/cyan]")
     console.print(f"Data:   [cyan]{config.data_dir}[/cyan]")
     console.print(f"\nNext steps:")
-    console.print("  1. Run [cyan]animus sense[/cyan] to verify your environment")
-    console.print("  2. Run [cyan]animus pull Qwen/Qwen2.5-Coder-7B-Instruct-GGUF[/cyan] to download a model")
+    console.print("  1. Run [cyan]animus detect[/cyan] to verify your environment")
+    console.print("  2. Run [cyan]animus pull <repo_id/filename.gguf>[/cyan] to download a model")
     console.print("  3. Run [cyan]animus rise[/cyan] to start chatting")
 
 
@@ -412,12 +411,12 @@ def init(
 def models() -> None:
     """List available local GGUF models."""
     import asyncio
-    from src.llm import NativeProvider, LLAMA_CPP_AVAILABLE
+    from src.llm import LiteLLMProvider, LITELLM_AVAILABLE
     from src.core.config import ConfigManager
 
     async def list_models() -> None:
         config = ConfigManager().config
-        provider = NativeProvider(models_dir=config.native.models_dir)
+        provider = LiteLLMProvider(models_dir=config.native.models_dir)
 
         console.print(f"[bold]Local Models[/bold]")
         console.print(f"[dim]Directory: {config.native.models_dir}[/dim]\n")
@@ -427,7 +426,7 @@ def models() -> None:
         if not model_list:
             console.print("[yellow]No local models found.[/yellow]")
             console.print("\nDownload a model with:")
-            console.print("  [cyan]animus pull Qwen/Qwen2.5-Coder-7B-Instruct-GGUF[/cyan]")
+            console.print("  [cyan]animus pull <repo_id/filename.gguf>[/cyan]")
             return
 
         table = Table(title="Local GGUF Models")
@@ -452,14 +451,21 @@ def models() -> None:
 
         console.print(table)
 
-        # Show llama-cpp-python status
+        # Show provider status
         console.print()
-        if LLAMA_CPP_AVAILABLE:
-            gpu_backend = provider.gpu_backend
-            console.print(f"[green]llama-cpp-python:[/green] Installed ({gpu_backend})")
+        if LITELLM_AVAILABLE:
+            console.print(f"[green]LiteLLM:[/green] Installed")
         else:
-            console.print("[yellow]llama-cpp-python:[/yellow] Not installed")
-            console.print("Install with: [cyan]pip install llama-cpp-python[/cyan]")
+            console.print("[yellow]LiteLLM:[/yellow] Not installed")
+            console.print("Install with: [cyan]pip install litellm[/cyan]")
+
+        # Show llama-server status
+        from src.llm.server import LlamaServer
+        server = LlamaServer(bin_dir=config.native.bin_dir)
+        if server.is_installed:
+            console.print(f"[green]llama-server:[/green] Installed ({server.binary_path})")
+        else:
+            console.print("[dim]llama-server:[/dim] Not installed (will auto-download on first use)")
 
     asyncio.run(list_models())
 
@@ -474,7 +480,7 @@ def pull_model(
     """Pull a model - download a GGUF model from Hugging Face."""
     import asyncio
     from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
-    from src.llm import NativeProvider, HF_HUB_AVAILABLE
+    from src.llm import LiteLLMProvider, HF_HUB_AVAILABLE
     from src.core.config import ConfigManager
 
     if not HF_HUB_AVAILABLE:
@@ -484,7 +490,7 @@ def pull_model(
 
     async def download() -> None:
         config = ConfigManager().config
-        provider = NativeProvider(models_dir=config.native.models_dir)
+        provider = LiteLLMProvider(models_dir=config.native.models_dir)
 
         console.print(f"[bold]Downloading model:[/bold] {model_name}")
         console.print(f"[dim]Target directory: {config.native.models_dir}[/dim]\n")
@@ -659,7 +665,7 @@ def model_download(
     """Download a GGUF model from Hugging Face."""
     import asyncio
     from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
-    from src.llm import NativeProvider, HF_HUB_AVAILABLE
+    from src.llm import LiteLLMProvider, HF_HUB_AVAILABLE
     from src.core.config import ConfigManager
 
     if not HF_HUB_AVAILABLE:
@@ -669,7 +675,7 @@ def model_download(
 
     async def download() -> None:
         config = ConfigManager().config
-        provider = NativeProvider(models_dir=config.native.models_dir)
+        provider = LiteLLMProvider(models_dir=config.native.models_dir)
 
         console.print(f"[bold]Downloading model:[/bold] {model_name}")
         console.print(f"[dim]Target directory: {config.native.models_dir}[/dim]\n")
@@ -709,22 +715,22 @@ def model_download(
 def model_list() -> None:
     """List locally downloaded GGUF models."""
     import asyncio
-    from src.llm import NativeProvider, LLAMA_CPP_AVAILABLE
+    from src.llm import LiteLLMProvider, LITELLM_AVAILABLE
     from src.core.config import ConfigManager
 
     async def list_local() -> None:
         config = ConfigManager().config
-        provider = NativeProvider(models_dir=config.native.models_dir)
+        provider = LiteLLMProvider(models_dir=config.native.models_dir)
 
         console.print(f"[bold]Local Models[/bold]")
         console.print(f"[dim]Directory: {config.native.models_dir}[/dim]\n")
 
-        models = await provider.list_models()
+        model_list = await provider.list_models()
 
-        if not models:
+        if not model_list:
             console.print("[yellow]No local models found.[/yellow]")
             console.print("\nDownload a model with:")
-            console.print("  [cyan]animus pull Qwen/Qwen2.5-Coder-7B-Instruct-GGUF[/cyan]")
+            console.print("  [cyan]animus pull <repo_id/filename.gguf>[/cyan]")
             return
 
         table = Table(title="Local GGUF Models")
@@ -732,33 +738,37 @@ def model_list() -> None:
         table.add_column("Size", style="green")
         table.add_column("Quantization", style="yellow")
 
-        for model in models:
+        for m in model_list:
             size = ""
-            if model.size_bytes:
-                size_gb = model.size_bytes / (1024 ** 3)
+            if m.size_bytes:
+                size_gb = m.size_bytes / (1024 ** 3)
                 if size_gb >= 1:
                     size = f"{size_gb:.2f} GB"
                 else:
-                    size_mb = model.size_bytes / (1024 ** 2)
+                    size_mb = m.size_bytes / (1024 ** 2)
                     size = f"{size_mb:.0f} MB"
 
             table.add_row(
-                model.name,
+                m.name,
                 size,
-                model.quantization or "Unknown",
+                m.quantization or "Unknown",
             )
 
         console.print(table)
 
-        # Show llama-cpp-python status
+        # Show provider status
         console.print()
-        if LLAMA_CPP_AVAILABLE:
-            gpu_backend = provider.gpu_backend
-            console.print(f"[green]llama-cpp-python:[/green] Installed")
-            console.print(f"[green]GPU Backend:[/green] {gpu_backend}")
+        if LITELLM_AVAILABLE:
+            console.print(f"[green]LiteLLM:[/green] Installed")
         else:
-            console.print("[yellow]llama-cpp-python:[/yellow] Not installed")
-            console.print("Install with: [cyan]pip install llama-cpp-python[/cyan]")
+            console.print("[yellow]LiteLLM:[/yellow] Not installed")
+
+        from src.llm.server import LlamaServer
+        server = LlamaServer(bin_dir=config.native.bin_dir)
+        if server.is_installed:
+            console.print(f"[green]llama-server:[/green] Installed")
+        else:
+            console.print("[dim]llama-server:[/dim] Not installed (auto-downloads on first use)")
 
     asyncio.run(list_local())
 
@@ -984,20 +994,32 @@ def model_info(
     model_name: str = typer.Argument(..., help="Name of the model to inspect."),
 ) -> None:
     """Show information about a local model."""
-    from src.llm import NativeProvider, LLAMA_CPP_AVAILABLE
-    from src.llm.native import detect_quantization
     from src.core.config import ConfigManager
 
     config = ConfigManager().config
-    provider = NativeProvider(models_dir=config.native.models_dir)
+    models_dir = config.native.models_dir
 
-    model_path = provider._get_model_path(model_name)
-    if not model_path:
-        console.print(f"[red]Model not found:[/red] {model_name}")
-        raise typer.Exit(1)
+    # Try to find the model file
+    model_path = models_dir / model_name
+    if not model_path.exists():
+        model_path = models_dir / f"{model_name}.gguf"
+        if not model_path.exists():
+            # Fuzzy match
+            matches = [f for f in models_dir.glob("*.gguf") if model_name.lower() in f.name.lower()]
+            if matches:
+                model_path = matches[0]
+            else:
+                console.print(f"[red]Model not found:[/red] {model_name}")
+                raise typer.Exit(1)
 
     stat = model_path.stat()
-    quant = detect_quantization(model_path.name)
+
+    # Detect quantization from filename
+    quant = None
+    for q in ["Q2_K", "Q3_K_S", "Q3_K_M", "Q4_0", "Q4_K_M", "Q5_K_M", "Q6_K", "Q8_0", "F16", "F32"]:
+        if q.lower() in model_path.name.lower():
+            quant = q
+            break
 
     console.print(f"[bold]Model Information[/bold]\n")
     console.print(f"  Name: [cyan]{model_path.name}[/cyan]")
@@ -1005,11 +1027,13 @@ def model_info(
     console.print(f"  Size: {stat.st_size / (1024**3):.2f} GB")
     console.print(f"  Quantization: {quant or 'Unknown'}")
 
-    if LLAMA_CPP_AVAILABLE:
-        console.print(f"\n[green]Ready for native inference[/green]")
-        console.print(f"  GPU Backend: {provider.gpu_backend}")
+    # Show llama-server status
+    from src.llm.server import LlamaServer
+    server = LlamaServer(bin_dir=config.native.bin_dir)
+    if server.is_installed:
+        console.print(f"\n[green]Ready for inference via llama-server[/green]")
     else:
-        console.print(f"\n[yellow]Install llama-cpp-python to use this model[/yellow]")
+        console.print(f"\n[dim]llama-server will auto-download on first use[/dim]")
 
 
 @app.command("analyze")
@@ -1161,7 +1185,8 @@ def analyze(
 def status() -> None:
     """Show provider status and available models."""
     import asyncio
-    from src.llm import NativeProvider, TRTLLMProvider, APIProvider, LLAMA_CPP_AVAILABLE
+    from src.llm import LiteLLMProvider, LITELLM_AVAILABLE
+    from src.llm.server import LlamaServer
     from src.core.config import ConfigManager
 
     async def check_status() -> None:
@@ -1174,41 +1199,50 @@ def status() -> None:
         console.print(f"Configured Model: [cyan]{config.model.model_name or '(auto-detect)'}[/cyan]")
         console.print()
 
-        # Check Native (llama-cpp-python)
-        native = NativeProvider(models_dir=config.native.models_dir)
-        if LLAMA_CPP_AVAILABLE:
-            models = await native.list_models()
-            native_status = f"[green]Available[/green] ({native.gpu_backend})"
-            console.print(f"Native (llama-cpp-python): {native_status}")
-            if models:
-                console.print(f"  Local models: {len(models)}")
-                for m in models[:3]:
-                    console.print(f"    - {m.name}")
-                if len(models) > 3:
-                    console.print(f"    ... and {len(models) - 3} more")
-            else:
-                console.print("  [yellow]No local models found[/yellow]")
-                console.print("  Download with: [cyan]animus pull Qwen/Qwen2.5-Coder-7B-Instruct-GGUF[/cyan]")
+        # Check LiteLLM
+        litellm_status = "[green]Installed[/green]" if LITELLM_AVAILABLE else "[dim]Not Installed[/dim]"
+        console.print(f"LiteLLM: {litellm_status}")
+
+        # Check llama-server
+        server = LlamaServer(bin_dir=config.native.bin_dir)
+        if server.is_installed:
+            console.print(f"llama-server: [green]Installed[/green] ({server.binary_path})")
         else:
-            console.print("Native (llama-cpp-python): [dim]Not Installed[/dim]")
-            console.print("  Install with: [cyan]pip install llama-cpp-python[/cyan]")
+            console.print("llama-server: [dim]Not installed[/dim] (auto-downloads on first use)")
 
-        # Check TensorRT-LLM (Jetson)
-        trtllm = TRTLLMProvider(engine_dir=config.data_dir / "engines")
-        trtllm_status = "[green]Available[/green]" if trtllm.is_available else "[dim]Not Installed[/dim]"
-        console.print(f"TensorRT-LLM: {trtllm_status}")
+        # Check local models
+        provider = LiteLLMProvider(models_dir=config.native.models_dir)
+        local_models = await provider.list_models()
+        console.print()
+        if local_models:
+            console.print(f"[bold]Local GGUF Models: {len(local_models)}[/bold]")
+            for m in local_models[:5]:
+                size = ""
+                if m.size_bytes:
+                    size_gb = m.size_bytes / (1024 ** 3)
+                    size = f" ({size_gb:.1f} GB)" if size_gb >= 1 else f" ({m.size_bytes / (1024**2):.0f} MB)"
+                console.print(f"  - {m.name}{size}")
+            if len(local_models) > 5:
+                console.print(f"  ... and {len(local_models) - 5} more")
+        else:
+            console.print("[yellow]No local models found[/yellow]")
+            console.print("Download with: [cyan]animus pull <repo_id/filename.gguf>[/cyan]")
 
-        # Check API
+        # Check API configuration
+        console.print()
         if config.model.api_key:
-            api = APIProvider(
-                api_base=config.model.api_base or "https://api.openai.com/v1",
-                api_key=config.model.api_key,
-            )
-            api_status = "[green]Configured[/green]"
-            console.print(f"API ({config.model.api_base or 'OpenAI'}): {api_status}")
-            await api.close()
+            console.print(f"API: [green]Configured[/green] ({config.model.api_base or 'default'})")
         else:
-            console.print("API: [dim]Not Configured[/dim]")
+            console.print("API: [dim]No API key configured[/dim]")
+
+        # Check legacy providers
+        try:
+            from src.llm import TRTLLMProvider
+            trtllm = TRTLLMProvider(engine_dir=config.data_dir / "engines")
+            if trtllm.is_available:
+                console.print(f"TensorRT-LLM: [green]Available[/green]")
+        except Exception:
+            pass
 
     asyncio.run(check_status())
 
@@ -1265,45 +1299,55 @@ def chat(
     from src.core.context import ContextWindow, ContextConfig, ContextStatus
 
     async def run_chat() -> None:
+        # Suppress ConnectionResetError noise on Windows ProactorEventLoop
+        if sys.platform == "win32":
+            loop = asyncio.get_running_loop()
+            def _suppress_connection_reset(loop, context):
+                exc = context.get('exception')
+                if isinstance(exc, ConnectionResetError):
+                    return  # Benign — llama-server connection closed
+                loop.default_exception_handler(context)
+            loop.set_exception_handler(_suppress_connection_reset)
+
         config = ConfigManager().config
         provider = get_default_provider(config)
         model_name = model or config.model.model_name
 
         if not provider.is_available:
             console.print("[red]Provider not available.[/red]")
-            console.print("llama-cpp-python not available.\n")
-            console.print("Install with: [cyan]pip install llama-cpp-python[/cyan]")
+            if config.model.provider == "litellm":
+                console.print("litellm not available.\n")
+                console.print("Install with: [cyan]pip install litellm[/cyan]")
+            else:
+                console.print(f"{config.model.provider} not available.\n")
             console.print("Or configure an API in [cyan]~/.animus/config.yaml[/cyan]")
             raise typer.Exit(1)
 
-        # For native provider, check if we have any models
-        if config.model.provider == "native":
-            from src.llm.native import NativeProvider
-            native = provider if isinstance(provider, NativeProvider) else None
-            if native:
-                # If specific model requested, check if it exists
-                if model_name:
-                    model_path = native._get_model_path(model_name)
-                    if not model_path:
-                        console.print("[yellow]Model not found.[/yellow]")
-                        console.print(f"Model [cyan]{model_name}[/cyan] not found.\n")
-                        console.print("Download a GGUF model:")
-                        console.print("  [cyan]animus pull Qwen/Qwen2.5-Coder-7B-Instruct-GGUF[/cyan]\n")
-                        console.print("Or list available models:")
-                        console.print("  [cyan]animus vessels[/cyan]")
-                        raise typer.Exit(1)
-                else:
-                    # No model specified, check if any exist
-                    models = await native.list_models()
-                    if not models:
-                        console.print("[yellow]No models found.[/yellow]")
-                        console.print("No local models found.\n")
-                        console.print("Download a model:")
-                        console.print("  [cyan]animus pull Qwen/Qwen2.5-Coder-7B-Instruct-GGUF[/cyan]")
-                        raise typer.Exit(1)
-                    # Auto-select first model
-                    model_name = models[0].name
-                    console.print(f"[dim]Using model: {model_name}[/dim]")
+        # For LiteLLM provider, check if we have local models or API key
+        if config.model.provider in ("litellm", "native"):
+            local_models = await provider.list_models()
+            if model_name:
+                # Specific model requested — check it exists
+                exists = await provider.model_exists(model_name)
+                if not exists:
+                    console.print("[yellow]Model not found.[/yellow]")
+                    console.print(f"Model [cyan]{model_name}[/cyan] not found.\n")
+                    console.print("Download a GGUF model:")
+                    console.print("  [cyan]animus pull <repo_id/filename.gguf>[/cyan]\n")
+                    console.print("Or list available models:")
+                    console.print("  [cyan]animus models[/cyan]")
+                    raise typer.Exit(1)
+            elif not local_models and not config.model.api_key:
+                # No model specified and none found
+                console.print("[yellow]No models found.[/yellow]")
+                console.print("No local models found and no API key configured.\n")
+                console.print("Download a model:")
+                console.print("  [cyan]animus pull <repo_id/filename.gguf>[/cyan]")
+                raise typer.Exit(1)
+            elif not model_name and local_models:
+                # Auto-select first local model
+                model_name = f"local/{local_models[0].name}"
+                console.print(f"[dim]Using model: {local_models[0].name}[/dim]")
 
         async def confirm_tool(tool_name: str, description: str) -> bool:
             if no_confirm:
@@ -1313,7 +1357,7 @@ def chat(
             return Confirm.ask("Execute this tool?", default=True)
 
         agent_config = AgentConfig(
-            model=model_name,
+            model=model_name or "",
             temperature=config.model.temperature,
             require_tool_confirmation=not no_confirm,
             enable_planning=plan,
@@ -1323,6 +1367,7 @@ def chat(
         agent = Agent(
             provider=provider,
             config=agent_config,
+            animus_config=config,
             confirm_callback=confirm_tool,
         )
 
@@ -1335,19 +1380,28 @@ def chat(
         # Show awakening banner and response
         show_banner("awakening")
         speak("rise", newline_before=False)
+
+        # Speak greeting via TTS (always on startup)
+        try:
+            from src.audio import AudioPlayer
+            greeter = AudioPlayer(volume=config.audio.volume)
+            greeter.speak("Greetings, Master.", blocking=True)
+        except Exception:
+            pass  # TTS not available, continue silently
+
         if max_context:
             console.print(f"[dim]Max context: {max_context} tokens[/dim]")
         if plan:
             console.print("[cyan]Planning mode enabled[/cyan] - I'll create a plan before acting.")
         if delegate:
             console.print("[cyan]Delegation enabled[/cyan] - I can spawn sub-agents for complex tasks.")
-        console.print("Speak your command. Say [cyan]farewell[/cyan] to end.\n")
+        console.print("Say and I shall do. Say [cyan]to-dust[/cyan] to end.\n")
 
         while True:
             try:
                 user_input = Prompt.ask("[bold green]You[/bold green]")
 
-                if user_input.lower() in ("exit", "quit", "q", "farewell", "dismiss"):
+                if user_input.lower() in ("exit", "quit", "q", "to-dust"):
                     show_banner("farewell")
                     break
 
@@ -1736,6 +1790,117 @@ def ide_server(
         console.print("\n[dim]Shutting down...[/dim]")
 
 
+@app.command("speak")
+def speak_command(
+    off: bool = typer.Option(
+        False,
+        "--off",
+        help="Disable Animus voice synthesis.",
+    ),
+) -> None:
+    """
+    Toggle Animus voice synthesis.
+
+    When enabled, Animus will speak phrases like "Yes, Master" and "It will be done"
+    with a low, square-wave, robotic voice.
+    """
+    manager = ConfigManager()
+    config = manager.config
+
+    if off:
+        config.audio.speak_enabled = False
+        manager.save()
+        console.print("[yellow]Animus voice disabled.[/yellow]")
+    else:
+        config.audio.speak_enabled = True
+        manager.save()
+        console.print("[green]Animus voice enabled.[/green]")
+        console.print("[dim]Animus voice synthesis enabled.[/dim]")
+
+
+@app.command("praise")
+def praise_command(
+    fanfare: bool = typer.Option(
+        False,
+        "--fanfare",
+        help="Enable Mozart fanfare on task completion.",
+    ),
+    sophisticated: bool = typer.Option(
+        False,
+        "--sophisticated",
+        help="Enable Bach Invention 13 on task completion.",
+    ),
+    moto: bool = typer.Option(
+        False,
+        "--moto",
+        help="Enable Paganini Moto Perpetuo background music during execution.",
+    ),
+    motoff: bool = typer.Option(
+        False,
+        "--motoff",
+        help="Disable Moto Perpetuo background music.",
+    ),
+    off: bool = typer.Option(
+        False,
+        "--off",
+        help="Disable all praise audio.",
+    ),
+) -> None:
+    """
+    Configure task completion audio and background music.
+
+    Modes:
+      --fanfare: Play Mozart's "Eine kleine Nachtmusik" on completion
+      --sophisticated: Play Bach's Invention 13 on completion
+      --moto:    Play Paganini's "Moto Perpetuo" during task execution
+      --motoff:  Disable Moto Perpetuo background music
+      --off:     Disable all praise audio
+    """
+    manager = ConfigManager()
+    config = manager.config
+
+    if off:
+        config.audio.praise_mode = "off"
+        config.audio.moto_enabled = False
+        manager.save()
+        console.print("[yellow]All praise audio disabled.[/yellow]")
+        return
+
+    if fanfare:
+        config.audio.praise_mode = "fanfare"
+        manager.save()
+        console.print("[green]Mozart fanfare enabled for task completion.[/green]")
+        console.print("[dim]Eine kleine Nachtmusik will play when tasks complete.[/dim]")
+
+    if sophisticated:
+        config.audio.praise_mode = "sophisticated"
+        manager.save()
+        console.print("[green]Bach sophisticated mode enabled for task completion.[/green]")
+        console.print("[dim]Invention 13 will play when tasks complete.[/dim]")
+
+    if moto:
+        config.audio.moto_enabled = True
+        manager.save()
+        console.print("[green]Moto Perpetuo background music enabled.[/green]")
+        console.print("[dim]Paganini's Moto Perpetuo will play during task execution.[/dim]")
+
+    if motoff:
+        config.audio.moto_enabled = False
+        manager.save()
+        console.print("[yellow]Moto Perpetuo background music disabled.[/yellow]")
+
+    # Show current settings if no options provided
+    if not any([fanfare, sophisticated, moto, motoff, off]):
+        console.print(Panel(
+            f"[bold]Current Audio Settings[/bold]\n\n"
+            f"Praise Mode: [cyan]{config.audio.praise_mode}[/cyan]\n"
+            f"Moto Perpetuo: [cyan]{'enabled' if config.audio.moto_enabled else 'disabled'}[/cyan]\n"
+            f"Volume: [cyan]{config.audio.volume:.1f}[/cyan]",
+            title="Audio Configuration",
+            border_style="blue"
+        ))
+
+
 # =============================================================================
 # BACKWARD COMPATIBILITY ALIASES
 # =============================================================================
@@ -1746,9 +1911,12 @@ def _chat_alias(
     no_confirm: bool = typer.Option(False, "--no-confirm"),
     max_context: Optional[int] = typer.Option(None, "--max-context", "-c"),
     show_tokens: bool = typer.Option(False, "--show-tokens"),
+    stream: bool = typer.Option(True, "--stream/--no-stream"),
+    plan: bool = typer.Option(False, "--plan", "-p"),
+    delegate: bool = typer.Option(False, "--delegate", "-d"),
 ) -> None:
     """Alias for 'rise'."""
-    chat(model, no_confirm, max_context, show_tokens)
+    chat(model, no_confirm, max_context, show_tokens, stream, plan, delegate)
 
 
 @app.command("download", hidden=True)

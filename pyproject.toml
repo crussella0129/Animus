@@ -33,6 +33,7 @@ dependencies = [
     "pydantic-settings>=2.0.0",
     "httpx>=0.25.0",
     "tiktoken>=0.5.0",
+    "litellm>=1.40.0",
 ]
 
 [project.optional-dependencies]
@@ -44,7 +45,7 @@ dev = [
     "ruff>=0.1.0",
 ]
 native = [
-    "llama-cpp-python>=0.2.0",
+    "llama-cpp-python>=0.2.0",  # Legacy in-process provider (optional)
     "huggingface-hub>=0.20.0",
     "sentence-transformers>=2.2.0",
 ]
@@ -69,8 +70,11 @@ web = [
     "bleach>=6.0.0",
     "readability-lxml>=0.8.0",
 ]
+audio = [
+    "pyttsx3>=2.90",  # Cross-platform text-to-speech
+]
 all = [
-    "animus[dev,native,memory,analysis,ide,web]",
+    "animus[dev,native,memory,analysis,ide,web,audio]",
 ]
 
 [project.scripts]

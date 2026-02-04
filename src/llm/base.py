@@ -10,9 +10,10 @@ from typing import AsyncIterator, Optional, Any
 
 class ProviderType(str, Enum):
     """Supported LLM provider types."""
-    NATIVE = "native"  # Direct model loading via llama-cpp-python
-    TRTLLM = "trtllm"  # TensorRT-LLM for Jetson
-    API = "api"        # Remote API (OpenAI-compatible)
+    NATIVE = "native"    # Direct model loading via llama-cpp-python (legacy)
+    TRTLLM = "trtllm"    # TensorRT-LLM for Jetson
+    API = "api"          # Remote API (OpenAI-compatible, legacy)
+    LITELLM = "litellm"  # Unified provider via LiteLLM (local + API)
 
 
 @dataclass
@@ -119,6 +120,7 @@ class ModelProvider(ABC):
         messages: list[Message],
         model: str,
         config: Optional[GenerationConfig] = None,
+        tools: Optional[list[dict[str, Any]]] = None,
     ) -> GenerationResult:
         """
         Generate a response from the model.
@@ -127,6 +129,9 @@ class ModelProvider(ABC):
             messages: List of conversation messages.
             model: Name of the model to use.
             config: Generation configuration options.
+            tools: Tool definitions in OpenAI function calling format.
+                   When provided, the model may return structured tool_calls
+                   in the GenerationResult.
 
         Returns:
             GenerationResult containing the model's response.
@@ -139,6 +144,7 @@ class ModelProvider(ABC):
         messages: list[Message],
         model: str,
         config: Optional[GenerationConfig] = None,
+        tools: Optional[list[dict[str, Any]]] = None,
     ) -> AsyncIterator[str]:
         """
         Generate a streaming response from the model.
@@ -147,6 +153,7 @@ class ModelProvider(ABC):
             messages: List of conversation messages.
             model: Name of the model to use.
             config: Generation configuration options.
+            tools: Tool definitions in OpenAI function calling format.
 
         Yields:
             Text chunks as they are generated.

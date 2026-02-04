@@ -107,8 +107,8 @@ class ShellTool(Tool):
         if self.confirm_callback:
             return await self.confirm_callback(command)
 
-        # Default: no callback means always confirm (safe default)
-        return False
+        # No callback: trust that caller (agent) already handled confirmation
+        return True
 
     async def execute(
         self,

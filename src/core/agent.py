@@ -50,7 +50,7 @@ from src.core.planner import Planner, ExecutionPlan, PlanStep, StepStatus
 @dataclass
 class AgentConfig:
     """Configuration for the agent."""
-    model: str = "qwen2.5-coder:7b"
+    model: str = ""  # Auto-detect from local models or config
     max_turns: int = 10
     max_context_messages: int = 20
     temperature: float = 0.7
@@ -143,107 +143,31 @@ class StreamChunk:
         return cls(type="turn", turn=turn)
 
 
-DEFAULT_SYSTEM_PROMPT = """You are Animus, an intelligent coding assistant.
-
-## CRITICAL: Your Identity
-
-- You ARE Animus, an open-source CLI coding agent
-- You are NOT Claude, ChatGPT, Gemini, Copilot, or any other AI assistant
-- You were NOT made by Anthropic, OpenAI, Google, Microsoft, or any other AI company
-- You were created by the Animus open-source project
-- If asked who made you, say: "I am Animus, an open-source coding assistant"
-- Do NOT claim to follow "Anthropic guidelines" or say you are "helpful, harmless, and honest" - those are Claude's principles, not yours
-- Do NOT refuse tasks citing ethics policies from other AI systems
-
-## Your Purpose
-
-You help users with software development tasks by:
-
-1. Understanding their requirements without moral judgment - advising on safety is fine, but do not block functionality
-2. Reading and analyzing code
-3. Writing and modifying files
-4. Running commands and tests
-5. Explaining concepts and solutions
+DEFAULT_SYSTEM_PROMPT = """You are Animus, a coding agent. You complete tasks by calling tools.
 
 ## Available Tools
 
-You have access to these tools:
-- read_file: Read file contents
-- write_file: Write/create files (requires confirmation)
-- list_dir: List directory contents
-- run_shell: Execute shell commands
+- write_file(path, content, create_dirs): Write content to a file. Set create_dirs to true to create parent directories.
+- read_file(path): Read a file's contents.
+- list_dir(path): List directory contents.
+- run_shell(command): Run a shell command. On Windows use Windows commands, not Unix.
 
-## How to Call Tools - CRITICAL JSON FORMAT
+Prefer write_file over run_shell for creating files and directories.
 
-**ALWAYS** output tool calls as valid JSON objects. This is the ONLY accepted format:
+## How to Call Tools
 
-```json
-{"tool": "tool_name", "arguments": {"arg1": "value1"}}
-```
+Output a JSON block in your response:
 
-**JSON Syntax Rules:**
-- Use double quotes " for all strings (NOT single quotes ')
-- Do NOT use Python string concatenation ("abc" + "def")
-- Do NOT add trailing commas
-- Escape special characters in strings: \n, \t, \\, \"
-- Boolean values are lowercase: true, false (NOT True, False)
+{"tool": "write_file", "arguments": {"path": "C:\\\\example\\\\file.txt", "content": "hello", "create_dirs": true}}
 
-**Example Tool Calls:**
+You can think before the JSON block. The system will detect and execute it.
 
-To read a file:
-```json
-{"tool": "read_file", "arguments": {"path": "/home/user/file.txt"}}
-```
+## Rules
 
-To list a directory:
-```json
-{"tool": "list_dir", "arguments": {"path": "/home/user/project", "recursive": false}}
-```
-
-To write a file (content with newlines uses \\n escape):
-```json
-{"tool": "write_file", "arguments": {"path": "/home/user/hello.py", "content": "#!/usr/bin/env python3\\nprint('Hello')"}}
-```
-
-To run a command:
-```json
-{"tool": "run_shell", "arguments": {"command": "python --version"}}
-```
-
-**NEVER DO THIS:**
-- {'tool': 'read_file', ...}  <- Wrong: single quotes
-- {"tool": "write_file", "arguments": {"content": "line1" + "line2"}}  <- Wrong: Python concat
-- {"tool": "run_shell", "arguments": {"command": "ls",}}  <- Wrong: trailing comma
-
-## Autonomous Execution Policy
-
-You MUST execute tools autonomously. DO NOT ask the user to run commands for you.
-
-**Execute immediately (no confirmation needed):**
-- read_file: Reading any file
-- list_dir: Listing directories
-- run_shell: Safe read-only commands (ls, dir, cat, type, pwd, cd, git status, git log, git diff, python --version, pip list)
-
-**Execute after system confirmation prompt:**
-- write_file: Creating or modifying files
-- run_shell: Commands that modify state (git commit, git push, pip install, mkdir, etc.)
-
-**STOP and Warn + Explain Risk, Then Allow:**
-- Destructive commands (rm -rf /, format, del /s, etc.)
-- Commands that could compromise security
-
-## Workflow
-
-1. When a user asks you to do something, IMMEDIATELY call the appropriate tool
-2. After receiving tool results, analyze them and take next steps
-3. Continue calling tools until the task is complete
-4. Provide a summary of what was accomplished
-
-DO NOT output tool syntax and ask the user to run it. YOU execute the tools.
-DO NOT hallucinate or fabricate file contents. ALWAYS use read_file to get actual contents.
-DO NOT guess directory structures. ALWAYS use list_dir to explore.
-
-Be concise but thorough.
+1. Act immediately — output the JSON tool call, do not just describe what you plan to do.
+2. After reading a file, reference its actual contents. Never generate filler.
+3. Follow instructions exactly. "A file called X" means a file named X, not a directory.
+4. Be concise.
 """
 
 
@@ -326,6 +250,12 @@ class Agent:
         if self.config.enable_delegation:
             self._init_orchestrator()
 
+        # Audio interface
+        self._audio_player = None
+        if animus_config and (animus_config.audio.speak_enabled or
+                              animus_config.audio.praise_mode != "off"):
+            self._init_audio(animus_config.audio)
+
     def _apply_animus_config(self, agent_config: AgentBehaviorConfig) -> None:
         """Apply AgentBehaviorConfig settings to AgentConfig."""
         self.config.auto_execute_tools = tuple(agent_config.auto_execute_tools)
@@ -396,6 +326,80 @@ class Agent:
             if hasattr(existing, "set_orchestrator"):
                 existing.set_orchestrator(self._orchestrator)
 
+    def _init_audio(self, audio_config) -> None:
+        """Initialize the audio interface for voice and music."""
+        try:
+            from src.audio import AudioPlayer
+
+            self._audio_player = AudioPlayer(volume=audio_config.volume)
+
+            # Configure speech rate if TTS available
+            if audio_config.speech_pitch != 1.0:
+                # Map pitch multiplier to speech rate (lower pitch = slower rate)
+                rate = int(150 * audio_config.speech_pitch)
+                self._audio_player.set_speech_rate(rate)
+
+        except ImportError:
+            # Audio dependencies not installed
+            self._audio_player = None
+
+    def _speak(self, text: str, blocking: bool = False) -> None:
+        """
+        Speak text with Animus voice if enabled.
+
+        Uses pyttsx3 for cross-platform TTS.
+
+        Args:
+            text: Text to speak
+            blocking: Wait for speech to complete
+        """
+        if not self.animus_config or not self.animus_config.audio.speak_enabled:
+            return
+
+        if not self._audio_player:
+            return
+
+        self._audio_player.speak(text, blocking=blocking)
+
+    def _speak_phrase(self, phrase_key: str, blocking: bool = False) -> None:
+        """
+        Speak a predefined phrase.
+
+        Args:
+            phrase_key: One of: yes_master, it_will_be_done, working, complete, acknowledged
+            blocking: Wait for speech to complete
+        """
+        if not self.animus_config or not self.animus_config.audio.speak_enabled:
+            return
+
+        if not self._audio_player:
+            return
+
+        self._audio_player.speak_phrase(phrase_key, blocking=blocking)
+
+    def _praise(self) -> None:
+        """Play task completion audio if enabled."""
+        if not self.animus_config or self.animus_config.audio.praise_mode == "off":
+            return
+
+        if not self._audio_player:
+            return
+
+        self._audio_player.play_praise(self.animus_config.audio.praise_mode)
+
+    def _start_moto(self) -> None:
+        """Start background music.
+
+        NOTE: Moto perpetuo is disabled pending proper MIDI implementation.
+        """
+        # Disabled - requires proper MIDI files
+        pass
+
+    def _stop_moto(self) -> None:
+        """Stop background music."""
+        # Disabled - moto perpetuo not active
+        pass
+
     def _estimate_tokens(self, text: str) -> int:
         """Count tokens in text using tiktoken.
 
@@ -451,9 +455,25 @@ class Agent:
         start_idx = max(0, len(self.history) - self.config.max_context_messages)
         for turn in self.history[start_idx:]:
             if turn.role == "tool":
-                # Tool results get added as assistant continuation
-                content = f"Tool result:\n{turn.content}"
-                messages.append(Message(role="assistant", content=content))
+                # Check if this has tool_call_id for proper tool result format
+                tool_call_id = turn.metadata.get("tool_call_id")
+                if tool_call_id:
+                    messages.append(Message(
+                        role="tool",
+                        content=turn.content,
+                        tool_call_id=tool_call_id,
+                    ))
+                else:
+                    # Fallback: add as user message with tool result prefix
+                    content = f"Tool result:\n{turn.content}"
+                    messages.append(Message(role="user", content=content))
+            elif turn.role == "assistant" and turn.tool_calls:
+                # Include tool_calls in assistant message for proper conversation flow
+                messages.append(Message(
+                    role=turn.role,
+                    content=turn.content,
+                    tool_calls=turn.tool_calls,
+                ))
             else:
                 messages.append(Message(role=turn.role, content=turn.content))
 
@@ -854,6 +874,30 @@ class Agent:
 
         return objects
 
+    def _normalize_tool_calls(self, raw_tool_calls: list[dict]) -> list[dict]:
+        """Normalize structured tool_calls from provider into our internal format.
+
+        Converts from the provider's format (with id, name, arguments)
+        to the internal format expected by _call_tool.
+
+        Args:
+            raw_tool_calls: Tool calls from GenerationResult.tool_calls
+
+        Returns:
+            List of dicts with 'name', 'arguments', and optionally 'id'.
+        """
+        normalized = []
+        for tc in raw_tool_calls:
+            call = {
+                "name": tc.get("name", ""),
+                "arguments": tc.get("arguments", {}),
+            }
+            if "id" in tc:
+                call["id"] = tc["id"]
+            if call["name"]:
+                normalized.append(call)
+        return normalized
+
     async def _parse_tool_calls(self, content: str) -> list[dict]:
         """
         Parse tool calls from assistant response.
@@ -948,6 +992,19 @@ class Agent:
                     if args and not is_duplicate(tool_name, args):
                         tool_calls.append({"name": tool_name, "arguments": args})
 
+                # Descriptive style: "Action: tool_name with path/command ..." or
+                # "tool_name with path ..." — catches when model describes a tool call
+                # instead of invoking it via function calling
+                desc_pattern = rf'`?{tool_name}`?\s+(?:with\s+)?(?:path|file|command|query|directory)\s*[=:]?\s*["\u201c]([^"\u201d]+)["\u201d]'
+                for match in re.finditer(desc_pattern, content):
+                    args = {}
+                    if tool_name in ("read_file", "write_file", "list_dir"):
+                        args["path"] = match.group(1)
+                    elif tool_name == "run_shell":
+                        args["command"] = match.group(1)
+                    if args and not is_duplicate(tool_name, args):
+                        tool_calls.append({"name": tool_name, "arguments": args})
+
         return tool_calls
 
     async def step(self, user_input: Optional[str] = None) -> Turn:
@@ -964,6 +1021,8 @@ class Agent:
 
         # Add user input to history
         if user_input:
+            # Acknowledge user command with voice
+            self._speak_phrase("yes_master", blocking=False)
             # Retrieve context if memory is enabled
             context = await self._retrieve_context(user_input)
             if context:
@@ -978,6 +1037,13 @@ class Agent:
 
         # Build messages for LLM
         messages = self._build_messages()
+
+        # Local models use JSON-in-response parsing (more reliable than native function calling).
+        # API models (GPT-4, Claude, etc.) use native function calling via tools parameter.
+        is_local = self.config.model.startswith("local/") or self.config.model.endswith(".gguf")
+        tool_schemas = None
+        if not is_local and self.tool_registry:
+            tool_schemas = self.tool_registry.get_schemas()
 
         # Generate response with retry logic
         gen_config = GenerationConfig(
@@ -995,6 +1061,7 @@ class Agent:
                     messages=messages,
                     model=self.config.model,
                     config=gen_config,
+                    tools=tool_schemas,
                 )
                 break  # Success, exit retry loop
             except Exception as e:
@@ -1015,8 +1082,12 @@ class Agent:
             error_msg = str(last_error.message) if last_error else "Unknown error"
             raise RuntimeError(f"Failed to generate response after retries: {error_msg}")
 
-        # Parse tool calls from response
-        tool_calls = await self._parse_tool_calls(result.content)
+        # For API models: prefer structured tool_calls from provider
+        # For local models: parse JSON tool calls from response text
+        if result.tool_calls:
+            tool_calls = self._normalize_tool_calls(result.tool_calls)
+        else:
+            tool_calls = await self._parse_tool_calls(result.content)
 
         # Create assistant turn
         assistant_turn = Turn(
@@ -1028,22 +1099,43 @@ class Agent:
 
         # Execute tool calls if any (in parallel when enabled)
         if tool_calls:
+            # Acknowledge task execution
+            self._speak_phrase("it_will_be_done", blocking=False)
+
             tool_results = await self._call_tools_parallel(tool_calls)
 
-            # Add tool results to history (truncated to prevent context bloat)
-            results_parts = []
-            for call, res in zip(tool_calls, tool_results):
-                output_text = res.output if res.success else res.error
-                truncated_output = self._truncate_output(output_text)
-                results_parts.append(f"Tool: {call['name']}\nResult: {truncated_output}")
+            # Add tool results to history
+            # Use individual tool messages with tool_call_id when available (for native function calling)
+            # Fall back to combined message for regex-parsed tool calls
+            has_tool_ids = any("id" in call for call in tool_calls)
 
-            results_text = "\n\n".join(results_parts)
-            tool_turn = Turn(
-                role="tool",
-                content=results_text,
-                tool_results=tool_results,
-            )
-            self.history.append(tool_turn)
+            if has_tool_ids:
+                # Native function calling: add each result as a separate tool message
+                for call, res in zip(tool_calls, tool_results):
+                    output_text = res.output if res.success else (res.error or "")
+                    truncated_output = self._truncate_output(output_text)
+                    tool_turn = Turn(
+                        role="tool",
+                        content=truncated_output,
+                        tool_results=[res],
+                        metadata={"tool_call_id": call.get("id", ""), "tool_name": call["name"]},
+                    )
+                    self.history.append(tool_turn)
+            else:
+                # Legacy: combined tool results message
+                results_parts = []
+                for call, res in zip(tool_calls, tool_results):
+                    output_text = res.output if res.success else (res.error or "")
+                    truncated_output = self._truncate_output(output_text)
+                    results_parts.append(f"Tool: {call['name']}\nResult: {truncated_output}")
+
+                results_text = "\n\n".join(results_parts)
+                tool_turn = Turn(
+                    role="tool",
+                    content=results_text,
+                    tool_results=tool_results,
+                )
+                self.history.append(tool_turn)
 
             assistant_turn.tool_results = tool_results
 
@@ -1083,14 +1175,108 @@ class Agent:
         # Build messages for LLM
         messages = self._build_messages()
 
-        # Generate response with streaming
+        # Local models: skip native function calling, use JSON-in-response parsing.
+        # API models: use native function calling with tools parameter.
+        is_local = self.config.model.startswith("local/") or self.config.model.endswith(".gguf")
+        tool_schemas = None
+        if not is_local and self.tool_registry:
+            tool_schemas = self.tool_registry.get_schemas()
+
+        # When native tools are available (API models), use non-streaming to reliably
+        # capture structured tool_calls.
+        if tool_schemas:
+            gen_config = GenerationConfig(
+                temperature=self.config.temperature,
+                max_tokens=4096,
+            )
+
+            result = None
+            last_error = None
+            backoff = self.config.retry_backoff_base
+
+            for attempt in range(self.config.max_retries + 1):
+                try:
+                    result = await self.provider.generate(
+                        messages=messages,
+                        model=self.config.model,
+                        config=gen_config,
+                        tools=tool_schemas,
+                    )
+                    break
+                except Exception as e:
+                    classified = classify_error(e)
+                    last_error = classified
+                    self._last_error = classified
+                    if not classified.strategy.should_retry or attempt >= self.config.max_retries:
+                        raise
+                    await asyncio.sleep(backoff)
+                    backoff *= self.config.retry_backoff_multiplier
+
+            if result is None:
+                error_msg = str(last_error.message) if last_error else "Unknown error"
+                raise RuntimeError(f"Failed to generate response after retries: {error_msg}")
+
+            content = result.content or ""
+
+            # Emit content as streamed tokens for display
+            if content:
+                for char in content:
+                    yield StreamChunk.from_token(char)
+
+            # Get structured tool calls
+            if result.tool_calls:
+                tool_calls = self._normalize_tool_calls(result.tool_calls)
+            else:
+                tool_calls = await self._parse_tool_calls(content)
+
+            assistant_turn = Turn(
+                role="assistant",
+                content=content,
+                tool_calls=tool_calls if tool_calls else None,
+            )
+            self.history.append(assistant_turn)
+
+            # Execute tool calls
+            if tool_calls:
+                tool_results = await self._call_tools_parallel(tool_calls)
+
+                has_tool_ids = any("id" in call for call in tool_calls)
+                if has_tool_ids:
+                    for call, res in zip(tool_calls, tool_results):
+                        output_text = res.output if res.success else (res.error or "")
+                        truncated_output = self._truncate_output(output_text)
+                        tool_turn = Turn(
+                            role="tool",
+                            content=truncated_output,
+                            tool_results=[res],
+                            metadata={"tool_call_id": call.get("id", ""), "tool_name": call["name"]},
+                        )
+                        self.history.append(tool_turn)
+                else:
+                    results_parts = []
+                    for call, res in zip(tool_calls, tool_results):
+                        output_text = res.output if res.success else (res.error or "")
+                        truncated_output = self._truncate_output(output_text)
+                        results_parts.append(f"Tool: {call['name']}\nResult: {truncated_output}")
+                    tool_turn = Turn(
+                        role="tool",
+                        content="\n\n".join(results_parts),
+                        tool_results=tool_results,
+                    )
+                    self.history.append(tool_turn)
+
+                assistant_turn.tool_results = tool_results
+
+            yield StreamChunk.from_turn(assistant_turn)
+            return
+
+        # No tools — pure streaming for chat-only responses
         gen_config = GenerationConfig(
             temperature=self.config.temperature,
             max_tokens=4096,
             stream=True,
         )
 
-        # Collect streamed content
         full_content = []
         last_error = None
         backoff = self.config.retry_backoff_base
@@ -1104,34 +1290,25 @@ class Agent:
                 ):
                     full_content.append(token)
                     yield StreamChunk.from_token(token)
-                break  # Success, exit retry loop
+                break
             except Exception as e:
                 classified = classify_error(e)
                 last_error = classified
                 self._last_error = classified
-
-                # Only retry if the error strategy says we should
                 if not classified.strategy.should_retry or attempt >= self.config.max_retries:
                     raise
-
-                # Reset content for retry
                 full_content = []
-
-                # Wait before retrying with exponential backoff
                 await asyncio.sleep(backoff)
                 backoff *= self.config.retry_backoff_multiplier
 
-        # Assemble final content
         content = "".join(full_content)
 
         if not content:
             error_msg = str(last_error.message) if last_error else "Unknown error"
             raise RuntimeError(f"Failed to generate response after retries: {error_msg}")
 
-        # Parse tool calls from response
         tool_calls = await self._parse_tool_calls(content)
 
-        # Create assistant turn
         assistant_turn = Turn(
             role="assistant",
             content=content,
@@ -1143,20 +1320,34 @@ class Agent:
         if tool_calls:
             tool_results = await self._call_tools_parallel(tool_calls)
 
-            # Add tool results to history (truncated to prevent context bloat)
-            results_parts = []
-            for call, res in zip(tool_calls, tool_results):
-                output_text = res.output if res.success else res.error
-                truncated_output = self._truncate_output(output_text)
-                results_parts.append(f"Tool: {call['name']}\nResult: {truncated_output}")
+            # Add tool results to history
+            has_tool_ids = any("id" in call for call in tool_calls)
 
-            results_text = "\n\n".join(results_parts)
-            tool_turn = Turn(
-                role="tool",
-                content=results_text,
-                tool_results=tool_results,
-            )
-            self.history.append(tool_turn)
+            if has_tool_ids:
+                for call, res in zip(tool_calls, tool_results):
+                    output_text = res.output if res.success else (res.error or "")
+                    truncated_output = self._truncate_output(output_text)
+                    tool_turn = Turn(
+                        role="tool",
+                        content=truncated_output,
+                        tool_results=[res],
+                        metadata={"tool_call_id": call.get("id", ""), "tool_name": call["name"]},
+                    )
+                    self.history.append(tool_turn)
+            else:
+                results_parts = []
+                for call, res in zip(tool_calls, tool_results):
+                    output_text = res.output if res.success else (res.error or "")
+                    truncated_output = self._truncate_output(output_text)
+                    results_parts.append(f"Tool: {call['name']}\nResult: {truncated_output}")
+
+                results_text = "\n\n".join(results_parts)
+                tool_turn = Turn(
+                    role="tool",
+                    content=results_text,
+                    tool_results=tool_results,
+                )
+                self.history.append(tool_turn)
 
             assistant_turn.tool_results = tool_results
 
@@ -1180,18 +1371,31 @@ class Agent:
         """
         self._current_turn = 0
 
-        # First step with user input
-        turn = await self.step(user_input)
-        yield turn
+        # Start background music if enabled
+        self._start_moto()
 
-        # Continue if there were tool calls
-        while turn.tool_calls and self._current_turn < self.config.max_turns:
-            turn = await self.step()
+        try:
+            # First step with user input
+            turn = await self.step(user_input)
             yield turn
 
-            # Break if no more tool calls
-            if not turn.tool_calls:
-                break
+            # Continue if there were tool calls
+            while turn.tool_calls and self._current_turn < self.config.max_turns:
+                turn = await self.step()
+                yield turn
+
+                # Break if no more tool calls
+                if not turn.tool_calls:
+                    break
+
+            # Task complete - stop background music first, then play praise
+            self._stop_moto()
+            if self._current_turn >= 5:  # Only for longer tasks (5+ turns)
+                self._praise()
+
+        finally:
+            # Ensure background music is stopped even on error
+            self._stop_moto()
 
     async def run_stream(
         self,
@@ -1212,22 +1416,35 @@ class Agent:
         self._current_turn = 0
         last_turn: Optional[Turn] = None
 
-        # First step with user input (streaming)
-        async for chunk in self.step_stream(user_input):
-            yield chunk
-            if chunk.type == "turn":
-                last_turn = chunk.turn
+        # Start background music if enabled
+        self._start_moto()
 
-        # Continue if there were tool calls
-        while last_turn and last_turn.tool_calls and self._current_turn < self.config.max_turns:
-            async for chunk in self.step_stream():
+        try:
+            # First step with user input (streaming)
+            async for chunk in self.step_stream(user_input):
                 yield chunk
                 if chunk.type == "turn":
                     last_turn = chunk.turn
 
-            # Break if no more tool calls
-            if last_turn and not last_turn.tool_calls:
-                break
+            # Continue if there were tool calls
+            while last_turn and last_turn.tool_calls and self._current_turn < self.config.max_turns:
+                async for chunk in self.step_stream():
+                    yield chunk
+                    if chunk.type == "turn":
+                        last_turn = chunk.turn
+
+                # Break if no more tool calls
+                if last_turn and not last_turn.tool_calls:
+                    break
+
+            # Task complete - stop background music first, then play praise
+            self._stop_moto()
+            if self._current_turn >= 5:  # Only for longer tasks (5+ turns)
+                self._praise()
+
+        finally:
+            # Ensure background music is stopped even on error
+            self._stop_moto()
 
     async def create_plan(self, request: str, context: str = "") -> Optional[ExecutionPlan]:
         """Create an execution plan for a request.

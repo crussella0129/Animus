@@ -20,8 +20,9 @@ animus rise
 ## Requirements
 
 - Python 3.11+ (3.10 is NOT supported)
-- ~8GB RAM (for 7B models)
-- GPU recommended (CUDA, Metal, or ROCm)
+- **For local models**: GPU with sufficient VRAM (see [Model Requirements](#model-requirements) below)
+- **For API models**: An API key from OpenAI, Anthropic, or another provider
+- 16GB+ system RAM recommended
 
 ## Installation
 
@@ -107,6 +108,8 @@ animus rise
 | `animus search <query>` | Search ingested knowledge |
 | `animus analyze` | Analyze past runs |
 | `animus serve` | Start OpenAI-compatible API server |
+| `animus speak` | Toggle voice synthesis (spooky AI voice) |
+| `animus praise` | Configure task completion audio |
 
 ### Model Management
 
@@ -134,45 +137,132 @@ animus mcp server            # Start MCP server
 animus mcp tools             # List MCP tools
 ```
 
-## Recommended Models
+### Audio Interface
 
-### Main Agent Model
+Animus features optional audio feedback for a more immersive experience:
 
-| Model | Size | Notes |
-|-------|------|-------|
-| `Qwen/Qwen2.5-Coder-7B-Instruct-GGUF` | ~5 GB | General coding (recommended) |
-| `bartowski/c4ai-command-r7b-12-2024-abliterated-GGUF` | ~5 GB | Uncensored |
-| `TheBloke/CodeLlama-7B-Instruct-GGUF` | ~4 GB | Code generation |
-
-Download with:
 ```bash
-animus pull Qwen/Qwen2.5-Coder-7B-Instruct-GGUF
+# Voice synthesis (spooky AI voice)
+animus speak                 # Enable voice
+animus speak --off           # Disable voice
+
+# Task completion music
+animus praise --fanfare      # Mozart's "Eine kleine Nachtmusik" (triumphant)
+animus praise --spooky       # Bach's "Little Fugue" (eerie but celebratory)
+animus praise --off          # Disable completion audio
+
+# Background music during execution
+animus praise --moto         # Enable Paganini's "Moto Perpetuo"
+animus praise --motoff       # Disable background music
 ```
 
-### Web Search Validator Model (Ungabunga-Box)
+**Voice Features:**
+- Speaks "Yes, Master" when receiving commands
+- Speaks "It will be done" when executing tasks
+- Low-pitched, square-wave MIDI synthesis for robotic aesthetic
+- Filters out code/commands (only speaks high-level descriptions)
 
-For secure web search, Animus uses a smaller model to validate web content before passing it to the main agent. This provides defense-in-depth against prompt injection attacks.
+**Music Features:**
+- **Fanfare Mode**: Mozart's iconic opening from Eine kleine Nachtmusik
+- **Spooky Mode**: Bach's Little Fugue in G minor (avoiding the cliche Toccata)
+- **Moto Perpetuo**: Paganini's virtuosic piece plays quietly during multi-step tasks
 
-| Model | Size | Notes |
-|-------|------|-------|
-| `Qwen/Qwen2.5-1.5B-Instruct-GGUF` | ~1.1 GB | Fast validation |
+**Implementation:**
+- Minimal pure Python WAV generation
+- OS-native playback (PowerShell/aplay/afplay)
+- Only dependency: numpy (for waveforms)
+- ~200 lines total code
 
-Download with:
+**Installation:**
 ```bash
-# Using huggingface_hub directly (recommended for single file)
-python3 -c "
-from huggingface_hub import hf_hub_download
-import os
-hf_hub_download(
-    repo_id='Qwen/Qwen2.5-1.5B-Instruct-GGUF',
-    filename='qwen2.5-1.5b-instruct-q4_k_m.gguf',
-    local_dir=os.path.expanduser('~/.animus/models')
-)
-print('Validator model downloaded!')
-"
+pip install -e ".[audio]"  # Just installs numpy
 ```
 
-The validator model is optional but recommended for web search security.
+Audio features gracefully degrade if numpy unavailable or OS lacks audio commands.
+
+## Model Requirements
+
+Animus is an agent that reads code, writes files, and executes commands. This requires a model that can reliably follow complex multi-step instructions, use tool results accurately, and avoid hallucination. **Not all models are capable of this.** Small models (7-8B parameters) will produce unreliable results -- they hallucinate, ignore tool outputs, and fail to follow instructions precisely.
+
+### Minimum Requirements for Reliable Agent Use
+
+| Tier | Model | Quantization | VRAM | Agent Quality |
+|------|-------|-------------|------|---------------|
+| **API (Recommended)** | Claude Sonnet/Haiku, GPT-4o/4o-mini | N/A | None | Excellent |
+| **Local - High** | Qwen3-30B-A3B (MoE) | Q4_K_M | 24GB+ (or 32GB RAM for CPU) | Good |
+| **Local - Medium** | Qwen3-14B | Q4_K_S | 12GB+ | Usable |
+| **Local - Budget** | Qwen3-14B | Q3_K_M | 10GB+ | Marginal |
+| **Not recommended** | Any 7-8B model | Any | Any | Unreliable |
+
+### Why 14B+ for Local Models?
+
+Agent tasks require the model to:
+1. Parse user intent precisely ("a file called X" = file, not directory)
+2. Call tools correctly (not describe calling them)
+3. Use tool results in responses (not generate generic filler)
+4. Know when to stop (not loop unnecessarily)
+
+Models under 14B parameters consistently fail at one or more of these. 14B is the minimum where agent behavior becomes usable, and 30B+ is where it becomes reliable.
+
+### Hardware Tiers
+
+| GPU | VRAM | Best Local Model | Context Window |
+|-----|------|-----------------|----------------|
+| RTX 4090 / A6000 | 24GB | Qwen3-30B-A3B Q4_K_M | 16K+ |
+| RTX 3090 | 24GB | Qwen3-30B-A3B Q4_K_M | 16K+ |
+| RTX 4070 Ti Super | 16GB | Qwen3-14B Q4_K_M | 8K+ |
+| RTX 3060 12GB | 12GB | Qwen3-14B Q4_K_S | 4-8K |
+| RTX 2080 Ti | 11GB | Qwen3-14B Q4_K_S (tight) | 4K |
+| RTX 3060 8GB / RTX 4060 | 8GB | API recommended | N/A |
+| Apple M1/M2/M3 (16GB) | 16GB unified | Qwen3-14B Q4_K_M | 8K |
+| Apple M1/M2/M3 (32GB+) | 32GB unified | Qwen3-30B-A3B Q4_K_M | 16K+ |
+| CPU only (32GB+ RAM) | N/A | Qwen3-30B-A3B Q4_K_M (slow) | 8K |
+
+### Downloading a Local Model
+
+```bash
+# 14B model (minimum for agent use, fits 11-12GB VRAM)
+animus pull bartowski/Qwen_Qwen3-14B-GGUF/Qwen3-14B-Q4_K_S.gguf
+
+# 30B MoE model (recommended if you have 24GB VRAM)
+animus pull bartowski/Qwen_Qwen3-30B-A3B-GGUF/Qwen3-30B-A3B-Q4_K_M.gguf
+```
+
+### API Models (Recommended for Best Results)
+
+For the best agent experience, use an API model. Animus uses LiteLLM to route to any provider.
+
+```bash
+# Set your API key (choose one)
+set OPENAI_API_KEY=sk-your-key-here          # Windows
+export OPENAI_API_KEY=sk-your-key-here       # Linux/Mac
+
+set ANTHROPIC_API_KEY=sk-ant-your-key-here   # Windows
+export ANTHROPIC_API_KEY=sk-ant-your-key-here # Linux/Mac
+
+# Start with an API model
+animus rise --model gpt-4o-mini              # OpenAI (cheap, good)
+animus rise --model gpt-4o                   # OpenAI (best)
+animus rise --model claude-haiku-3           # Anthropic (cheap, good)
+animus rise --model claude-sonnet-4-20250514          # Anthropic (best)
+```
+
+You can also set the API key in your config file (`~/.animus/config.yaml`):
+```yaml
+model:
+  provider: litellm
+  api_key: sk-your-key-here
+```
+
+### Auxiliary Models (Future)
+
+| Role | Model | Size | Notes |
+|------|-------|------|-------|
+| Doc Reader (Qwen3-VL) | Qwen3-VL-8B | ~5GB | OCR, screenshots, PDFs |
+| Ungabunga Box (web research) | Qwen3-4B | ~3GB | Sandboxed, disposable |
+| Validator | Qwen2.5-1.5B | ~1GB | Web content validation |
+
+These auxiliary agents run alongside the central brain and can use smaller models because they perform narrow, constrained tasks rather than open-ended agent reasoning.
 
 ## Configuration
 
@@ -192,13 +282,15 @@ native:
 
 ### Using Cloud APIs
 
+Set an environment variable or add to config. LiteLLM auto-detects the provider from the model name.
+
 ```yaml
 model:
-  provider: api
-  model_name: gpt-4
-  api_base: https://api.openai.com/v1
-  api_key: sk-your-key-here
+  provider: litellm
+  api_key: sk-your-key-here    # Or use OPENAI_API_KEY / ANTHROPIC_API_KEY env vars
 ```
+
+Then start with: `animus rise --model gpt-4o` or `animus rise --model claude-sonnet-4-20250514`
 
 ## Capabilities
 

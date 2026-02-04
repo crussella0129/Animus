@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class ModelConfig(BaseModel):
     """Model provider configuration."""
-    provider: str = Field(default="native", description="Model provider: native, trtllm, api")
+    provider: str = Field(default="litellm", description="Model provider: litellm, native, trtllm, api")
     model_name: str = Field(default="", description="Model name/identifier (empty = auto-detect)")
     api_base: Optional[str] = Field(default=None, description="API base URL for remote providers")
     api_key: Optional[str] = Field(default=None, description="API key for authenticated providers")
@@ -24,13 +24,22 @@ def _default_models_dir() -> Path:
     return Path.home() / ".animus" / "models"
 
 
+def _default_bin_dir() -> Path:
+    """Get default binary directory for llama-server."""
+    return Path.home() / ".animus" / "bin"
+
+
 class NativeConfig(BaseModel):
-    """Native model loading configuration (llama-cpp-python)."""
+    """Local model configuration (llama-server / llama-cpp-python)."""
     models_dir: Path = Field(
         default_factory=_default_models_dir,
-        description="Directory for storing downloaded models"
+        description="Directory for storing downloaded GGUF models"
     )
-    n_ctx: int = Field(default=4096, description="Context window size")
+    bin_dir: Path = Field(
+        default_factory=_default_bin_dir,
+        description="Directory for llama-server binary"
+    )
+    n_ctx: int = Field(default=8192, description="Context window size")
     n_batch: int = Field(default=512, description="Batch size for prompt processing")
     n_threads: Optional[int] = Field(default=None, description="Number of CPU threads (None = auto)")
     n_gpu_layers: int = Field(default=-1, description="Layers to offload to GPU (-1 = all, 0 = none)")
@@ -68,6 +77,39 @@ class MCPConfig(BaseModel):
     auto_connect: bool = Field(
         default=False,
         description="Automatically connect to enabled servers on startup"
+    )
+
+
+class AudioConfig(BaseModel):
+    """Audio interface configuration."""
+
+    speak_enabled: bool = Field(
+        default=False,
+        description="Enable Animus voice synthesis"
+    )
+
+    praise_mode: Literal["fanfare", "sophisticated", "off"] = Field(
+        default="off",
+        description="Task completion audio mode (Mozart/Bach/silent)"
+    )
+
+    moto_enabled: bool = Field(
+        default=False,
+        description="Enable Paganini Moto Perpetuo background music during execution"
+    )
+
+    volume: float = Field(
+        default=0.7,
+        ge=0.0,
+        le=1.0,
+        description="Audio volume (0.0 to 1.0)"
+    )
+
+    speech_pitch: float = Field(
+        default=0.6,
+        ge=0.1,
+        le=2.0,
+        description="Speech synthesis pitch multiplier (lower = deeper voice)"
     )
 
 
@@ -154,6 +196,7 @@ class AnimusConfig(BaseModel):
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     agent: AgentBehaviorConfig = Field(default_factory=AgentBehaviorConfig)
     mcp: MCPConfig = Field(default_factory=MCPConfig)
+    audio: AudioConfig = Field(default_factory=AudioConfig)
 
     # Paths - use default_factory so they're evaluated at instantiation, not import
     data_dir: Path = Field(default_factory=_default_data_dir)
@@ -223,8 +266,11 @@ class ConfigManager:
             if "logs_dir" in data:
                 data["logs_dir"] = Path(data["logs_dir"])
             # Handle nested Path in native config
-            if "native" in data and "models_dir" in data["native"]:
-                data["native"]["models_dir"] = Path(data["native"]["models_dir"])
+            if "native" in data:
+                if "models_dir" in data["native"]:
+                    data["native"]["models_dir"] = Path(data["native"]["models_dir"])
+                if "bin_dir" in data["native"]:
+                    data["native"]["bin_dir"] = Path(data["native"]["bin_dir"])
 
             return AnimusConfig(**data)
         except (yaml.YAMLError, ValueError) as e:
@@ -253,8 +299,11 @@ class ConfigManager:
         data["cache_dir"] = str(data["cache_dir"])
         data["logs_dir"] = str(data["logs_dir"])
         # Handle nested Path in native config
-        if "native" in data and "models_dir" in data["native"]:
-            data["native"]["models_dir"] = str(data["native"]["models_dir"])
+        if "native" in data:
+            if "models_dir" in data["native"]:
+                data["native"]["models_dir"] = str(data["native"]["models_dir"])
+            if "bin_dir" in data["native"]:
+                data["native"]["bin_dir"] = str(data["native"]["bin_dir"])
 
         with open(self.config_path, "w", encoding="utf-8") as f:
             yaml.dump(data, f, default_flow_style=False, sort_keys=False)
