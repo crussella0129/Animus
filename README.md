@@ -362,6 +362,70 @@ CMAKE_ARGS="-DGGML_CUDA=on" pip install llama-cpp-python --force-reinstall
 - Use quantized models (Q4_K_M recommended)
 - Increase `n_gpu_layers` in config
 
+---
+
+## Addendum: Phase 1 Findings and Phase 2 Direction
+
+### The Cloud vs. Local Illusion
+
+The core takeaway from Animus Phase 1 is that the binary between "local" and "cloud" is a fiction when applied to models capable of coherent code execution and system operation. Running a model that can reliably write code, execute commands, and reason about a codebase at the level of tools like Claude Code requires compute density that maps to data-center-class infrastructure, not a consumer workstation.
+
+A 7B parameter model can run locally, but it cannot consistently execute multi-step agentic workflows with the coherence required for real development work. The models that can (70B+) demand hardware that most individuals do not own. The "local AI" narrative collapses under the weight of its own scalability requirements.
+
+This does not mean local inference is useless. It means the definition of "local" needs to be rethought. For the subset of users with serious hardware, local remains viable. For everyone else, the question becomes: how do you access large-model inference without surrendering to a single cloud provider?
+
+### Animus Phase 2: Three Inference Strata
+
+Phase 2 restructures Animus around three modes of model access:
+
+**1. Local Inference** — For users who have the hardware (high-end GPUs, multi-GPU rigs, or dedicated compute). This is what Phase 1 already provides. It remains the fastest and most private option for those who can run it.
+
+**2. API Harnessing** — Fallback to cloud APIs (OpenAI, Anthropic, etc.) for users without local compute. Clean abstraction so the agent behaves identically regardless of backend.
+
+**3. Ani-Mesh** — A decentralized inference mesh. When multiple people run Animus simultaneously, their machines form a network capable of running larger models collectively. Key properties:
+
+- **Encrypted session partitioning**: Each user's prompts and outputs are encrypted end-to-end. Mesh nodes never see plaintext.
+- **Contribution-weighted scheduling**: Inference priority is ordered by who contributes the most compute to the network (uptime x computational power x success rate).
+- **Zero-trust architecture**: Anyone can join. Nodes are assumed to be adversarial. The system must be resilient to nodes that lie about capacity, return garbage results, steal prompts, or drop out mid-inference.
+
+### What We Have Figured Out
+
+**The hybrid verification architecture for zero-trust ani-mesh:**
+
+- **Layer 1 — Reputation + Stake**: Nodes bond compute capacity or tokens to join. Cheating detected = stake slashed. Reputation tracks uptime, output quality, and latency.
+- **Layer 2 — Probabilistic Verification**: Each inference request is processed by 2+ randomly selected nodes. Results must agree (embedding-space similarity). Disagreements escalate to a third node for majority vote. Persistent disagreement triggers investigation and potential slashing.
+- **Layer 3 — Encrypted Sessions**: Prompts encrypted with AES-256-GCM before going to the mesh. Results encrypted before returning. Symmetric encryption keeps it cheap. Users hold the only decryption keys.
+- **Layer 4 — Contribution Weighting**: `weight = stake * uptime * agreement_rate`. Higher-weighted nodes get scheduling priority. Anti-Sybil protection by tying weight to stake amount.
+
+**The phased build path:**
+
+- **Phase 2.1**: Local + API with clean abstraction and deterministic fallback
+- **Phase 2.2**: Ani-mesh MVP on a trusted peer network (honest nodes assumed, basic round-robin scheduling, focus on whether distributed inference actually works)
+- **Phase 2.3**: Economic ordering (contribution tracking, priority weighting, still trusted network)
+- **Phase 2.4**: Cryptographic isolation (add MPC/encryption only when adversarial peers are a real concern)
+
+**The economic security requirement:**
+
+For ani-mesh to be secure, `cost_of_attack` must exceed `gain_of_attack`:
+```
+Cost of Attack = (nodes_to_compromise * stake_per_node) + computational_cost_to_cheat
+Gain of Attack = value_of_stolen_prompts + inference_cost_saved
+Security Requirement: Cost_of_Attack >> Gain_of_Attack
+```
+
+### Questions That Still Need Answered
+
+1. **Slashing mechanism**: On-chain via Ethereum smart contract (gas fees, slow)? Off-chain consensus among validators (trust in validators)? Hybrid batch slashing (moderate cost)?
+2. **Sybil attack prevention**: Minimum stake per node (who decides the amount)? Proof-of-personhood (requires KYC, breaks privacy)? Proof-of-hardware (limits who can join)?
+3. **Model distribution strategy**: Replicate the full model on all N nodes (wasteful, simple)? Shard the model across nodes (fast, complex recovery)? Central model server + distributed compute (bottleneck)?
+4. **Session encryption scope**: Privacy from mesh nodes only? Privacy from network observers too? Both (expensive)?
+5. **LLM output validation in zero-trust**: How do you verify that an LLM output is correct when the output is non-deterministic? Embedding-space similarity (cheap, imperfect)? Human validation sampling (expensive, accurate)? K-node model agreement with majority vote (medium cost)? Semantic hashing (novel, unproven)?
+6. **Target model size**: 7B, 13B, 70B? This fundamentally changes compute assumptions and mesh topology.
+7. **Latency tolerance**: Mesh introduces network hops. Sequential execution across peers is slow. What's the acceptable latency ceiling for interactive coding workflows?
+8. **Infrastructure choices**: Message broker (RabbitMQ, Redis, custom)? State machine for eligibility and scheduling? Model serving framework (vLLM, TGI, ollama)?
+9. **Distributed inference mechanics**: Layer-by-layer model sharding? Speculative decoding (fast local model + accurate mesh model)? LoRA/adapter-based approaches (core model distributed, personalization local)?
+10. **Incentive structure at scale**: If prompts have low individual value and computation cost is low (smaller models), the economic security ratio is hard to maintain. What incentive structure works at what scale?
+
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.
