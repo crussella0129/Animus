@@ -46,6 +46,7 @@ from src.core.compaction import (
 from src.core.tokenizer import count_tokens, is_tiktoken_available
 from src.core.planner import Planner, ExecutionPlan, PlanStep, StepStatus
 from src.core.fallback import ModelFallbackChain, FallbackModel
+from src.core.loop_detector import LoopDetector, LoopDetectorConfig, InterventionLevel
 
 
 @dataclass
@@ -124,6 +125,12 @@ class AgentConfig:
     # When set, overrides `model` — uses chain for automatic escalation
     fallback_models: Optional[list[tuple[str, int]]] = None
     fallback_auto_deescalate: bool = True  # Return to preferred model after cooldown
+
+    # Action loop detection: detect and break repetitive agent behavior
+    enable_loop_detection: bool = True
+    loop_nudge_threshold: int = 3  # Consecutive identical actions → nudge
+    loop_force_threshold: int = 5  # → force different approach
+    loop_break_threshold: int = 7  # → stop execution
 
 
 @dataclass
@@ -306,6 +313,15 @@ class Agent:
 
         # Progressive disclosure: holds full results keyed by index
         self._pending_context: dict[int, tuple[str, float, dict]] = {}
+
+        # Action loop detection
+        self._loop_detector: Optional[LoopDetector] = None
+        if self.config.enable_loop_detection:
+            self._loop_detector = LoopDetector(LoopDetectorConfig(
+                nudge_threshold=self.config.loop_nudge_threshold,
+                force_threshold=self.config.loop_force_threshold,
+                break_threshold=self.config.loop_break_threshold,
+            ))
 
         # Model fallback chain
         self._fallback_chain: Optional[ModelFallbackChain] = None
@@ -1408,6 +1424,23 @@ class Agent:
 
             assistant_turn.tool_results = tool_results
 
+            # Record tool calls for loop detection
+            if self._loop_detector:
+                for call in tool_calls:
+                    self._loop_detector.record(
+                        call["name"],
+                        call.get("arguments"),
+                    )
+
+                intervention = self._loop_detector.check()
+                if intervention == InterventionLevel.BREAK:
+                    msg = self._loop_detector.get_message(intervention)
+                    assistant_turn.metadata["loop_break"] = True
+                    self.history.append(Turn(role="user", content=msg))
+                elif intervention in (InterventionLevel.NUDGE, InterventionLevel.FORCE):
+                    msg = self._loop_detector.get_message(intervention)
+                    self.history.append(Turn(role="user", content=msg))
+
         return assistant_turn
 
     async def step_stream(
@@ -1894,6 +1927,8 @@ When done, provide a brief summary of what was accomplished."""
         self.history = []
         self._current_turn = 0
         self._pending_context.clear()
+        if self._loop_detector:
+            self._loop_detector.reset()
         if self._fallback_chain:
             self._fallback_chain.reset()
         self._decision_recorder.clear()

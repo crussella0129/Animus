@@ -1,6 +1,6 @@
 # Tasks — ANIMUS
 
-**Last Updated:** 2026-02-09 (Entry #40: Decorator-based tool registry, 338 tests)
+**Last Updated:** 2026-02-09 (Entry #41: Action loop detection, 361 tests)
 
 ## Design Philosophy Update
 
@@ -938,6 +938,11 @@ Audio features are completely optional:
 
 ## Completed (Recent)
 
+- **Action Loop Detection** (Entry #41, GECK Repor Recommendation #9) ✓
+  - `LoopDetector` with consecutive + alternating pattern detection
+  - Escalating intervention: nudge (3) → force (5) → break (7)
+  - Integrated into step(), appends intervention to conversation
+  - 23 new tests
 - **Decorator-Based Tool Registry** (Entry #40, GECK Repor Recommendation #7) ✓
   - `@tool()` decorator with param inference from type hints + docstrings
   - `DecoratedTool` subclass, sync/async support, OpenAI schema generation

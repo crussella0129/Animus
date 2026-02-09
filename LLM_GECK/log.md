@@ -4050,3 +4050,45 @@ Replace boilerplate class-based tool definitions with a lightweight decorator fo
 - Files created: 1 (test_tool_decorator.py)
 - Files modified: 2 (base.py, __init__.py)
 - Tests added: 28 (338 total passing)
+
+---
+
+## Entry #41 — 2026-02-09
+
+### Summary
+Implement action loop detection (GECK Repor Recommendation #9): detect repetitive agent behavior and apply escalating intervention (nudge → force → break).
+
+### Understood Goals
+Agents can get stuck in loops — repeating the same tool call or alternating between two calls without making progress. The loop detector monitors recent actions and intervenes before the agent wastes turns and tokens.
+
+### Actions
+- Created `src/core/loop_detector.py`: `LoopDetector`, `LoopDetectorConfig`, `InterventionLevel`, `ActionRecord`
+- Sliding window of recent actions with configurable size (default 10)
+- Consecutive pattern detection: same tool + same args
+- Alternating pattern detection: A-B-A-B cycles
+- Escalating intervention: NUDGE (threshold 3) → FORCE (5) → BREAK (7)
+- Intervention messages appended to conversation history
+- Added config to AgentConfig: `enable_loop_detection`, `loop_nudge_threshold`, `loop_force_threshold`, `loop_break_threshold`
+- Integrated into `step()`: records tool calls, checks for loops, appends intervention messages
+- BREAK sets `loop_break` metadata on the turn for callers to detect
+- Exported from `src/core/__init__.py`
+- 23 tests: config (2), detector (14), messages (2), agent integration (5)
+
+### Files Changed
+- `src/core/loop_detector.py` — Created (~200 lines)
+- `src/core/agent.py` — Modified (import, config, init, step() integration, reset)
+- `src/core/__init__.py` — Modified (added loop detector exports)
+- `tests/test_loop_detector.py` — Created (23 tests)
+
+### Findings
+- Alternating pattern detection (A-B-A-B) catches a common failure mode where the agent oscillates between two approaches.
+- Hash-based arg comparison using `frozenset` gives O(1) matching per action.
+- The `include_args=False` option is useful for detecting tool-level loops regardless of arguments.
+
+### Checkpoint
+**Status:** CONTINUE — All 6 GECK Repor near-term recommendations now implemented. Remaining: strategic backlog items.
+
+### Metrics
+- Files created: 2 (loop_detector.py, test_loop_detector.py)
+- Files modified: 2 (agent.py, __init__.py)
+- Tests added: 23 (361 total passing)

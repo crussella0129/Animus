@@ -106,6 +106,11 @@ from src.core.planner import (
     PlanStep,
     StepStatus,
 )
+from src.core.loop_detector import (
+    LoopDetector,
+    LoopDetectorConfig,
+    InterventionLevel,
+)
 from src.core.fallback import (
     ModelFallbackChain,
     FallbackModel,
@@ -222,6 +227,10 @@ __all__ = [
     "ExecutionPlan",
     "PlanStep",
     "StepStatus",
+    # Action Loop Detection
+    "LoopDetector",
+    "LoopDetectorConfig",
+    "InterventionLevel",
     # Model Fallback Chain
     "ModelFallbackChain",
     "FallbackModel",
