@@ -3931,3 +3931,40 @@ Different model sizes need different system prompts. Large models benefit from d
 - Files modified: 2
 - Tests added: 16 (269 total passing)
 - Prompt size reduction: compact is ~50% of full, minimal is ~30% of compact
+
+---
+
+## Entry #38 — 2026-02-09
+
+### Summary
+Implement progressive disclosure for RAG results (GECK Repor Recommendation #3): return compact indices first (~80 char snippets), store full results for on-demand expansion via `expand_context()`.
+
+### Understood Goals
+RAG results currently consume ~700-750 tokens per query (5 results × ~150 tokens). Progressive disclosure reduces this to ~200-300 tokens for the compact index, with full results available on demand. Critical for small model context windows.
+
+### Actions
+- Added `memory_progressive: bool = True`, `memory_snippet_length: int = 80`, `memory_token_budget: int = 500` to AgentConfig
+- Added `_pending_context` dict to Agent for storing full results keyed by index
+- Refactored `_retrieve_context()` to dispatch between progressive and legacy mode
+- Added `_format_progressive_context()`: generates numbered compact index with snippets, respects token budget, stores full results
+- Added `_format_full_context()`: extracted legacy behavior into its own method
+- Added `expand_context(result_id)`: returns full content for a specific index
+- Cleared `_pending_context` on `reset()` and on new search
+- 15 new tests covering compact format, indices, scores, snippets, expansion, budget limits, reset, both modes
+
+### Files Changed
+- `src/core/agent.py` — Modified (added progressive disclosure config, `_pending_context`, `_format_progressive_context()`, `_format_full_context()`, `expand_context()`, reset cleanup)
+- `tests/test_agent_behavior.py` — Modified (15 new tests: TestProgressiveDisclosureRAG)
+
+### Findings
+- Token budget with rough 4-chars-per-token estimate is sufficient for budget enforcement — exact tokenization not needed at this stage.
+- The compact index format (`[0] source (score: 0.92) — snippet...`) is ~5-10x smaller than full content per result.
+- Storing all results (even budget-exceeded ones) in `_pending_context` ensures the agent can always expand if needed.
+
+### Checkpoint
+**Status:** CONTINUE — All 3 Immediate GECK Repor recommendations implemented. Next: remaining backlog items or near-term recommendations.
+
+### Metrics
+- Files modified: 2
+- Tests added: 15 (284 total passing)
+- Token savings: ~60-70% reduction in initial RAG context overhead

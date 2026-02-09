@@ -80,6 +80,9 @@ class AgentConfig:
     # Memory settings
     use_memory: bool = True
     memory_search_k: int = 5
+    memory_progressive: bool = True  # Progressive disclosure: compact index first
+    memory_snippet_length: int = 80  # Chars per result in compact index
+    memory_token_budget: int = 500  # Max tokens for initial context retrieval
 
     # Working directory tracking
     track_working_directory: bool = True
@@ -294,6 +297,9 @@ class Agent:
 
         # Decision recording
         self._decision_recorder = DecisionRecorder()
+
+        # Progressive disclosure: holds full results keyed by index
+        self._pending_context: dict[int, tuple[str, float, dict]] = {}
 
         # Session compaction
         self._compactor: Optional[SessionCompactor] = None
@@ -566,7 +572,15 @@ class Agent:
         return messages
 
     async def _retrieve_context(self, query: str) -> Optional[str]:
-        """Retrieve relevant context from memory."""
+        """Retrieve relevant context from memory.
+
+        When progressive disclosure is enabled (config.memory_progressive),
+        returns a compact index (~snippet_length chars per result) and stores
+        full results in _pending_context for on-demand expansion via
+        expand_context(). This reduces initial token usage by ~5-10x.
+
+        When disabled, returns full results inline (legacy behavior).
+        """
         if not self.memory or not self.config.use_memory:
             return None
 
@@ -579,15 +593,72 @@ class Agent:
             if not results:
                 return None
 
-            context_parts = ["Relevant context from knowledge base:"]
-            for content, score, metadata in results:
-                source = metadata.get("source", "unknown")
-                context_parts.append(f"\n[{source}] (relevance: {score:.2f})\n{content[:500]}")
-
-            return "\n".join(context_parts)
+            if self.config.memory_progressive:
+                return self._format_progressive_context(results)
+            else:
+                return self._format_full_context(results)
 
         except Exception:
             return None
+
+    def _format_full_context(self, results: list[tuple[str, float, dict]]) -> str:
+        """Format results with full content inline (legacy mode)."""
+        context_parts = ["Relevant context from knowledge base:"]
+        for content, score, metadata in results:
+            source = metadata.get("source", "unknown")
+            context_parts.append(f"\n[{source}] (relevance: {score:.2f})\n{content[:500]}")
+        return "\n".join(context_parts)
+
+    def _format_progressive_context(self, results: list[tuple[str, float, dict]]) -> str:
+        """Format results as a compact index with snippets.
+
+        Stores full content in _pending_context for on-demand expansion.
+        Each result gets ~snippet_length chars plus source and score.
+        """
+        self._pending_context.clear()
+        snippet_len = self.config.memory_snippet_length
+        token_budget = self.config.memory_token_budget
+        estimated_tokens = 0
+
+        lines = ["Relevant context (compact index — call expand_context(id) for full text):"]
+
+        for i, (content, score, metadata) in enumerate(results):
+            source = metadata.get("source", "unknown")
+            snippet = content[:snippet_len].replace("\n", " ").strip()
+            if len(content) > snippet_len:
+                snippet += "..."
+
+            line = f"  [{i}] {source} (score: {score:.2f}) — {snippet}"
+            line_tokens = len(line) // 4  # rough estimate
+
+            if estimated_tokens + line_tokens > token_budget:
+                lines.append(f"  ... {len(results) - i} more results available")
+                # Store remaining results too
+                for j in range(i, len(results)):
+                    self._pending_context[j] = results[j]
+                break
+
+            lines.append(line)
+            self._pending_context[i] = (content, score, metadata)
+            estimated_tokens += line_tokens
+
+        return "\n".join(lines)
+
+    def expand_context(self, result_id: int) -> Optional[str]:
+        """Expand a specific result from the progressive context index.
+
+        Args:
+            result_id: The index number from the compact index.
+
+        Returns:
+            Full content of the result, or None if not found.
+        """
+        entry = self._pending_context.get(result_id)
+        if entry is None:
+            return None
+        content, score, metadata = entry
+        source = metadata.get("source", "unknown")
+        return f"[{source}] (relevance: {score:.2f})\n{content}"
 
     def _is_safe_shell_command(self, command: str) -> bool:
         """Check if a shell command is safe using hardcoded permission system.
@@ -1775,6 +1846,7 @@ When done, provide a brief summary of what was accomplished."""
         """Reset the agent state."""
         self.history = []
         self._current_turn = 0
+        self._pending_context.clear()
         self._decision_recorder.clear()
         if self._compactor:
             self._compactor.clear_history()

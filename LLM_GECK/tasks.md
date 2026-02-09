@@ -1,6 +1,6 @@
 # Tasks — ANIMUS
 
-**Last Updated:** 2026-02-09 (Entry #37: Capability-tiered system prompts, 269 tests)
+**Last Updated:** 2026-02-09 (Entry #38: Progressive disclosure RAG, 284 tests)
 
 ## Design Philosophy Update
 
@@ -938,6 +938,11 @@ Audio features are completely optional:
 
 ## Completed (Recent)
 
+- **Progressive Disclosure RAG** (Entry #38, GECK Repor Recommendation #3) ✓
+  - Compact index format with snippets (~80 chars), token budget enforcement
+  - `expand_context(id)` for on-demand full content retrieval
+  - ~60-70% reduction in initial RAG context overhead
+  - 15 new tests
 - **Capability-Tiered System Prompts** (Entry #37, GECK Repor Recommendation #4) ✓
   - 3 tiers: full (large models), compact (7B-34B), minimal (<7B)
   - Auto-detection from model name, explicit override via `prompt_tier` config

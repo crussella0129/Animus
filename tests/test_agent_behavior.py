@@ -893,3 +893,192 @@ class TestCapabilityTieredPrompts:
     def test_minimal_is_terse(self):
         """Minimal prompt should be under 200 characters."""
         assert len(SYSTEM_PROMPT_MINIMAL) < 200
+
+
+class TestProgressiveDisclosureRAG:
+    """Tests for progressive disclosure memory retrieval."""
+
+    SAMPLE_RESULTS = [
+        ("Full content of first result about Python decorators and how they work "
+         "in detail with many examples and explanations spanning multiple lines.",
+         0.92, {"source": "docs/decorators.md"}),
+        ("Second result about async/await patterns in Python 3.10+ with examples "
+         "of coroutines and event loops and task scheduling.",
+         0.85, {"source": "docs/async.md"}),
+        ("Third result with lower relevance about general Python tips.",
+         0.60, {"source": "tips/python.md"}),
+    ]
+
+    @pytest.fixture
+    def mock_provider(self):
+        class MockProvider:
+            is_available = True
+            async def generate(self, **kwargs):
+                class Result:
+                    content = ""
+                    tool_calls = None
+                return Result()
+        return MockProvider()
+
+    @pytest.fixture
+    def progressive_agent(self, mock_provider):
+        """Agent with progressive disclosure enabled."""
+        config = AgentConfig(
+            use_memory=True,
+            memory_progressive=True,
+            memory_snippet_length=80,
+            memory_token_budget=500,
+        )
+        return Agent(provider=mock_provider, config=config)
+
+    @pytest.fixture
+    def legacy_agent(self, mock_provider):
+        """Agent with progressive disclosure disabled."""
+        config = AgentConfig(
+            use_memory=True,
+            memory_progressive=False,
+        )
+        return Agent(provider=mock_provider, config=config)
+
+    def test_progressive_format_is_compact(self, progressive_agent):
+        """Progressive format should be shorter than full format."""
+        progressive = progressive_agent._format_progressive_context(self.SAMPLE_RESULTS)
+        full = progressive_agent._format_full_context(self.SAMPLE_RESULTS)
+        assert len(progressive) < len(full)
+
+    def test_progressive_format_has_indices(self, progressive_agent):
+        """Progressive format should include numbered indices."""
+        result = progressive_agent._format_progressive_context(self.SAMPLE_RESULTS)
+        assert "[0]" in result
+        assert "[1]" in result
+        assert "[2]" in result
+
+    def test_progressive_format_has_scores(self, progressive_agent):
+        """Progressive format should include relevance scores."""
+        result = progressive_agent._format_progressive_context(self.SAMPLE_RESULTS)
+        assert "0.92" in result
+        assert "0.85" in result
+
+    def test_progressive_format_has_snippets(self, progressive_agent):
+        """Progressive format should include truncated snippets."""
+        result = progressive_agent._format_progressive_context(self.SAMPLE_RESULTS)
+        # Snippet should be truncated with ...
+        assert "..." in result
+
+    def test_progressive_stores_pending_context(self, progressive_agent):
+        """Progressive format should store full results for expansion."""
+        progressive_agent._format_progressive_context(self.SAMPLE_RESULTS)
+        assert len(progressive_agent._pending_context) == 3
+        assert 0 in progressive_agent._pending_context
+        assert 1 in progressive_agent._pending_context
+        assert 2 in progressive_agent._pending_context
+
+    def test_expand_context_returns_full(self, progressive_agent):
+        """expand_context should return full content for a given index."""
+        progressive_agent._format_progressive_context(self.SAMPLE_RESULTS)
+        expanded = progressive_agent.expand_context(0)
+        assert expanded is not None
+        assert "decorators" in expanded
+        assert "docs/decorators.md" in expanded
+        assert "0.92" in expanded
+
+    def test_expand_context_invalid_id(self, progressive_agent):
+        """expand_context should return None for invalid index."""
+        progressive_agent._format_progressive_context(self.SAMPLE_RESULTS)
+        assert progressive_agent.expand_context(99) is None
+
+    def test_expand_context_empty(self, progressive_agent):
+        """expand_context with no pending results should return None."""
+        assert progressive_agent.expand_context(0) is None
+
+    def test_legacy_format_includes_full_content(self, legacy_agent):
+        """Legacy format should include full content inline."""
+        result = legacy_agent._format_full_context(self.SAMPLE_RESULTS)
+        assert "decorators and how they work" in result
+        assert "async/await patterns" in result
+
+    def test_progressive_cleared_on_new_search(self, progressive_agent):
+        """New search should clear previous pending context."""
+        progressive_agent._format_progressive_context(self.SAMPLE_RESULTS)
+        assert len(progressive_agent._pending_context) == 3
+
+        # New search with fewer results
+        progressive_agent._format_progressive_context(self.SAMPLE_RESULTS[:1])
+        assert len(progressive_agent._pending_context) == 1
+
+    def test_progressive_cleared_on_reset(self, progressive_agent):
+        """Reset should clear pending context."""
+        progressive_agent._format_progressive_context(self.SAMPLE_RESULTS)
+        assert len(progressive_agent._pending_context) == 3
+        progressive_agent.reset()
+        assert len(progressive_agent._pending_context) == 0
+
+    def test_token_budget_limits_results(self, mock_provider):
+        """Token budget should limit how many results appear in compact index."""
+        config = AgentConfig(
+            use_memory=True,
+            memory_progressive=True,
+            memory_snippet_length=80,
+            memory_token_budget=50,  # Very tight budget
+        )
+        agent = Agent(provider=mock_provider, config=config)
+
+        # Many results
+        many_results = [
+            (f"Content for result {i} with enough text to fill the snippet area.",
+             0.90 - i * 0.05, {"source": f"file_{i}.md"})
+            for i in range(10)
+        ]
+
+        result = agent._format_progressive_context(many_results)
+        # Should have a "more results available" line
+        assert "more results available" in result
+        # But should still have all 10 stored for expansion
+        assert len(agent._pending_context) == 10
+
+    def test_progressive_expand_context_header(self, progressive_agent):
+        """Compact index header should mention expand_context."""
+        result = progressive_agent._format_progressive_context(self.SAMPLE_RESULTS)
+        assert "expand_context" in result
+
+    @pytest.mark.asyncio
+    async def test_retrieve_context_progressive_mode(self, mock_provider):
+        """_retrieve_context should use progressive format when enabled."""
+        class MockMemory:
+            async def search(self, query, k=10, filter=None):
+                return [
+                    ("Content about testing.", 0.88, {"source": "test.md"}),
+                ]
+
+        config = AgentConfig(
+            use_memory=True,
+            memory_progressive=True,
+        )
+        agent = Agent(provider=mock_provider, config=config)
+        agent.memory = MockMemory()
+
+        ctx = await agent._retrieve_context("testing")
+        assert ctx is not None
+        assert "[0]" in ctx  # Progressive index format
+        assert "expand_context" in ctx
+
+    @pytest.mark.asyncio
+    async def test_retrieve_context_legacy_mode(self, mock_provider):
+        """_retrieve_context should use full format when progressive is off."""
+        class MockMemory:
+            async def search(self, query, k=10, filter=None):
+                return [
+                    ("Content about testing.", 0.88, {"source": "test.md"}),
+                ]
+
+        config = AgentConfig(
+            use_memory=True,
+            memory_progressive=False,
+        )
+        agent = Agent(provider=mock_provider, config=config)
+        agent.memory = MockMemory()
+
+        ctx = await agent._retrieve_context("testing")
+        assert ctx is not None
+        assert "[0]" not in ctx  # Not progressive format
+        assert "Content about testing." in ctx  # Full content inline
