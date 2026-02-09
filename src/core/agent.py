@@ -90,6 +90,9 @@ class AgentConfig:
     retry_backoff_base: float = 1.0
     retry_backoff_multiplier: float = 2.0
 
+    # Parse-retry-correct: re-prompt the LLM when tool call JSON is malformed
+    parse_retry_max: int = 3  # Max retries for malformed tool call output
+
     # Compaction settings
     enable_compaction: bool = True
     compaction_strategy: str = "hybrid"  # summarize, truncate, sliding, hybrid
@@ -874,6 +877,33 @@ class Agent:
 
         return objects
 
+    @staticmethod
+    def _looks_like_tool_attempt(content: str) -> bool:
+        """Detect whether content looks like a failed tool call attempt.
+
+        Returns True if the content contains indicators that the LLM tried
+        to produce a tool call but the JSON was malformed. Used by the
+        parse-retry-correct loop to decide whether to re-prompt.
+        """
+        if not content or len(content) < 10:
+            return False
+
+        # Must contain an opening brace (some kind of JSON attempt)
+        if '{' not in content:
+            return False
+
+        # Look for tool-call-shaped keywords near a brace
+        indicators = [
+            '"tool"', "'tool'", '"name"', "'name'",
+            '"arguments"', "'arguments'", '"function"',
+            '"action"', "'action'", '"parameters"',
+        ]
+        content_lower = content.lower()
+        keyword_hits = sum(1 for ind in indicators if ind.lower() in content_lower)
+
+        # At least 2 indicators (e.g. "tool" + "arguments") → likely an attempt
+        return keyword_hits >= 2
+
     def _normalize_tool_calls(self, raw_tool_calls: list[dict]) -> list[dict]:
         """Normalize structured tool_calls from provider into our internal format.
 
@@ -1084,10 +1114,48 @@ class Agent:
 
         # For API models: prefer structured tool_calls from provider
         # For local models: parse JSON tool calls from response text
+        # Includes parse-retry-correct loop for malformed tool call output
         if result.tool_calls:
             tool_calls = self._normalize_tool_calls(result.tool_calls)
         else:
             tool_calls = await self._parse_tool_calls(result.content)
+
+            # Parse-retry-correct: if no tool calls parsed but the output
+            # looks like a failed tool call attempt, re-prompt with the error
+            parse_retries = 0
+            while (
+                not tool_calls
+                and parse_retries < self.config.parse_retry_max
+                and self._looks_like_tool_attempt(result.content)
+            ):
+                parse_retries += 1
+                correction = (
+                    "Your previous response appeared to contain a tool call but "
+                    "the JSON was malformed and could not be parsed. Please re-output "
+                    "the tool call as valid JSON in this exact format:\n"
+                    '{"tool": "<tool_name>", "arguments": {<key>: <value>, ...}}\n\n'
+                    f"Your malformed output was:\n{result.content[:2000]}"
+                )
+                # Temporarily add correction to messages
+                correction_msg = Message(role="user", content=correction)
+                retry_messages = messages + [
+                    Message(role="assistant", content=result.content),
+                    correction_msg,
+                ]
+                try:
+                    result = await self.provider.generate(
+                        messages=retry_messages,
+                        model=self.config.model,
+                        config=gen_config,
+                        tools=tool_schemas,
+                    )
+                except Exception:
+                    break  # Don't fail the whole step on retry errors
+
+                if result.tool_calls:
+                    tool_calls = self._normalize_tool_calls(result.tool_calls)
+                else:
+                    tool_calls = await self._parse_tool_calls(result.content)
 
         # Create assistant turn
         assistant_turn = Turn(

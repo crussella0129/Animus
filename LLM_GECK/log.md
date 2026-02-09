@@ -3864,3 +3864,39 @@ Complete remaining Phase 14 items: session-level permission caching, default per
 - Lines added: ~250
 - Tests added: 31 (92 total permission tests)
 - Test pass rate: 100% (92/92)
+
+---
+
+## Entry #36 — 2026-02-09
+
+### Summary
+Implement parse-retry-correct loop (GECK Repor Recommendation #2): when JSON tool call parsing fails but output looks like a tool call attempt, re-prompt the LLM with the error and malformed output.
+
+### Understood Goals
+Add a parse-retry-correct mechanism to `Agent.step()` so that malformed tool call JSON from local models gets a correction prompt and re-generation rather than silently failing.
+
+### Actions
+- Added `_looks_like_tool_attempt()` static method to detect malformed tool call output (keyword counting: needs ≥2 of tool/name/arguments/function/action/parameters near a `{`)
+- Added parse-retry-correct loop in `step()`: when `_parse_tool_calls()` returns empty but content looks like a tool attempt, append a correction message with the malformed output and re-generate up to `parse_retry_max` times
+- `parse_retry_max: int = 3` config already added to AgentConfig
+- Native function calling (API models) bypasses the retry loop entirely
+- Correction message includes the malformed output (truncated to 2000 chars)
+- Retry errors are caught and break the loop gracefully (no step failure)
+- Added 15 new tests: 8 for `_looks_like_tool_attempt`, 7 for the retry loop
+
+### Files Changed
+- `src/core/agent.py` — Modified (added `_looks_like_tool_attempt()`, parse-retry loop in `step()`)
+- `tests/test_agent_behavior.py` — Modified (added TestLooksLikeToolAttempt + TestParseRetryCorrectLoop, 15 tests)
+
+### Findings
+- The detection heuristic (≥2 tool-call keywords + brace) has good precision — avoids false positives on plain JSON or prose while catching both well-formed and malformed tool call attempts.
+- Correction message format matters: including the exact malformed output helps the LLM understand what went wrong. Truncating to 2000 chars prevents context bloat.
+- The retry loop is intentionally separate from the network retry loop (which handles API errors). Parse-retry handles LLM output quality.
+
+### Checkpoint
+**Status:** CONTINUE — Parse-retry-correct loop complete. Next: capability-tiered system prompts (Recommendation #4).
+
+### Metrics
+- Files modified: 2
+- Tests added: 15 (253 total passing)
+- Test pass rate: 100% (253/253, excluding 4 pre-existing failures)

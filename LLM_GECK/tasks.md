@@ -1,6 +1,6 @@
 # Tasks — ANIMUS
 
-**Last Updated:** 2026-02-09 (Entry #35: Phase 14 Enhanced Permission System complete, 92 tests)
+**Last Updated:** 2026-02-09 (Entry #36: Parse-retry-correct loop, 253 tests)
 
 ## Design Philosophy Update
 
@@ -938,6 +938,11 @@ Audio features are completely optional:
 
 ## Completed (Recent)
 
+- **Parse-Retry-Correct Loop** (Entry #36, GECK Repor Recommendation #2) ✓
+  - `_looks_like_tool_attempt()` heuristic: ≥2 tool-call keywords near a brace
+  - Retry loop in `step()`: re-prompt LLM with malformed output up to `parse_retry_max` times
+  - Native function calling (API models) bypasses retry entirely
+  - 15 new tests (8 detection + 7 retry loop)
 - **Phase 14: Enhanced Permission System** (Entry #35, 92 tests) ✓
   - Permission caching (LRU dict, configurable size, eviction)
   - 3 default profiles: strict, standard, trusted

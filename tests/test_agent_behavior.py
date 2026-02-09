@@ -612,3 +612,183 @@ class TestPlanningIntegration:
         # Reset should clear it
         agent.reset()
         assert agent.get_current_plan() is None
+
+
+class TestLooksLikeToolAttempt:
+    """Tests for _looks_like_tool_attempt detection."""
+
+    def test_empty_content(self):
+        assert Agent._looks_like_tool_attempt("") is False
+        assert Agent._looks_like_tool_attempt("short") is False
+
+    def test_no_braces(self):
+        assert Agent._looks_like_tool_attempt("I will read the file now.") is False
+
+    def test_valid_tool_call_detected(self):
+        content = '{"tool": "read_file", "arguments": {"path": "/tmp"}}'
+        assert Agent._looks_like_tool_attempt(content) is True
+
+    def test_malformed_tool_call_detected(self):
+        content = 'Sure, I\'ll do that: {"tool": "read_file", "arguments": {path: /tmp}}'
+        assert Agent._looks_like_tool_attempt(content) is True
+
+    def test_plain_json_no_tool_keywords(self):
+        content = '{"color": "blue", "size": 42}'
+        assert Agent._looks_like_tool_attempt(content) is False
+
+    def test_single_keyword_not_enough(self):
+        content = 'The "tool" was used: {"data": 1}'
+        assert Agent._looks_like_tool_attempt(content) is False
+
+    def test_two_keywords_sufficient(self):
+        content = 'I tried to call "tool" with "arguments": {broken json'
+        assert Agent._looks_like_tool_attempt(content) is True
+
+    def test_name_arguments_format(self):
+        content = '{"name": "write_file", "arguments": {"path": "/x"'  # truncated
+        assert Agent._looks_like_tool_attempt(content) is True
+
+
+class TestParseRetryCorrectLoop:
+    """Tests for the parse-retry-correct loop in step()."""
+
+    @pytest.fixture
+    def make_agent(self):
+        """Factory to create agents with configurable provider responses."""
+        def _make(responses, parse_retry_max=3):
+            call_count = 0
+
+            class MockProvider:
+                is_available = True
+
+                async def generate(self, **kwargs):
+                    nonlocal call_count
+                    idx = min(call_count, len(responses) - 1)
+                    resp = responses[idx]
+                    call_count += 1
+
+                    class Result:
+                        content = resp.get("content", "")
+                        tool_calls = resp.get("tool_calls", None)
+                    return Result()
+
+            provider = MockProvider()
+            config = AgentConfig(
+                parse_retry_max=parse_retry_max,
+                use_memory=False,
+                enable_compaction=False,
+            )
+            agent = Agent(provider=provider, config=config)
+            return agent, provider
+
+        return _make
+
+    @pytest.mark.asyncio
+    async def test_no_retry_when_valid_tool_call(self, make_agent):
+        """Valid JSON tool call should not trigger retry."""
+        agent, provider = make_agent([
+            {"content": '{"tool": "read_file", "arguments": {"path": "/tmp/x"}}'},
+        ])
+        turn = await agent.step("read /tmp/x")
+        assert turn.tool_calls is not None
+        assert turn.tool_calls[0]["name"] == "read_file"
+
+    @pytest.mark.asyncio
+    async def test_no_retry_for_plain_text(self, make_agent):
+        """Plain text response should not trigger retry."""
+        agent, provider = make_agent([
+            {"content": "Sure, I can help with that. The file contains data."},
+        ])
+        turn = await agent.step("what's in /tmp?")
+        assert turn.tool_calls is None
+
+    @pytest.mark.asyncio
+    async def test_retry_on_malformed_tool_call(self, make_agent):
+        """Malformed tool call should trigger retry, then succeed."""
+        agent, provider = make_agent([
+            # First: malformed (missing quotes around keys)
+            {"content": '{"tool": "read_file", "arguments": {path: "/tmp/x"}}'},
+            # Second: corrected
+            {"content": '{"tool": "read_file", "arguments": {"path": "/tmp/x"}}'},
+        ])
+        turn = await agent.step("read /tmp/x")
+        assert turn.tool_calls is not None
+        assert turn.tool_calls[0]["name"] == "read_file"
+
+    @pytest.mark.asyncio
+    async def test_retry_respects_max(self, make_agent):
+        """Should stop retrying after parse_retry_max attempts."""
+        malformed = {"content": '{"tool": "read_file", "arguments": {bad json!!!}'}
+        agent, provider = make_agent(
+            [malformed] * 5,  # All malformed
+            parse_retry_max=2,
+        )
+        turn = await agent.step("read /tmp/x")
+        # After 2 retries (3 total attempts), should give up
+        assert turn.tool_calls is None
+
+    @pytest.mark.asyncio
+    async def test_retry_zero_disables(self, make_agent):
+        """parse_retry_max=0 should disable retry entirely."""
+        agent, provider = make_agent(
+            [
+                {"content": '{"tool": "read_file", "arguments": {bad: json}}'},
+                {"content": '{"tool": "read_file", "arguments": {"path": "/ok"}}'},
+            ],
+            parse_retry_max=0,
+        )
+        turn = await agent.step("read file")
+        # No retry, malformed response accepted as-is (no tool calls)
+        assert turn.tool_calls is None
+
+    @pytest.mark.asyncio
+    async def test_no_retry_for_native_tool_calls(self, make_agent):
+        """Provider-level tool_calls bypass the retry loop entirely."""
+        agent, provider = make_agent([
+            {
+                "content": "",
+                "tool_calls": [{"name": "read_file", "arguments": {"path": "/x"}}],
+            },
+        ])
+        turn = await agent.step("read /x")
+        assert turn.tool_calls is not None
+        assert turn.tool_calls[0]["name"] == "read_file"
+
+    @pytest.mark.asyncio
+    async def test_retry_correction_message_format(self, make_agent):
+        """The correction message should include the malformed output."""
+        captured_messages = []
+
+        class CapturingProvider:
+            is_available = True
+
+            async def generate(self, **kwargs):
+                captured_messages.append(kwargs.get("messages", []))
+
+                class Result:
+                    content = '{"tool": "read_file", "arguments": {"path": "/ok"}}'
+                    tool_calls = None
+
+                # First call returns malformed, second returns valid
+                if len(captured_messages) == 1:
+                    class BadResult:
+                        content = '{"tool": "read_file", "arguments": {bad}}'
+                        tool_calls = None
+                    return BadResult()
+                return Result()
+
+        config = AgentConfig(
+            parse_retry_max=3,
+            use_memory=False,
+            enable_compaction=False,
+        )
+        agent = Agent(provider=CapturingProvider(), config=config)
+        await agent.step("read a file")
+
+        # Second call should have correction in messages
+        assert len(captured_messages) >= 2
+        retry_msgs = captured_messages[1]
+        # Last message should be the correction prompt
+        last_msg = retry_msgs[-1]
+        assert "malformed" in last_msg.content.lower()
+        assert '{"tool"' in last_msg.content
