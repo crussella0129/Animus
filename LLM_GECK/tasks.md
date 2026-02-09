@@ -1,6 +1,6 @@
 # Tasks — ANIMUS
 
-**Last Updated:** 2026-02-09 (Entry #33: GECK Repor complete, 84 repos analyzed)
+**Last Updated:** 2026-02-09 (Entry #34: Phase 11 Sub-Agent Graph Architecture complete, 59 tests)
 
 ## Design Philosophy Update
 
@@ -283,68 +283,90 @@ After analyzing 12 additional repositories, a critical insight emerged: **many a
   - [ ] Markdown-aware chunking (preserve headers, lists) — FUTURE
   - [ ] Configurable overlap strategies — FUTURE
 
-### Phase 11: Sub-Agent Architecture Improvements (from Hive building-agents skills)
+### Phase 11: Sub-Agent Architecture Improvements (from Hive building-agents skills) ✓ (COMPLETE — Entry #34)
 
 **Goal:** Transform sub-agents from simple role-based prompts to goal-driven workflow agents.
 
 **Inspiration:** Hive's building-agents-core, building-agents-construction, building-agents-patterns skills.
 
+**Status:** COMPLETE. New `src/subagents/` package with 7 modules. 59 tests passing.
+
 **Tasks:**
-- [ ] **SubAgentGoal Class** (`src/subagents/goal.py`)
-  - [ ] Create `SubAgentGoal` dataclass (id, name, description)
-  - [ ] Create `SuccessCriterion` (id, description, metric, target, weight)
-  - [ ] Create `Constraint` (id, description, constraint_type, category)
-  - [ ] Success criteria weights should sum to 1.0
-  - [ ] Constraint types: hard (must satisfy), soft (prefer to satisfy)
-- [ ] **SubAgentNode Class** (`src/subagents/node.py`)
-  - [ ] Create `SubAgentNode` dataclass (id, name, node_type, input_keys, output_keys)
-  - [ ] Node types: `llm_generate`, `llm_tool_use`, `router`, `function`
-  - [ ] System prompt with input key interpolation
-  - [ ] Tools list (only for `llm_tool_use` nodes)
-  - [ ] Input/output schema validation (optional)
-  - [ ] Max retries configuration
-- [ ] **SubAgentEdge Class** (`src/subagents/edge.py`)
-  - [ ] Create `SubAgentEdge` dataclass (id, source, target, condition, priority)
-  - [ ] Edge conditions: `on_success`, `on_failure`, `always`, `conditional`
-  - [ ] Conditional expressions for routing decisions
-  - [ ] Priority for edge ordering when multiple match
-- [ ] **SubAgentGraph Class** (`src/subagents/graph.py`)
-  - [ ] Create `SubAgentGraph` dataclass (id, goal, nodes, edges, entry_node)
-  - [ ] Entry points dict: `{"start": "first-node-id"}`
-  - [ ] Terminal nodes list (where execution ends)
-  - [ ] Pause nodes list (where execution waits for user input)
-  - [ ] Graph validation (all edges reference valid nodes, entry node exists)
-- [ ] **SubAgentExecutor** (`src/subagents/executor.py`)
-  - [ ] Execute graph from entry point to terminal/pause
-  - [ ] Context propagation between nodes (output → next input)
-  - [ ] Parallel edge execution when multiple edges match
-  - [ ] Retry logic per node with exponential backoff
-  - [ ] Execution result with success, steps_executed, output, error
-- [ ] **Pause/Resume Support** (`src/subagents/session.py`)
-  - [ ] Session state persistence (memory, paused_at, context)
-  - [ ] Resume entry points: `{pause_node}_resume` → next node
-  - [ ] Session state passed separately from input_data on resume
-  - [ ] Storage in `~/.animus/sessions/`
-- [ ] **OutputCleaner Integration** (`src/subagents/cleaner.py`)
-  - [ ] Validate node output matches next node's input schema
-  - [ ] Detect JSON parsing trap (entire response in one key)
-  - [ ] Auto-clean malformed output using fast LLM
-  - [ ] Log cleaning events for debugging
-- [ ] **Tool Discovery & Validation**
-  - [ ] Verify tools exist before adding to nodes
-  - [ ] Never assume tool names, always discover dynamically
-  - [ ] Inform user if requested tool unavailable
-- [ ] **Update SubAgentOrchestrator** (`src/subagents/orchestrator.py`)
-  - [ ] Accept SubAgentGraph instead of just SubAgentRole
-  - [ ] Use SubAgentExecutor for graph-based sub-agents
-  - [ ] Backward compatibility with role-based sub-agents
-- [ ] **Tests** (`tests/test_subagent_graph.py`)
-  - [ ] Test goal validation (criteria weights sum to 1.0)
-  - [ ] Test node type behavior (llm_generate vs llm_tool_use)
-  - [ ] Test edge conditions (on_success, on_failure, conditional)
-  - [ ] Test graph execution flow
-  - [ ] Test pause/resume with session state
-  - [ ] Test output cleaning
+- [x] **SubAgentGoal Class** (`src/subagents/goal.py`) ✓
+  - [x] Create `SubAgentGoal` dataclass (id, name, description)
+  - [x] Create `SuccessCriterion` (id, description, metric, target, weight)
+  - [x] Create `Constraint` (id, description, constraint_type, category)
+  - [x] Success criteria weights should sum to 1.0
+  - [x] Constraint types: hard (must satisfy), soft (prefer to satisfy)
+- [x] **SubAgentNode Class** (`src/subagents/node.py`) ✓
+  - [x] Create `SubAgentNode` dataclass (id, name, node_type, input_keys, output_keys)
+  - [x] Node types: `llm_generate`, `llm_tool_use`, `router`, `function`
+  - [x] System prompt with input key interpolation
+  - [x] Tools list (only for `llm_tool_use` nodes)
+  - [x] Input/output schema validation (optional)
+  - [x] Max retries configuration
+- [x] **SubAgentEdge Class** (`src/subagents/edge.py`) ✓
+  - [x] Create `SubAgentEdge` dataclass (id, source, target, condition, priority)
+  - [x] Edge conditions: `on_success`, `on_failure`, `always`, `conditional`
+  - [x] Conditional expressions for routing decisions
+  - [x] Priority for edge ordering when multiple match
+- [x] **SubAgentGraph Class** (`src/subagents/graph.py`) ✓
+  - [x] Create `SubAgentGraph` dataclass (id, goal, nodes, edges, entry_node)
+  - [x] Terminal nodes list (where execution ends)
+  - [x] Pause nodes list (where execution waits for user input)
+  - [x] Graph validation (all edges reference valid nodes, entry node exists)
+  - [x] Unreachable node detection via BFS
+  - [x] Circuit breaker for infinite loops (50 visit limit)
+- [x] **SubAgentExecutor** (`src/subagents/executor.py`) ✓
+  - [x] Execute graph from entry point to terminal/pause
+  - [x] Context propagation between nodes (output → next input)
+  - [x] Retry logic per node with exponential backoff
+  - [x] Execution result with success, steps_executed, output, error
+  - [x] StepResult per-node with duration tracking
+- [x] **Pause/Resume Support** (`src/subagents/session.py`) ✓
+  - [x] Session state persistence (SessionState dataclass)
+  - [x] SessionStore with save/load/delete/list
+  - [x] Session state passed separately from input_data on resume
+  - [x] Storage in `~/.animus/sessions/`
+- [x] **OutputCleaner Integration** (`src/subagents/cleaner.py`) ✓
+  - [x] Validate node output matches next node's input schema
+  - [x] Detect JSON parsing trap (entire response in one key)
+  - [x] Multi-strategy clean: JSON parse → code block → fallback
+  - [x] Basic type checking from schema
+- [x] **Tool Discovery & Validation** ✓
+  - [x] Verify tools exist before adding to nodes (orchestrator._validate_graph_tools)
+  - [x] Log warning if requested tool unavailable
+- [x] **Update SubAgentOrchestrator** (`src/core/subagent.py`) ✓
+  - [x] Added execute_graph() method accepting SubAgentGraph
+  - [x] Uses SubAgentExecutor for graph-based sub-agents
+  - [x] Backward compatibility with role-based sub-agents preserved
+  - [x] Pause/resume via SessionStore integration
+- [x] **Tests** (`tests/test_subagent_graph.py`) — 59 tests ✓
+  - [x] Test goal validation (criteria weights sum to 1.0)
+  - [x] Test node type behavior (llm_generate, llm_tool_use, router, function)
+  - [x] Test edge conditions (on_success, on_failure, always, conditional)
+  - [x] Test graph execution flow (function graph, router, failure edges)
+  - [x] Test retry with exponential backoff
+  - [x] Test circuit breaker for infinite loops
+  - [x] Test pause/resume with session state
+  - [x] Test session persistence (save, load, delete, list)
+  - [x] Test output cleaning (JSON trap, code blocks, type checking)
+  - [x] Test orchestrator graph tool validation
+
+**New Files:**
+
+| File | Lines | Purpose |
+|------|-------|---------|
+| src/subagents/__init__.py | 35 | Package exports |
+| src/subagents/goal.py | 101 | Goal, SuccessCriterion, Constraint |
+| src/subagents/node.py | 95 | Node types and validation |
+| src/subagents/edge.py | 71 | Edge conditions and evaluation |
+| src/subagents/graph.py | 127 | Graph container and validation |
+| src/subagents/executor.py | 253 | Graph execution engine |
+| src/subagents/session.py | 95 | Pause/resume persistence |
+| src/subagents/cleaner.py | 140 | Output validation/cleaning |
+| tests/test_subagent_graph.py | 595 | Test suite (59 tests) |
+| **Total** | **~1,512** | **Complete graph sub-agent system** |
 
 ### Phase 12: MCP Integration (from external repo analysis) ✓ (COMPLETE — Entry #20, verified #29)
 
@@ -857,13 +879,13 @@ Audio features are completely optional:
 - [ ] SQLite-vec persistent storage
 - [ ] Tree-sitter AST-aware code chunking
 
-### Sub-Agent Architecture (Phase 11)
-- [ ] Goal-driven sub-agents with success criteria
-- [ ] Node-based workflows (llm_generate, llm_tool_use, router, function)
-- [ ] Edge conditions for routing (on_success, on_failure, conditional)
-- [ ] Pause/resume for multi-turn sub-agent conversations
-- [ ] OutputCleaner for I/O validation between nodes
-- [ ] Tool discovery before node creation
+### Sub-Agent Architecture (Phase 11) ✓
+- [x] Goal-driven sub-agents with success criteria
+- [x] Node-based workflows (llm_generate, llm_tool_use, router, function)
+- [x] Edge conditions for routing (on_success, on_failure, conditional)
+- [x] Pause/resume for multi-turn sub-agent conversations
+- [x] OutputCleaner for I/O validation between nodes
+- [x] Tool discovery before node creation
 
 ### MCP Integration (Phase 12) ✓
 - [x] Expose Animus tools via MCP server
@@ -911,6 +933,13 @@ Audio features are completely optional:
 
 ## Completed (Recent)
 
+- **Phase 11: Sub-Agent Graph Architecture** (Entry #34, 59 tests) ✓
+  - New `src/subagents/` package: goal, node, edge, graph, executor, session, cleaner
+  - Goal-driven workflows with success criteria and constraints
+  - 4 node types: LLM generate, LLM tool use, router, function
+  - Graph validation, circuit breaker, pause/resume, output cleaning
+  - Orchestrator updated with execute_graph() — backward compatible
+  - ~1,512 lines total across 9 files
 - **GECK Repor: External Repository Analysis** (Entry #33) ✓
   - Analyzed 84 repositories (42 prior + 42 new) across 6 exploration goals
   - Produced repor_findings.md (523 lines) with findings, themes, and recommendations

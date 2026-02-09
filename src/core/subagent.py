@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, AsyncIterator, Callable, Optional, Awaitable
@@ -12,6 +13,8 @@ import uuid
 from src.llm.base import ModelProvider, Message
 from src.tools.base import ToolRegistry
 from src.core.agent import Agent, AgentConfig, Turn
+
+logger = logging.getLogger(__name__)
 
 
 class SubAgentRole(str, Enum):
@@ -476,3 +479,88 @@ class SubAgentOrchestrator:
     def list_results(self) -> list[SubAgentResult]:
         """List all sub-agent results."""
         return list(self._results.values())
+
+    # --- Graph-based execution (Phase 11) ---
+
+    async def execute_graph(
+        self,
+        graph: "SubAgentGraph",
+        initial_context: Optional[dict[str, Any]] = None,
+        session_id: Optional[str] = None,
+    ) -> "ExecutionResult":
+        """Execute a sub-agent graph workflow.
+
+        This is the graph-based counterpart to spawn_subagent().
+        The graph defines a DAG of nodes (LLM calls, functions, routers)
+        connected by edges (flow control).
+
+        Args:
+            graph: The graph to execute.
+            initial_context: Starting context values.
+            session_id: Session id to resume from (for pause/resume).
+
+        Returns:
+            ExecutionResult with steps, output, and pause state.
+        """
+        from src.subagents.executor import SubAgentExecutor, ExecutionResult
+        from src.subagents.session import SessionStore, SessionState
+
+        # Validate graph before execution
+        graph.validate(strict=True)
+
+        # Verify tools exist in registry
+        self._validate_graph_tools(graph)
+
+        executor = SubAgentExecutor(
+            provider=self.provider,
+            tool_registry=self.tool_registry,
+        )
+
+        # Handle resume from paused session
+        resume_from = None
+        session_state = None
+        if session_id:
+            store = SessionStore()
+            saved = store.load(session_id)
+            if saved:
+                resume_from = saved.paused_at
+                session_state = saved.context
+                logger.info("Resuming graph '%s' from node '%s'", graph.id, resume_from)
+
+        result = await executor.execute(
+            graph=graph,
+            initial_context=initial_context,
+            resume_from=resume_from,
+            session_state=session_state,
+        )
+
+        # If paused, save session state
+        if result.paused_at:
+            store = SessionStore()
+            state = SessionState(
+                session_id=session_id or str(uuid.uuid4())[:8],
+                graph_id=graph.id,
+                paused_at=result.paused_at,
+                context=result.output,
+                steps_completed=[s.node_id for s in result.steps],
+            )
+            store.save(state)
+            logger.info("Graph '%s' paused at node '%s'", graph.id, result.paused_at)
+
+        return result
+
+    def _validate_graph_tools(self, graph: "SubAgentGraph") -> None:
+        """Verify all tools referenced in graph nodes exist in the registry."""
+        from src.subagents.node import NodeType
+
+        available = {t.name for t in self.tool_registry.list_tools()}
+        missing: list[str] = []
+
+        for node in graph.nodes.values():
+            if node.node_type == NodeType.LLM_TOOL_USE:
+                for tool_name in node.tools:
+                    if tool_name not in available:
+                        missing.append(f"Node '{node.id}' references unknown tool '{tool_name}'")
+
+        if missing:
+            logger.warning("Graph tool validation issues: %s", "; ".join(missing))

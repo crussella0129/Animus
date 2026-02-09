@@ -9,6 +9,8 @@ from src.core.subagent import (
     SubAgentScope,
     SubAgentResult,
 )
+# Graph-based sub-agents available via `from src.subagents import ...`
+# Not re-exported here to avoid circular imports (executor → llm → core).
 from src.core.errors import (
     ErrorCategory,
     ClassifiedError,
@@ -120,7 +122,7 @@ __all__ = [
     "AgentConfig",
     "Turn",
     "StreamChunk",
-    # Sub-agent
+    # Sub-agent (role-based)
     "SubAgentOrchestrator",
     "SubAgentRole",
     "SubAgentScope",

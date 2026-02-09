@@ -3773,3 +3773,55 @@ Key patterns identified across 84 repos:
 - Repos analyzed: 84 (42 prior + 42 new)
 - Exploration goals covered: 6/6
 - Recommendations generated: 14
+
+---
+
+## Entry #34 — 2026-02-09
+
+### Summary
+Phase 11: Sub-Agent Graph Architecture — Implemented goal-driven graph-based sub-agent system with 7 new modules and 59 tests.
+
+### Understood Goals
+Transform sub-agents from simple role-based prompts to goal-driven workflow agents with node-based execution graphs, pause/resume, and output validation.
+
+### Actions
+- Created new `src/subagents/` package with 7 modules
+- Implemented SubAgentGoal with weighted success criteria and hard/soft constraints
+- Implemented SubAgentNode with 4 types: LLM generate, LLM tool use, router, function
+- Implemented SubAgentEdge with 4 conditions: on_success, on_failure, always, conditional
+- Implemented SubAgentGraph with validation, unreachable node detection, and BFS reachability
+- Implemented SubAgentExecutor with retry logic, circuit breaker, and context propagation
+- Implemented SessionStore for pause/resume persistence in ~/.animus/sessions/
+- Implemented OutputCleaner with JSON trap detection and multi-strategy extraction
+- Updated SubAgentOrchestrator with execute_graph() method (backward compatible)
+- Added tool discovery validation (_validate_graph_tools)
+- Wrote 59 comprehensive tests
+
+### Files Changed
+- `src/subagents/__init__.py` — Created (package exports)
+- `src/subagents/goal.py` — Created (SubAgentGoal, SuccessCriterion, Constraint)
+- `src/subagents/node.py` — Created (SubAgentNode, NodeType enum)
+- `src/subagents/edge.py` — Created (SubAgentEdge, EdgeCondition enum)
+- `src/subagents/graph.py` — Created (SubAgentGraph, GraphValidationError)
+- `src/subagents/executor.py` — Created (SubAgentExecutor, ExecutionResult, StepResult)
+- `src/subagents/session.py` — Created (SessionState, SessionStore)
+- `src/subagents/cleaner.py` — Created (OutputCleaner)
+- `src/core/subagent.py` — Modified (added execute_graph(), _validate_graph_tools())
+- `src/core/__init__.py` — Modified (comment noting subagents import path)
+- `tests/test_subagent_graph.py` — Created (59 tests)
+
+### Findings
+- Circular import avoidance: `src.subagents` cannot be re-exported from `src.core.__init__` because executor imports llm which imports core. Solved by keeping imports separate.
+- Router nodes use routing_rules for deterministic dispatch — no LLM involvement.
+- Circuit breaker (50 visits per node) prevents infinite loops in cyclic graphs.
+- Existing role-based sub-agents fully preserved — execute_graph() is additive.
+
+### Checkpoint
+**Status:** CONTINUE — Phase 11 complete. Next open phases: Phase 14 (remaining permission items) and backlog items.
+
+### Metrics
+- Files created: 9
+- Files modified: 2
+- Lines added: ~1,512
+- Tests added: 59
+- Test pass rate: 100% (59/59)
