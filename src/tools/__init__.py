@@ -11,6 +11,8 @@ from src.tools.base import (
     ToolResult,
     ToolCategory,
     ToolRegistry,
+    DecoratedTool,
+    tool,
 )
 from src.tools.filesystem import (
     ReadFileTool,
@@ -45,6 +47,8 @@ __all__ = [
     "ToolResult",
     "ToolCategory",
     "ToolRegistry",
+    "DecoratedTool",
+    "tool",
     # Filesystem
     "ReadFileTool",
     "WriteFileTool",

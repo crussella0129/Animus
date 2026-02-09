@@ -4011,3 +4011,42 @@ Add a reliability layer between the Agent and LLM providers. When a model fails 
 - Files modified: 2 (agent.py, __init__.py)
 - Tests added: 26 (310 total passing)
 - Fallback chain features: escalation, de-escalation, cooldown, event history, stats
+
+---
+
+## Entry #40 — 2026-02-09
+
+### Summary
+Implement decorator-based tool registry (GECK Repor Recommendation #7): `@tool()` decorator that creates Tool instances from functions with automatic parameter inference from type hints and docstrings.
+
+### Understood Goals
+Replace boilerplate class-based tool definitions with a lightweight decorator for simple tools. The decorator infers parameters from type hints and descriptions from docstrings, producing fully compatible Tool instances with OpenAI schema generation.
+
+### Actions
+- Added `@tool()` decorator to `src/tools/base.py`
+- Added `DecoratedTool` class (subclass of Tool) for decorated functions
+- Added `_python_type_to_json()`: maps Python types to JSON Schema types
+- Added `_extract_param_descriptions()`: parses Google-style docstrings for param descriptions
+- Added `_infer_parameters()`: builds ToolParameter list from signature + hints + docs
+- Supports both sync and async functions
+- If function returns ToolResult, uses it directly; otherwise wraps return value
+- Exception handling returns ToolResult(success=False, error=...)
+- Exported `tool` and `DecoratedTool` from `src/tools/__init__.py`
+- 28 tests: type mapping (7), docstring parsing (4), param inference (5), decorator (12)
+
+### Files Changed
+- `src/tools/base.py` — Modified (~180 lines added: imports, type map, helpers, DecoratedTool, @tool decorator)
+- `src/tools/__init__.py` — Modified (added exports)
+- `tests/test_tool_decorator.py` — Created (28 tests)
+
+### Findings
+- Case-insensitive section header matching needed for docstring parsing — `inspect.getdoc()` normalizes indentation but section headers like "Returns:" may not be at line start.
+- The decorator approach works well for stateless tools. Stateful tools (needing init-time config) should still use class-based Tool definitions.
+
+### Checkpoint
+**Status:** CONTINUE — Decorator-based tool registry complete. Next: action loop detection.
+
+### Metrics
+- Files created: 1 (test_tool_decorator.py)
+- Files modified: 2 (base.py, __init__.py)
+- Tests added: 28 (338 total passing)

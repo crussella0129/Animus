@@ -1,6 +1,6 @@
 # Tasks — ANIMUS
 
-**Last Updated:** 2026-02-09 (Entry #39: Model fallback chain, 310 tests)
+**Last Updated:** 2026-02-09 (Entry #40: Decorator-based tool registry, 338 tests)
 
 ## Design Philosophy Update
 
@@ -938,6 +938,10 @@ Audio features are completely optional:
 
 ## Completed (Recent)
 
+- **Decorator-Based Tool Registry** (Entry #40, GECK Repor Recommendation #7) ✓
+  - `@tool()` decorator with param inference from type hints + docstrings
+  - `DecoratedTool` subclass, sync/async support, OpenAI schema generation
+  - 28 new tests
 - **Model Fallback Chain** (Entry #39, GECK Repor Recommendation #6) ✓
   - `ModelFallbackChain` with escalation, de-escalation, cooldown, event history
   - `active_model` property — fallback chain overrides config.model
