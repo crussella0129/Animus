@@ -1,6 +1,6 @@
 # Tasks — ANIMUS
 
-**Last Updated:** 2026-02-03 (Entry #32: Phase 17 Audio Interface complete, 804 tests passing)
+**Last Updated:** 2026-02-09 (Entry #33: GECK Repor complete, 84 repos analyzed)
 
 ## Design Philosophy Update
 
@@ -911,6 +911,11 @@ Audio features are completely optional:
 
 ## Completed (Recent)
 
+- **GECK Repor: External Repository Analysis** (Entry #33) ✓
+  - Analyzed 84 repositories (42 prior + 42 new) across 6 exploration goals
+  - Produced repor_findings.md (523 lines) with findings, themes, and recommendations
+  - Key discoveries: GBNF grammar constraints, progressive disclosure memory, parse-retry-correct loops, variant/fallback systems, skill-as-markdown pattern
+  - 14 prioritized recommendations (Immediate / Near-term / Strategic)
 - **Phase 17: Audio Interface** (Entry #32, 804 tests) ✓
   - MIDI concatenative speech synthesis with spooky AI voice
   - Mozart fanfare and Bach spooky completion music
@@ -1016,6 +1021,53 @@ Audio features are completely optional:
 | **assafelovic/skyll** | Protocol-based sources, relevance ranking, LRU caching with TTL | 90% hardcoded |
 | **oxidecomputer/dropshot** | Type-safe extractors, trait-based APIs, OpenAPI generation from code | 100% hardcoded |
 | **adenhq/hive** | Node graphs, edge conditions, semantic failure detection | 60% hardcoded |
+
+### External Repositories (Analyzed 2026-02-09 — GECK Repor)
+
+| Repository | Key Patterns |
+|------------|-------------|
+| **AntonOsika/gpt-engineer** | Step-based pipeline, ABC+defaults, preprompts, FilesDict, chat-to-files parser |
+| **nerdalert/agent-lightning** | Emit telemetry, resource versioning, weakref linking, capability declarations |
+| **nicholasgriffintn/rho** | JSONL memory with decay, skills-as-markdown SOPs, auto-memory extraction, tiered models |
+| **nicholasgriffintn/CodePilot** | Promise-based permission gate, SSE streaming, incremental DB migration |
+| **Doriandarko/maestro** | Orchestrator→sub-agent decomposition, file-based context passing, parallel execution |
+| **amcode21/codex-action** | Middleware pipeline, auth→rate-limit→execute chain, structured error responses |
+| **pydantic/monty** | Code-as-action mode, Python sandbox execution, collapses N tool-call round trips into 1 |
+| **VoltAgent/voltagent** | Multi-agent lifecycle, guardrails middleware, typed registry pattern |
+| **openai/codex/skills** | Skill marketplace concept, composable skill definitions, multi-agent roles |
+| **OpenBMB/ChatDev** | Multi-agent software company, role-based chat chains, meta-programming |
+| **ggerganov/llama.cpp** | GBNF grammar-constrained decoding, sampling pipeline, JSON schema→grammar converter |
+| **nicholasgriffintn/nanochat** | Tool use via token forcing, single-dial config, compute-optimal training strategies |
+| **rasbt/LLMs-from-scratch** | Instruction fine-tuning, LoRA implementation, DPO, masked loss computation |
+| **tensorzero/tensorzero** | Variant/fallback systems, Best-of-N, DICL, feedback flywheel, <1ms gateway |
+| **LifeisaJourney/memU** | 3-layer memory hierarchy, Protocol-based DI, pipeline validation, interceptors |
+| **mtybadger/shannon** | Prompt-as-config, Temporal workflows, tiered error classification |
+| **langchain-ai/langchain** | Runnable protocol, pipe composition, .with_retry()/.with_fallbacks(), send_to_llm errors |
+| **langgenius/dify** | Model provider factory, unified 5-type error translation, DAG workflows, hybrid RAG |
+| **browser-use/browser-use** | Decorator tool registry, action loop detector, capability-tiered prompts, fallback LLM |
+| **nicholasgriffintn/claude-mem** | Progressive disclosure memory (3-layer), granular vector indexing, hybrid search |
+| **Textualize/rich** | Protocol-based rendering, Live display, thread-safe console, render hooks |
+| **yamadashy/repomix** | Token counting, Tree-sitter compression, DI with overrideDeps, config layering |
+| **yt-dlp/yt-dlp** | Extractor auto-routing, importlib plugins, expected-error flags, lazy loading |
+| **nicholasgriffintn/superpowers** | Skill shadowing, 2-5 min task decomposition, progressive disclosure, sub-agent orchestration |
+| **nicholasgriffintn/awesome-claude-skills** | Skill scaffolding (init/package scripts), scripts/ for deterministic tasks, references/ |
+| **nicholasgriffintn/WrenAI** | @provider decorator registry, Jinja2 conditional prompts, PipelineComponent DI |
+| **nicholasgriffintn/compound-engineering** | Knowledge compounding loop, parallel sub-agent phases, #$ARGUMENTS template vars |
+| **opendatalab/MinerU** | Singleton model cache (config-keyed), multi-backend strategy, batch processing |
+| **Shubhamsaboo/awesome-llm-apps** | Local RAG patterns, fallback chains, similarity threshold tuning, chunk size tuning |
+| **sgl-project/sglang** | Radix tree KV-cache, continuous batching, structured generation constraints |
+| **outlines-dev/outlines** | Finite-state machine guided generation, regex→FSM compilation, token masking |
+| **mlc-ai/web-llm** | WebGPU runtime, tokenizer in browser, streaming decode, model sharding |
+| **lmstudio-ai/lms** | CLI model management, download progress, server lifecycle, local model catalog |
+| **amannn/next-intl** | ICU message format, namespace scoping, server/client component patterns |
+| **n8n-io/n8n** | Visual workflow builder, credential encryption, webhook triggers, retry logic |
+| **BerriAI/litellm** | 100+ provider adapters, unified interface, budget/rate limiting, fallback routing |
+| **simonw/llm** | Plugin system (entry points), template management, SQLite logging, model aliases |
+| **deepseek-ai/DeepSeek-V3** | Multi-head latent attention, auxiliary-loss-free balancing, FP8 mixed precision |
+| **meta-llama/llama-models** | Reference implementations, tokenizer specs, model card conventions |
+| **huggingface/transformers** | Auto classes, pipeline abstraction, model hub integration, from_pretrained pattern |
+| **vllm-project/vllm** | PagedAttention, continuous batching, tensor parallelism, OpenAI-compatible API |
+| **ollama/ollama** | Modelfile format, layer caching, concurrent model serving, REST+gRPC API |
 
 ---
 
