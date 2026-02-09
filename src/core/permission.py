@@ -18,6 +18,7 @@ import shlex
 import fnmatch
 from dataclasses import dataclass, field
 from enum import Enum
+from functools import lru_cache
 from pathlib import Path
 from typing import Optional, Union
 
@@ -241,6 +242,154 @@ class PermissionConfig:
     profile: str = "standard"
 
 
+# =============================================================================
+# DEFAULT PERMISSION PROFILES — HARDCODED CONFIGURATIONS
+# =============================================================================
+
+PERMISSION_PROFILES: dict[str, "PermissionConfig"] = {}
+
+
+def _init_profiles() -> None:
+    """Initialize default permission profiles (called at module load)."""
+    # strict: ask for everything except reads
+    PERMISSION_PROFILES["strict"] = PermissionConfig(
+        additional_allow_read=[],
+        additional_deny=[],
+        require_ask=["*"],
+        profile="strict",
+    )
+
+    # standard: allow reads, ask for writes/bash
+    PERMISSION_PROFILES["standard"] = PermissionConfig(
+        additional_allow_read=[],
+        additional_deny=[],
+        require_ask=["*"],
+        profile="standard",
+    )
+
+    # trusted: allow most operations, ask only for destructive
+    PERMISSION_PROFILES["trusted"] = PermissionConfig(
+        additional_allow_read=["*"],
+        additional_deny=[],
+        require_ask=[],
+        profile="trusted",
+    )
+
+
+_init_profiles()
+
+
+def get_profile(name: str) -> PermissionConfig:
+    """Get a permission profile by name.
+
+    Args:
+        name: Profile name ("strict", "standard", or "trusted").
+
+    Returns:
+        PermissionConfig for the profile.
+
+    Raises:
+        ValueError: If profile name is unknown.
+    """
+    if name not in PERMISSION_PROFILES:
+        raise ValueError(
+            f"Unknown profile '{name}'. Available: {', '.join(PERMISSION_PROFILES.keys())}"
+        )
+    return PERMISSION_PROFILES[name]
+
+
+# =============================================================================
+# PER-AGENT PERMISSION SCOPES — HARDCODED
+# =============================================================================
+
+
+@dataclass
+class AgentPermissionScope:
+    """Defines permission scope for a specific agent type.
+
+    These are hardcoded configurations — not user-overridable for security.
+    """
+    name: str
+    can_read: bool = True
+    can_write: bool = False
+    can_execute: bool = False
+    allowed_shell_commands: frozenset[str] = field(default_factory=frozenset)
+    description: str = ""
+
+    def check_operation(self, operation: PermissionCategory) -> PermissionAction:
+        """Check if an operation is allowed for this scope."""
+        if operation == PermissionCategory.READ:
+            return PermissionAction.ALLOW if self.can_read else PermissionAction.DENY
+        elif operation == PermissionCategory.WRITE:
+            return PermissionAction.ALLOW if self.can_write else PermissionAction.DENY
+        elif operation == PermissionCategory.EXECUTE:
+            return PermissionAction.ALLOW if self.can_execute else PermissionAction.DENY
+        return PermissionAction.ASK
+
+    def check_command(self, command: str) -> PermissionAction:
+        """Check if a shell command is allowed for this scope."""
+        if not self.can_execute:
+            return PermissionAction.DENY
+
+        if not self.allowed_shell_commands:
+            return PermissionAction.ALLOW  # No restrictions on which commands
+
+        cmd_lower = command.lower().strip()
+
+        # Check if command starts with any allowed command
+        # Handles multi-word entries like "git status", "pip list"
+        for allowed in self.allowed_shell_commands:
+            if cmd_lower.startswith(allowed.lower()):
+                return PermissionAction.ALLOW
+        return PermissionAction.DENY
+
+
+# Predefined agent scopes
+AGENT_SCOPES: dict[str, AgentPermissionScope] = {
+    "explore": AgentPermissionScope(
+        name="explore",
+        can_read=True,
+        can_write=False,
+        can_execute=False,
+        description="Read-only exploration: no writes, no shell",
+    ),
+    "plan": AgentPermissionScope(
+        name="plan",
+        can_read=True,
+        can_write=False,
+        can_execute=True,
+        allowed_shell_commands=frozenset(SAFE_READ_COMMANDS),
+        description="Read-only with safe shell commands for analysis",
+    ),
+    "build": AgentPermissionScope(
+        name="build",
+        can_read=True,
+        can_write=True,
+        can_execute=True,
+        description="Standard permissions: read, write, execute with confirmation",
+    ),
+}
+
+
+def get_agent_scope(name: str) -> AgentPermissionScope:
+    """Get a per-agent permission scope by name.
+
+    Args:
+        name: Scope name ("explore", "plan", or "build").
+
+    Returns:
+        AgentPermissionScope instance.
+
+    Raises:
+        ValueError: If scope name is unknown.
+    """
+    if name not in AGENT_SCOPES:
+        raise ValueError(
+            f"Unknown agent scope '{name}'. Available: {', '.join(AGENT_SCOPES.keys())}"
+        )
+    return AGENT_SCOPES[name]
+
+
 class PermissionChecker:
     """Hardcoded permission checking system.
 
@@ -248,13 +397,38 @@ class PermissionChecker:
     NO LLM inference is used.
     """
 
-    def __init__(self, config: Optional[PermissionConfig] = None):
+    def __init__(
+        self,
+        config: Optional[PermissionConfig] = None,
+        agent_scope: Optional[AgentPermissionScope] = None,
+        cache_size: int = 256,
+    ):
         """Initialize with optional configuration.
 
         Args:
             config: User configuration (cannot override mandatory denies).
+            agent_scope: Per-agent permission scope (explore, plan, build).
+            cache_size: Max entries in the permission cache (0 to disable).
         """
         self.config = config or PermissionConfig()
+        self.agent_scope = agent_scope
+        self._cache_size = cache_size
+        self._path_cache: dict[tuple[str, str], PermissionResult] = {}
+        self._command_cache: dict[str, PermissionResult] = {}
+
+    def clear_cache(self) -> None:
+        """Clear the permission evaluation cache."""
+        self._path_cache.clear()
+        self._command_cache.clear()
+
+    @property
+    def cache_stats(self) -> dict[str, int]:
+        """Return cache statistics."""
+        return {
+            "path_entries": len(self._path_cache),
+            "command_entries": len(self._command_cache),
+            "max_size": self._cache_size,
+        }
 
     def _normalize_path(self, path: Union[str, Path]) -> Path:
         """Normalize a path for consistent checking.
@@ -453,7 +627,9 @@ class PermissionChecker:
         """Check permission for a path operation.
 
         Checks in order:
+        0. Cache lookup
         1. Mandatory denies (CANNOT be overridden)
+        1.5. Agent scope restrictions
         2. User-configured additional denies
         3. Read operations on dangerous files (allowed for read, denied for write)
         4. User-configured allow patterns
@@ -466,6 +642,29 @@ class PermissionChecker:
         Returns:
             PermissionResult with the decision.
         """
+        # Step 0: Cache lookup
+        cache_key = (str(path), operation.value)
+        if self._cache_size > 0 and cache_key in self._path_cache:
+            return self._path_cache[cache_key]
+
+        result = self._check_path_uncached(path, operation)
+
+        # Store in cache (evict oldest if full)
+        if self._cache_size > 0:
+            if len(self._path_cache) >= self._cache_size:
+                # Remove oldest entry (first key)
+                oldest = next(iter(self._path_cache))
+                del self._path_cache[oldest]
+            self._path_cache[cache_key] = result
+
+        return result
+
+    def _check_path_uncached(
+        self,
+        path: Union[str, Path],
+        operation: PermissionCategory,
+    ) -> PermissionResult:
+        """Check path permission without caching."""
         # Step 1: Check mandatory denies FIRST
         mandatory = self.check_path_mandatory_deny(path, operation)
         if mandatory:
@@ -474,6 +673,17 @@ class PermissionChecker:
         normalized = self._normalize_path(path)
         path_str = str(normalized)
         filename = normalized.name
+
+        # Step 1.5: Check agent scope restrictions
+        if self.agent_scope:
+            action = self.agent_scope.check_operation(operation)
+            if action == PermissionAction.DENY:
+                return PermissionResult(
+                    action=PermissionAction.DENY,
+                    reason=f"Denied by agent scope '{self.agent_scope.name}': "
+                           f"{operation.value} not allowed",
+                    path=path_str,
+                )
 
         # Step 2: Check user-configured additional denies
         for pattern in self.config.additional_deny:
@@ -514,7 +724,9 @@ class PermissionChecker:
         """Check permission for a shell command.
 
         Checks in order:
+        0. Cache lookup
         1. Mandatory denies (CANNOT be overridden)
+        1.5. Agent scope restrictions
         2. Destructive commands (require confirmation)
         3. Safe read commands (auto-allow)
         4. Default to ASK
@@ -525,10 +737,37 @@ class PermissionChecker:
         Returns:
             PermissionResult with the decision.
         """
+        # Step 0: Cache lookup
+        if self._cache_size > 0 and command in self._command_cache:
+            return self._command_cache[command]
+
+        result = self._check_command_uncached(command)
+
+        # Store in cache
+        if self._cache_size > 0:
+            if len(self._command_cache) >= self._cache_size:
+                oldest = next(iter(self._command_cache))
+                del self._command_cache[oldest]
+            self._command_cache[command] = result
+
+        return result
+
+    def _check_command_uncached(self, command: str) -> PermissionResult:
+        """Check command permission without caching."""
         # Step 1: Check mandatory denies FIRST
         mandatory = self.check_command_mandatory_deny(command)
         if mandatory:
             return mandatory
+
+        # Step 1.5: Check agent scope restrictions
+        if self.agent_scope:
+            action = self.agent_scope.check_command(command)
+            if action == PermissionAction.DENY:
+                return PermissionResult(
+                    action=PermissionAction.DENY,
+                    reason=f"Denied by agent scope '{self.agent_scope.name}': "
+                           f"command not allowed",
+                )
 
         cmd_lower = command.lower().strip()
 

@@ -14,14 +14,19 @@ from src.core.permission import (
     PermissionResult,
     PermissionConfig,
     PermissionChecker,
+    AgentPermissionScope,
     check_path_permission,
     check_command_permission,
     is_mandatory_deny_path,
     is_mandatory_deny_command,
+    get_profile,
+    get_agent_scope,
     DANGEROUS_DIRECTORIES,
     DANGEROUS_FILES,
     BLOCKED_COMMANDS,
     SAFE_READ_COMMANDS,
+    PERMISSION_PROFILES,
+    AGENT_SCOPES,
 )
 
 
@@ -427,3 +432,208 @@ class TestPathComponentMatching:
         assert checker._is_path_component_match("/project/repo.git/file", ".git/") is False
         assert checker._is_path_component_match("/project/.ssh_backup/key", ".ssh/") is False
         assert checker._is_path_component_match("/project/my.ssh/config", ".ssh/") is False
+
+
+# =============================================================================
+# Permission Cache Tests
+# =============================================================================
+
+
+class TestPermissionCache:
+    """Test that permission results are cached within a session."""
+
+    def test_cache_hit_for_same_path(self):
+        checker = PermissionChecker(cache_size=128)
+        r1 = checker.check_path("/tmp/test.txt", PermissionCategory.READ)
+        r2 = checker.check_path("/tmp/test.txt", PermissionCategory.READ)
+        assert r1.action == r2.action
+        assert checker.cache_stats["path_entries"] == 1
+
+    def test_cache_miss_for_different_operation(self):
+        checker = PermissionChecker(cache_size=128)
+        checker.check_path("/tmp/test.txt", PermissionCategory.READ)
+        checker.check_path("/tmp/test.txt", PermissionCategory.WRITE)
+        assert checker.cache_stats["path_entries"] == 2
+
+    def test_command_cache(self):
+        checker = PermissionChecker(cache_size=128)
+        r1 = checker.check_command("ls -la")
+        r2 = checker.check_command("ls -la")
+        assert r1.action == r2.action
+        assert checker.cache_stats["command_entries"] == 1
+
+    def test_clear_cache(self):
+        checker = PermissionChecker(cache_size=128)
+        checker.check_path("/tmp/test.txt", PermissionCategory.READ)
+        checker.check_command("ls")
+        assert checker.cache_stats["path_entries"] == 1
+        assert checker.cache_stats["command_entries"] == 1
+        checker.clear_cache()
+        assert checker.cache_stats["path_entries"] == 0
+        assert checker.cache_stats["command_entries"] == 0
+
+    def test_cache_disabled(self):
+        checker = PermissionChecker(cache_size=0)
+        checker.check_path("/tmp/test.txt", PermissionCategory.READ)
+        assert checker.cache_stats["path_entries"] == 0
+
+    def test_cache_eviction(self):
+        checker = PermissionChecker(cache_size=2)
+        checker.check_path("/tmp/a.txt", PermissionCategory.READ)
+        checker.check_path("/tmp/b.txt", PermissionCategory.READ)
+        checker.check_path("/tmp/c.txt", PermissionCategory.READ)
+        # Only 2 entries should remain (evicted oldest)
+        assert checker.cache_stats["path_entries"] == 2
+
+    def test_mandatory_denies_still_cached(self):
+        """Mandatory deny results should also be cached."""
+        checker = PermissionChecker(cache_size=128)
+        r1 = checker.check_path("/home/user/.ssh/id_rsa", PermissionCategory.WRITE)
+        r2 = checker.check_path("/home/user/.ssh/id_rsa", PermissionCategory.WRITE)
+        assert r1.action == PermissionAction.DENY
+        assert r1.action == r2.action
+        assert checker.cache_stats["path_entries"] == 1
+
+
+# =============================================================================
+# Permission Profile Tests
+# =============================================================================
+
+
+class TestPermissionProfiles:
+    """Test default permission profiles."""
+
+    def test_profiles_exist(self):
+        assert "strict" in PERMISSION_PROFILES
+        assert "standard" in PERMISSION_PROFILES
+        assert "trusted" in PERMISSION_PROFILES
+
+    def test_get_profile(self):
+        strict = get_profile("strict")
+        assert strict.profile == "strict"
+
+    def test_get_profile_invalid(self):
+        with pytest.raises(ValueError, match="Unknown profile"):
+            get_profile("nonexistent")
+
+    def test_strict_profile(self):
+        strict = get_profile("strict")
+        assert strict.profile == "strict"
+        assert strict.require_ask == ["*"]
+
+    def test_standard_profile(self):
+        standard = get_profile("standard")
+        assert standard.profile == "standard"
+
+    def test_trusted_profile(self):
+        trusted = get_profile("trusted")
+        assert trusted.profile == "trusted"
+        assert "*" in trusted.additional_allow_read
+
+    def test_profiles_are_distinct(self):
+        strict = get_profile("strict")
+        trusted = get_profile("trusted")
+        assert strict.profile != trusted.profile
+
+
+# =============================================================================
+# Agent Permission Scope Tests
+# =============================================================================
+
+
+class TestAgentPermissionScope:
+    """Test per-agent permission scopes."""
+
+    def test_scopes_exist(self):
+        assert "explore" in AGENT_SCOPES
+        assert "plan" in AGENT_SCOPES
+        assert "build" in AGENT_SCOPES
+
+    def test_get_agent_scope(self):
+        explore = get_agent_scope("explore")
+        assert explore.name == "explore"
+
+    def test_get_agent_scope_invalid(self):
+        with pytest.raises(ValueError, match="Unknown agent scope"):
+            get_agent_scope("nonexistent")
+
+    def test_explore_scope(self):
+        explore = get_agent_scope("explore")
+        assert explore.can_read is True
+        assert explore.can_write is False
+        assert explore.can_execute is False
+
+    def test_explore_denies_write(self):
+        explore = get_agent_scope("explore")
+        assert explore.check_operation(PermissionCategory.WRITE) == PermissionAction.DENY
+
+    def test_explore_denies_execute(self):
+        explore = get_agent_scope("explore")
+        assert explore.check_operation(PermissionCategory.EXECUTE) == PermissionAction.DENY
+
+    def test_explore_allows_read(self):
+        explore = get_agent_scope("explore")
+        assert explore.check_operation(PermissionCategory.READ) == PermissionAction.ALLOW
+
+    def test_plan_scope(self):
+        plan = get_agent_scope("plan")
+        assert plan.can_read is True
+        assert plan.can_write is False
+        assert plan.can_execute is True
+
+    def test_plan_allows_safe_commands(self):
+        plan = get_agent_scope("plan")
+        assert plan.check_command("ls -la") == PermissionAction.ALLOW
+        assert plan.check_command("git status") == PermissionAction.ALLOW
+
+    def test_plan_denies_unsafe_commands(self):
+        plan = get_agent_scope("plan")
+        assert plan.check_command("python3 script.py") == PermissionAction.DENY
+
+    def test_build_scope(self):
+        build = get_agent_scope("build")
+        assert build.can_read is True
+        assert build.can_write is True
+        assert build.can_execute is True
+
+    def test_build_allows_all_operations(self):
+        build = get_agent_scope("build")
+        assert build.check_operation(PermissionCategory.READ) == PermissionAction.ALLOW
+        assert build.check_operation(PermissionCategory.WRITE) == PermissionAction.ALLOW
+        assert build.check_operation(PermissionCategory.EXECUTE) == PermissionAction.ALLOW
+
+    def test_build_allows_any_command(self):
+        build = get_agent_scope("build")
+        assert build.check_command("python3 test.py") == PermissionAction.ALLOW
+
+    def test_checker_with_explore_scope(self):
+        """Test PermissionChecker integration with agent scope."""
+        explore = get_agent_scope("explore")
+        checker = PermissionChecker(agent_scope=explore)
+        result = checker.check_path("/tmp/file.py", PermissionCategory.WRITE)
+        assert result.action == PermissionAction.DENY
+        assert "explore" in result.reason
+
+    def test_checker_with_explore_scope_allows_read(self):
+        explore = get_agent_scope("explore")
+        checker = PermissionChecker(agent_scope=explore)
+        result = checker.check_path("/tmp/file.py", PermissionCategory.READ)
+        assert result.action == PermissionAction.ALLOW
+
+    def test_checker_with_plan_scope_command(self):
+        plan = get_agent_scope("plan")
+        checker = PermissionChecker(agent_scope=plan)
+        # Safe command
+        result = checker.check_command("git status")
+        assert result.action == PermissionAction.ALLOW
+        # Unsafe command
+        result = checker.check_command("python3 deploy.py")
+        assert result.action == PermissionAction.DENY
+
+    def test_mandatory_deny_overrides_scope(self):
+        """Mandatory denies take precedence over permissive scopes."""
+        build = get_agent_scope("build")
+        checker = PermissionChecker(agent_scope=build)
+        result = checker.check_command("rm -rf /")
+        assert result.action == PermissionAction.DENY
+        assert result.is_mandatory

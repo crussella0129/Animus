@@ -3825,3 +3825,42 @@ Transform sub-agents from simple role-based prompts to goal-driven workflow agen
 - Lines added: ~1,512
 - Tests added: 59
 - Test pass rate: 100% (59/59)
+
+---
+
+## Entry #35 — 2026-02-09
+
+### Summary
+Phase 14 completion: Added permission caching, 3 default profiles (strict/standard/trusted), and 3 per-agent scopes (explore/plan/build) to the hardcoded permission system.
+
+### Understood Goals
+Complete remaining Phase 14 items: session-level permission caching, default permission profiles, and per-agent permission scopes.
+
+### Actions
+- Added LRU-style permission cache to PermissionChecker (path + command caches, configurable size, eviction)
+- Created 3 default profiles: strict (ask all except reads), standard (allow reads, ask writes), trusted (allow most)
+- Created AgentPermissionScope class with check_operation() and check_command()
+- Defined 3 agent scopes: explore (read-only), plan (read + safe shell), build (standard)
+- Integrated agent_scope into PermissionChecker (checked after mandatory denies, before user config)
+- Fixed multi-word command matching (e.g., "git status" in allowed_shell_commands)
+- Added 31 new tests covering cache, profiles, and scopes
+- Updated exports in core/__init__.py
+
+### Files Changed
+- `src/core/permission.py` — Modified (added cache, profiles, scopes, ~150 lines)
+- `src/core/__init__.py` — Modified (added new exports)
+- `tests/test_permission.py` — Modified (31 new tests)
+
+### Findings
+- Multi-word commands in allowed lists (e.g., "git status") need prefix matching, not exact base-command matching. Fixed with `startswith()`.
+- Cache uses dict insertion order for FIFO eviction (Python 3.7+).
+- Agent scopes integrate cleanly between mandatory denies and user config in the permission check chain.
+
+### Checkpoint
+**Status:** CONTINUE — Phase 14 complete. All current sprint phases done. Remaining: backlog items.
+
+### Metrics
+- Files modified: 3
+- Lines added: ~250
+- Tests added: 31 (92 total permission tests)
+- Test pass rate: 100% (92/92)

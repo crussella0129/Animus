@@ -1,6 +1,6 @@
 # Tasks — ANIMUS
 
-**Last Updated:** 2026-02-09 (Entry #34: Phase 11 Sub-Agent Graph Architecture complete, 59 tests)
+**Last Updated:** 2026-02-09 (Entry #35: Phase 14 Enhanced Permission System complete, 92 tests)
 
 ## Design Philosophy Update
 
@@ -411,7 +411,7 @@ After analyzing 12 additional repositories, a critical insight emerged: **many a
 - [x] **Bundled Skills** — code-review, test-gen, refactor, explain, commit ✓
 - [x] **Skills Tests** (`tests/test_skills.py`) — 59 tests ✓
 
-### Phase 14: Enhanced Permission System (from OpenCode analysis)
+### Phase 14: Enhanced Permission System (from OpenCode analysis) ✓ (COMPLETE — Entries #17, #35)
 
 **Goal:** Replace binary confirmation with three-tier allow/deny/ask system.
 
@@ -419,7 +419,7 @@ After analyzing 12 additional repositories, a critical insight emerged: **many a
 
 **Implementation Principle:** 100% hardcoded — LLMs NEVER make security decisions.
 
-**Status:** Partially complete via Phase 16. Core permission system implemented.
+**Status:** COMPLETE. Permission cache, 3 profiles, 3 agent scopes, 92 tests passing.
 
 **Tasks:**
 - [x] **Mandatory Deny Lists** (`src/core/permission.py`) — HARDCODED, NON-OVERRIDABLE ✓ (Phase 16)
@@ -436,19 +436,23 @@ After analyzing 12 additional repositories, a critical insight emerged: **many a
   - [x] Path normalization (resolve, expanduser, Windows path handling)
   - [x] Pattern matching via fnmatch.fnmatch()
   - [x] Command parsing via shlex.split() (deterministic)
-  - [ ] Cache evaluated permissions for session
+  - [x] Cache evaluated permissions for session (LRU dict, configurable size)
 - [x] **Symlink Boundary Validation** (from sandbox-runtime) — HARDCODED ✓ (Phase 16)
   - [x] Resolve symlink targets
   - [x] Verify target within allowed boundaries
   - [x] Block symlink-based escapes
-- [ ] **Default Profiles** — HARDCODED configurations
-  - [ ] `strict`: ask_all except reads
-  - [ ] `standard`: allow reads, ask writes/bash
-  - [ ] `trusted`: allow most, ask destructive
-- [ ] **Per-Agent Permission Scopes** — HARDCODED
-  - [ ] Explore: read-only, no writes, no shell
-  - [ ] Plan: read-only, limited shell (read commands only)
-  - [ ] Build: standard permissions
+- [x] **Default Profiles** — HARDCODED configurations ✓ (Entry #35)
+  - [x] `strict`: ask_all except reads
+  - [x] `standard`: allow reads, ask writes/bash
+  - [x] `trusted`: allow most, ask destructive
+  - [x] PERMISSION_PROFILES dict + get_profile() function
+- [x] **Per-Agent Permission Scopes** — HARDCODED ✓ (Entry #35)
+  - [x] Explore: read-only, no writes, no shell
+  - [x] Plan: read-only, limited shell (read commands only)
+  - [x] Build: standard permissions
+  - [x] AgentPermissionScope class with check_operation() and check_command()
+  - [x] AGENT_SCOPES dict + get_agent_scope() function
+  - [x] PermissionChecker integration via agent_scope parameter
 
 ### Phase 15: OpenAI-Compatible Local API (from Jan, Lemonade) ✓ (MOSTLY COMPLETE — verified #29)
 
@@ -899,11 +903,12 @@ Audio features are completely optional:
 - [x] CLI commands: skill list/show/inscribe/install/run
 - [x] Bundled skills: code-review, test-gen, refactor, explain, commit
 
-### Permission System (Phase 14) — Partially Complete
+### Permission System (Phase 14) ✓
 - [x] Three-tier permissions: allow/deny/ask
 - [x] Pattern-based file access control
-- [ ] Per-agent permission profiles
-- [ ] Default profiles: strict, standard, trusted
+- [x] Per-agent permission scopes (explore, plan, build)
+- [x] Default profiles: strict, standard, trusted
+- [x] Permission caching for session
 
 ### Local API Server (Phase 15) ✓
 - [x] OpenAI-compatible `/v1/chat/completions`
@@ -933,6 +938,12 @@ Audio features are completely optional:
 
 ## Completed (Recent)
 
+- **Phase 14: Enhanced Permission System** (Entry #35, 92 tests) ✓
+  - Permission caching (LRU dict, configurable size, eviction)
+  - 3 default profiles: strict, standard, trusted
+  - 3 agent scopes: explore (read-only), plan (read + safe shell), build (full)
+  - AgentPermissionScope integrated into PermissionChecker
+  - 31 new tests (92 total)
 - **Phase 11: Sub-Agent Graph Architecture** (Entry #34, 59 tests) ✓
   - New `src/subagents/` package: goal, node, edge, graph, executor, session, cleaner
   - Goal-driven workflows with success criteria and constraints
