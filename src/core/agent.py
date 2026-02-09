@@ -45,6 +45,7 @@ from src.core.compaction import (
 )
 from src.core.tokenizer import count_tokens, is_tiktoken_available
 from src.core.planner import Planner, ExecutionPlan, PlanStep, StepStatus
+from src.core.fallback import ModelFallbackChain, FallbackModel
 
 
 @dataclass
@@ -118,6 +119,11 @@ class AgentConfig:
     # Delegation settings
     enable_delegation: bool = False  # Enable multi-agent delegation
     max_parallel_agents: int = 4  # Max sub-agents running in parallel
+
+    # Model fallback chain: list of (model_name, max_failures) tuples
+    # When set, overrides `model` — uses chain for automatic escalation
+    fallback_models: Optional[list[tuple[str, int]]] = None
+    fallback_auto_deescalate: bool = True  # Return to preferred model after cooldown
 
 
 @dataclass
@@ -300,6 +306,17 @@ class Agent:
 
         # Progressive disclosure: holds full results keyed by index
         self._pending_context: dict[int, tuple[str, float, dict]] = {}
+
+        # Model fallback chain
+        self._fallback_chain: Optional[ModelFallbackChain] = None
+        if self.config.fallback_models:
+            self._fallback_chain = ModelFallbackChain(
+                models=[
+                    FallbackModel(model=name, max_failures=max_f)
+                    for name, max_f in self.config.fallback_models
+                ],
+                auto_deescalate=self.config.fallback_auto_deescalate,
+            )
 
         # Session compaction
         self._compactor: Optional[SessionCompactor] = None
@@ -517,8 +534,8 @@ class Agent:
         if tier in SYSTEM_PROMPT_TIERS:
             return tier
 
-        # Auto-detect from model name
-        model_lower = self.config.model.lower()
+        # Auto-detect from active model name (respects fallback chain)
+        model_lower = self.active_model.lower()
         for tier_name, patterns in _TIER_PATTERNS.items():
             for pattern in patterns:
                 if pattern in model_lower:
@@ -538,6 +555,13 @@ class Agent:
             return self.config.system_prompt
         tier = self._resolve_prompt_tier()
         return SYSTEM_PROMPT_TIERS[tier]
+
+    @property
+    def active_model(self) -> str:
+        """Get the currently active model, respecting fallback chain."""
+        if self._fallback_chain:
+            return self._fallback_chain.current_model
+        return self.config.model
 
     def _build_messages(self, include_tools: bool = True) -> list[Message]:
         """Build message list for the LLM."""
@@ -1224,12 +1248,13 @@ class Agent:
 
         # Local models use JSON-in-response parsing (more reliable than native function calling).
         # API models (GPT-4, Claude, etc.) use native function calling via tools parameter.
-        is_local = self.config.model.startswith("local/") or self.config.model.endswith(".gguf")
+        model = self.active_model
+        is_local = model.startswith("local/") or model.endswith(".gguf")
         tool_schemas = None
         if not is_local and self.tool_registry:
             tool_schemas = self.tool_registry.get_schemas()
 
-        # Generate response with retry logic
+        # Generate response with retry + fallback chain logic
         gen_config = GenerationConfig(
             temperature=self.config.temperature,
             max_tokens=4096,
@@ -1243,15 +1268,37 @@ class Agent:
             try:
                 result = await self.provider.generate(
                     messages=messages,
-                    model=self.config.model,
+                    model=model,
                     config=gen_config,
                     tools=tool_schemas,
                 )
+                # Record success for fallback chain
+                if self._fallback_chain:
+                    self._fallback_chain.record_success()
                 break  # Success, exit retry loop
             except Exception as e:
                 classified = classify_error(e)
                 last_error = classified
                 self._last_error = classified
+
+                # Record failure and try fallback escalation
+                if self._fallback_chain:
+                    escalated = self._fallback_chain.record_failure()
+                    if escalated:
+                        # Switch to next model and retry immediately
+                        model = self.active_model
+                        is_local = model.startswith("local/") or model.endswith(".gguf")
+                        tool_schemas = None
+                        if not is_local and self.tool_registry:
+                            tool_schemas = self.tool_registry.get_schemas()
+                        backoff = self.config.retry_backoff_base
+                        continue
+                    # Fallback chain active but not yet escalated — always
+                    # allow retry (chain tracks failures for escalation)
+                    if attempt < self.config.max_retries:
+                        await asyncio.sleep(backoff)
+                        backoff *= self.config.retry_backoff_multiplier
+                        continue
 
                 # Only retry if the error strategy says we should
                 if not classified.strategy.should_retry or attempt >= self.config.max_retries:
@@ -1847,6 +1894,8 @@ When done, provide a brief summary of what was accomplished."""
         self.history = []
         self._current_turn = 0
         self._pending_context.clear()
+        if self._fallback_chain:
+            self._fallback_chain.reset()
         self._decision_recorder.clear()
         if self._compactor:
             self._compactor.clear_history()

@@ -3968,3 +3968,46 @@ RAG results currently consume ~700-750 tokens per query (5 results × ~150 token
 - Files modified: 2
 - Tests added: 15 (284 total passing)
 - Token savings: ~60-70% reduction in initial RAG context overhead
+
+---
+
+## Entry #39 — 2026-02-09
+
+### Summary
+Implement model fallback chain (GECK Repor Recommendation #6): automatic escalation through models on consecutive failures (local small → local large → API), with de-escalation after cooldown.
+
+### Understood Goals
+Add a reliability layer between the Agent and LLM providers. When a model fails consecutively, automatically escalate to the next model in the chain. Return to the preferred (cheaper/faster) model after a cooldown period.
+
+### Actions
+- Created `src/core/fallback.py`: `FallbackModel`, `FallbackEvent`, `ModelFallbackChain` classes
+- `record_failure()` tracks consecutive failures, escalates after `max_failures`
+- `record_success()` resets failure count, optionally de-escalates after cooldown
+- Added `fallback_models` and `fallback_auto_deescalate` config to AgentConfig
+- Added `active_model` property to Agent (fallback chain takes priority over config.model)
+- Integrated into `step()` retry loop: escalation on failure, success tracking, model switching
+- When fallback chain is active, retries are always allowed (chain manages escalation)
+- Updated `_resolve_prompt_tier()` to use `active_model` (prompt tier auto-adjusts on escalation)
+- Reset fallback chain on `agent.reset()`
+- Exported `ModelFallbackChain`, `FallbackModel`, `FallbackEvent` from `src/core/__init__.py`
+- 26 new tests: FallbackModel (2), ModelFallbackChain (17), AgentFallbackIntegration (7)
+
+### Files Changed
+- `src/core/fallback.py` — Created (~200 lines)
+- `src/core/agent.py` — Modified (import, config, init, active_model property, step() integration, reset cleanup)
+- `src/core/__init__.py` — Modified (added fallback exports)
+- `tests/test_fallback.py` — Created (26 tests)
+
+### Findings
+- When a fallback chain is active, the standard error classification retry logic must be bypassed — the chain itself manages when to escalate vs. retry. Without this, `UNKNOWN` errors (should_retry=False) would prevent retries needed for escalation.
+- Prompt tier auto-adjusts when model changes: escalating from `local/small-7b` (compact) to `gpt-4o` (full) automatically selects the right system prompt.
+- De-escalation uses cooldown_seconds to avoid immediately returning to a failing model.
+
+### Checkpoint
+**Status:** CONTINUE — Model fallback chain complete. Next: decorator-based tool registry or action loop detection.
+
+### Metrics
+- Files created: 2 (fallback.py, test_fallback.py)
+- Files modified: 2 (agent.py, __init__.py)
+- Tests added: 26 (310 total passing)
+- Fallback chain features: escalation, de-escalation, cooldown, event history, stats

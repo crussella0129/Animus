@@ -106,6 +106,11 @@ from src.core.planner import (
     PlanStep,
     StepStatus,
 )
+from src.core.fallback import (
+    ModelFallbackChain,
+    FallbackModel,
+    FallbackEvent,
+)
 from src.core.web_validator import (
     WebContentJudge,
     WebContentRuleEngine,
@@ -217,6 +222,10 @@ __all__ = [
     "ExecutionPlan",
     "PlanStep",
     "StepStatus",
+    # Model Fallback Chain
+    "ModelFallbackChain",
+    "FallbackModel",
+    "FallbackEvent",
     # Web Content Validation (Ungabunga-Box)
     "WebContentJudge",
     "WebContentRuleEngine",

@@ -1,6 +1,6 @@
 # Tasks — ANIMUS
 
-**Last Updated:** 2026-02-09 (Entry #38: Progressive disclosure RAG, 284 tests)
+**Last Updated:** 2026-02-09 (Entry #39: Model fallback chain, 310 tests)
 
 ## Design Philosophy Update
 
@@ -938,6 +938,11 @@ Audio features are completely optional:
 
 ## Completed (Recent)
 
+- **Model Fallback Chain** (Entry #39, GECK Repor Recommendation #6) ✓
+  - `ModelFallbackChain` with escalation, de-escalation, cooldown, event history
+  - `active_model` property — fallback chain overrides config.model
+  - Integrated into step() retry loop, prompt tier auto-adjusts on model switch
+  - 26 new tests
 - **Progressive Disclosure RAG** (Entry #38, GECK Repor Recommendation #3) ✓
   - Compact index format with snippets (~80 chars), token budget enforcement
   - `expand_context(id)` for on-demand full content retrieval
