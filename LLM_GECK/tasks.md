@@ -1,6 +1,6 @@
 # Tasks — ANIMUS
 
-**Last Updated:** 2026-02-09 (Entry #36: Parse-retry-correct loop, 253 tests)
+**Last Updated:** 2026-02-09 (Entry #37: Capability-tiered system prompts, 269 tests)
 
 ## Design Philosophy Update
 
@@ -938,6 +938,11 @@ Audio features are completely optional:
 
 ## Completed (Recent)
 
+- **Capability-Tiered System Prompts** (Entry #37, GECK Repor Recommendation #4) ✓
+  - 3 tiers: full (large models), compact (7B-34B), minimal (<7B)
+  - Auto-detection from model name, explicit override via `prompt_tier` config
+  - Custom `system_prompt` still overrides tier selection
+  - 16 new tests
 - **Parse-Retry-Correct Loop** (Entry #36, GECK Repor Recommendation #2) ✓
   - `_looks_like_tool_attempt()` heuristic: ≥2 tool-call keywords near a brace
   - Retry loop in `step()`: re-prompt LLM with malformed output up to `parse_retry_max` times

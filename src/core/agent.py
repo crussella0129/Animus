@@ -93,6 +93,9 @@ class AgentConfig:
     # Parse-retry-correct: re-prompt the LLM when tool call JSON is malformed
     parse_retry_max: int = 3  # Max retries for malformed tool call output
 
+    # System prompt tier: "auto" (detect from model name), "full", "compact", "minimal"
+    prompt_tier: str = "auto"
+
     # Compaction settings
     enable_compaction: bool = True
     compaction_strategy: str = "hybrid"  # summarize, truncate, sliding, hybrid
@@ -146,7 +149,15 @@ class StreamChunk:
         return cls(type="turn", turn=turn)
 
 
-DEFAULT_SYSTEM_PROMPT = """You are Animus, a coding agent. You complete tasks by calling tools.
+# ---------------------------------------------------------------------------
+# Capability-tiered system prompts
+# ---------------------------------------------------------------------------
+# Full: for large models (GPT-4, Claude, 70B+) — detailed instructions
+# Compact: for medium models (7B-30B) — essential info, shorter
+# Minimal: for small models (<7B) — bare minimum, one action at a time
+# ---------------------------------------------------------------------------
+
+SYSTEM_PROMPT_FULL = """You are Animus, a coding agent. You complete tasks by calling tools.
 
 ## Available Tools
 
@@ -172,6 +183,52 @@ You can think before the JSON block. The system will detect and execute it.
 3. Follow instructions exactly. "A file called X" means a file named X, not a directory.
 4. Be concise.
 """
+
+SYSTEM_PROMPT_COMPACT = """You are Animus, a coding agent. Call tools via JSON.
+
+Tools: write_file(path, content, create_dirs), read_file(path), list_dir(path), run_shell(command)
+
+Call format: {"tool": "TOOL_NAME", "arguments": {"key": "value"}}
+
+Rules:
+- Output ONE tool call per response.
+- Act immediately. Do not describe what you plan to do.
+- Use write_file instead of run_shell for file creation.
+- Be concise.
+"""
+
+SYSTEM_PROMPT_MINIMAL = """You are Animus. Call tools with JSON.
+
+{"tool": "TOOL_NAME", "arguments": {"key": "value"}}
+
+Tools: write_file, read_file, list_dir, run_shell
+One tool call per response. Act now.
+"""
+
+# Mapping of tier names to prompts
+SYSTEM_PROMPT_TIERS = {
+    "full": SYSTEM_PROMPT_FULL,
+    "compact": SYSTEM_PROMPT_COMPACT,
+    "minimal": SYSTEM_PROMPT_MINIMAL,
+}
+
+# Backward compatibility alias
+DEFAULT_SYSTEM_PROMPT = SYSTEM_PROMPT_FULL
+
+# Model patterns for auto-tier detection (substring matches, case-insensitive)
+_TIER_PATTERNS = {
+    "full": [
+        "gpt-4", "claude", "opus", "sonnet",
+        "70b", "72b", "65b", "mixtral",
+        "command-r-plus", "llama-3.1-70",
+    ],
+    "compact": [
+        "7b", "8b", "13b", "14b", "22b", "27b", "30b", "32b", "34b",
+        "mistral", "phi-3", "phi-4", "gemma", "qwen",
+        "command-r", "deepseek",
+    ],
+    # Everything else (very small models, .gguf without size info) → minimal
+}
 
 
 class Agent:
@@ -445,10 +502,36 @@ class Agent:
 
         return result
 
+    def _resolve_prompt_tier(self) -> str:
+        """Resolve the system prompt tier based on config and model name.
+
+        Returns one of: "full", "compact", "minimal".
+        """
+        tier = self.config.prompt_tier.lower()
+        if tier in SYSTEM_PROMPT_TIERS:
+            return tier
+
+        # Auto-detect from model name
+        model_lower = self.config.model.lower()
+        for tier_name, patterns in _TIER_PATTERNS.items():
+            for pattern in patterns:
+                if pattern in model_lower:
+                    return tier_name
+
+        # Default: local/gguf models without size info → minimal
+        if model_lower.startswith("local/") or model_lower.endswith(".gguf"):
+            return "minimal"
+
+        # Unknown API model → full
+        return "full"
+
     @property
     def system_prompt(self) -> str:
-        """Get the system prompt."""
-        return self.config.system_prompt or DEFAULT_SYSTEM_PROMPT
+        """Get the system prompt, respecting capability tier."""
+        if self.config.system_prompt:
+            return self.config.system_prompt
+        tier = self._resolve_prompt_tier()
+        return SYSTEM_PROMPT_TIERS[tier]
 
     def _build_messages(self, include_tools: bool = True) -> list[Message]:
         """Build message list for the LLM."""

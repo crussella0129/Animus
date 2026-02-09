@@ -3900,3 +3900,34 @@ Add a parse-retry-correct mechanism to `Agent.step()` so that malformed tool cal
 - Files modified: 2
 - Tests added: 15 (253 total passing)
 - Test pass rate: 100% (253/253, excluding 4 pre-existing failures)
+
+---
+
+## Entry #37 — 2026-02-09
+
+### Summary
+Implement capability-tiered system prompts (GECK Repor Recommendation #4): 3 tiers (full/compact/minimal) auto-selected by model name, reducing prompt token waste for small models.
+
+### Understood Goals
+Different model sizes need different system prompts. Large models benefit from detailed instructions; small models need minimal prompts to preserve context for actual work.
+
+### Actions
+- Defined 3 system prompt tiers: `SYSTEM_PROMPT_FULL` (original, ~600 chars), `SYSTEM_PROMPT_COMPACT` (~300 chars, one-action-per-response), `SYSTEM_PROMPT_MINIMAL` (<200 chars, bare JSON format)
+- Added `SYSTEM_PROMPT_TIERS` dict and `_TIER_PATTERNS` for auto-detection
+- Added `prompt_tier: str = "auto"` to AgentConfig
+- Added `_resolve_prompt_tier()` method: explicit tier → pattern match → local/gguf defaults → API default
+- Updated `system_prompt` property to use tier system (custom prompt still overrides)
+- Auto-detection: GPT-4/Claude/70B+ → full, 7B-34B/Mistral/Phi → compact, unknown local → minimal, unknown API → full
+- 16 new tests covering tier existence, ordering, explicit selection, auto-detection, custom override
+
+### Files Changed
+- `src/core/agent.py` — Modified (added 3 prompt constants, tier dict, pattern dict, config field, resolver method, updated property)
+- `tests/test_agent_behavior.py` — Modified (16 new tests)
+
+### Checkpoint
+**Status:** CONTINUE — Capability-tiered prompts complete. Next: progressive disclosure for RAG (Recommendation #3).
+
+### Metrics
+- Files modified: 2
+- Tests added: 16 (269 total passing)
+- Prompt size reduction: compact is ~50% of full, minimal is ~30% of compact

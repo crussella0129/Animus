@@ -2,7 +2,11 @@
 
 import pytest
 import json
-from src.core.agent import Agent, AgentConfig
+from src.core.agent import (
+    Agent, AgentConfig,
+    SYSTEM_PROMPT_FULL, SYSTEM_PROMPT_COMPACT, SYSTEM_PROMPT_MINIMAL,
+    SYSTEM_PROMPT_TIERS,
+)
 from src.core.config import AgentBehaviorConfig, AnimusConfig
 
 
@@ -792,3 +796,100 @@ class TestParseRetryCorrectLoop:
         last_msg = retry_msgs[-1]
         assert "malformed" in last_msg.content.lower()
         assert '{"tool"' in last_msg.content
+
+
+class TestCapabilityTieredPrompts:
+    """Tests for capability-tiered system prompts."""
+
+    @pytest.fixture
+    def mock_provider(self):
+        class MockProvider:
+            is_available = True
+            async def generate(self, **kwargs):
+                class Result:
+                    content = ""
+                    tool_calls = None
+                return Result()
+        return MockProvider()
+
+    def test_three_tiers_exist(self):
+        """All three tiers should be defined."""
+        assert "full" in SYSTEM_PROMPT_TIERS
+        assert "compact" in SYSTEM_PROMPT_TIERS
+        assert "minimal" in SYSTEM_PROMPT_TIERS
+
+    def test_full_is_longest(self):
+        """Full prompt should be the longest, minimal the shortest."""
+        assert len(SYSTEM_PROMPT_FULL) > len(SYSTEM_PROMPT_COMPACT)
+        assert len(SYSTEM_PROMPT_COMPACT) > len(SYSTEM_PROMPT_MINIMAL)
+
+    def test_all_tiers_mention_tool_format(self):
+        """All tiers should include the JSON tool call format."""
+        for name, prompt in SYSTEM_PROMPT_TIERS.items():
+            assert '"tool"' in prompt, f"{name} tier missing tool call format"
+
+    def test_explicit_tier_full(self, mock_provider):
+        config = AgentConfig(prompt_tier="full")
+        agent = Agent(provider=mock_provider, config=config)
+        assert agent.system_prompt == SYSTEM_PROMPT_FULL
+
+    def test_explicit_tier_compact(self, mock_provider):
+        config = AgentConfig(prompt_tier="compact")
+        agent = Agent(provider=mock_provider, config=config)
+        assert agent.system_prompt == SYSTEM_PROMPT_COMPACT
+
+    def test_explicit_tier_minimal(self, mock_provider):
+        config = AgentConfig(prompt_tier="minimal")
+        agent = Agent(provider=mock_provider, config=config)
+        assert agent.system_prompt == SYSTEM_PROMPT_MINIMAL
+
+    def test_custom_system_prompt_overrides_tier(self, mock_provider):
+        """Explicit system_prompt should override tier selection."""
+        config = AgentConfig(prompt_tier="minimal", system_prompt="Custom prompt.")
+        agent = Agent(provider=mock_provider, config=config)
+        assert agent.system_prompt == "Custom prompt."
+
+    def test_auto_tier_gpt4(self, mock_provider):
+        config = AgentConfig(model="gpt-4-turbo", prompt_tier="auto")
+        agent = Agent(provider=mock_provider, config=config)
+        assert agent._resolve_prompt_tier() == "full"
+
+    def test_auto_tier_claude(self, mock_provider):
+        config = AgentConfig(model="claude-3-opus-20240229", prompt_tier="auto")
+        agent = Agent(provider=mock_provider, config=config)
+        assert agent._resolve_prompt_tier() == "full"
+
+    def test_auto_tier_70b(self, mock_provider):
+        config = AgentConfig(model="llama-3.1-70b-instruct", prompt_tier="auto")
+        agent = Agent(provider=mock_provider, config=config)
+        assert agent._resolve_prompt_tier() == "full"
+
+    def test_auto_tier_7b(self, mock_provider):
+        config = AgentConfig(model="local/mistral-7b-instruct", prompt_tier="auto")
+        agent = Agent(provider=mock_provider, config=config)
+        assert agent._resolve_prompt_tier() == "compact"
+
+    def test_auto_tier_phi(self, mock_provider):
+        config = AgentConfig(model="local/phi-3-mini", prompt_tier="auto")
+        agent = Agent(provider=mock_provider, config=config)
+        assert agent._resolve_prompt_tier() == "compact"
+
+    def test_auto_tier_local_gguf_unknown(self, mock_provider):
+        """Unknown local .gguf model defaults to minimal."""
+        config = AgentConfig(model="local/some-model.gguf", prompt_tier="auto")
+        agent = Agent(provider=mock_provider, config=config)
+        assert agent._resolve_prompt_tier() == "minimal"
+
+    def test_auto_tier_unknown_api(self, mock_provider):
+        """Unknown API model defaults to full."""
+        config = AgentConfig(model="some-new-api-model", prompt_tier="auto")
+        agent = Agent(provider=mock_provider, config=config)
+        assert agent._resolve_prompt_tier() == "full"
+
+    def test_compact_limits_actions(self):
+        """Compact prompt should instruct ONE tool call per response."""
+        assert "ONE tool call" in SYSTEM_PROMPT_COMPACT
+
+    def test_minimal_is_terse(self):
+        """Minimal prompt should be under 200 characters."""
+        assert len(SYSTEM_PROMPT_MINIMAL) < 200
