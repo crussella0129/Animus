@@ -1,6 +1,6 @@
 # Tasks — ANIMUS
 
-**Last Updated:** 2026-02-09 (Entry #47: DICL, Unified Error Translation, 562 tests)
+**Last Updated:** 2026-02-09 (Entry #48: Media Pipeline, GBNF Grammar, 637 tests)
 
 ## Design Philosophy Update
 
@@ -736,10 +736,11 @@ Audio features are completely optional:
   - Priority queue support
   - Pause/resume with session state
 
-- [ ] **Media Pipeline** (from Clawdbot)
+- [x] **Media Pipeline** (from Clawdbot) ✓ Entry #48
   - File download with size limits
-  - MIME detection
+  - MIME detection (magic numbers + extension)
   - TTL-based cleanup
+  - Extension blocklist, MIME allowlist
 
 - [ ] **Knowledge Graph for Code** (from Potpie)
   - Neo4j or SQLite-based code graph
@@ -938,6 +939,12 @@ Audio features are completely optional:
 
 ## Completed (Recent)
 
+- **Media Pipeline + GBNF Grammar** (Entry #48, Backlog + Recommendation #1) ✓
+  - `MediaPipeline` with streaming download, 25+ magic-number MIME signatures, extension blocklist
+  - `detect_mime_type()` with RIFF disambiguation (WebP vs WAV vs AVI)
+  - `schema_to_gbnf()`, `tool_call_grammar()`, `tool_call_array_grammar()`
+  - Supports all JSON types: string, integer, number, boolean, null, array, object, enum
+  - 75 new tests (50 media + 25 GBNF)
 - **Dynamic In-Context Learning (DICL)** (Entry #47, GECK Repor Recommendation #13) ✓
   - `DICLStore` with JSONL persistence, keyword search, few-shot formatting
   - `ToolCallExample` storing task, tool_calls, tool_results, response, tags

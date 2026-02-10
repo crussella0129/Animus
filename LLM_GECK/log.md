@@ -4316,3 +4316,56 @@ Implement GECK Repor Recommendation #13 — retrieve relevant past successful in
 - Files created: 2 (dicl.py, test_dicl.py)
 - Files modified: 1 (__init__.py)
 - Tests added: 35 (562 total passing)
+
+---
+
+## Entry #48 — 2026-02-09
+
+### Summary
+Media Pipeline: Safe file download with size limits, magic-number MIME detection, extension blocklist, TTL-based cleanup. GBNF Grammar Constraints: Schema-to-GBNF compiler for constrained tool call decoding in llama-cpp-python.
+
+### Understood Goals
+1. Implement Media Pipeline from the high-priority backlog — file download with size limits, MIME detection, TTL-based cleanup.
+2. Implement GECK Repor Recommendation #1 — GBNF grammar constraints for all tool call schemas in llama-cpp-python integration.
+
+### Actions
+
+**Media Pipeline (`src/core/media.py`, ~400 lines):**
+- `MediaPipeline` class: download with size limit enforcement (streaming), TTL tracking, cleanup
+- `detect_mime_type()`: Magic-number detection (25+ signatures) with fallback to extension
+- RIFF disambiguation: WebP vs WAV vs AVI from 4-byte marker at offset 8
+- `BLOCKED_EXTENSIONS` frozenset: .exe, .bat, .cmd, .ps1, .dll, .sh, etc.
+- `ALLOWED_MIME_PREFIXES` frozenset: text/, image/, audio/, video/, application/pdf, etc.
+- `_sanitize_filename()`: URL-to-filename with path traversal prevention
+- Download streams with chunk-by-chunk size checking, Content-Length pre-check
+- `cleanup()` removes expired files, `clear()` removes all tracked files
+
+**GBNF Grammar Constraints (`src/core/gbnf.py`, ~280 lines):**
+- `schema_to_gbnf(schema)`: Converts JSON Schema to GBNF grammar string
+- `tool_call_grammar(tools)`: Generates grammar accepting `{"name": "...", "arguments": {...}}`
+- `tool_call_array_grammar(tools)`: Generates grammar for array of tool calls
+- Supports: string, integer, number, boolean, null, array, object, enum, const, nested objects
+- Handles required vs optional properties with different strategies
+- Counter-based unique rule naming prevents collisions
+- All 9 JSON primitive rules included in every grammar
+
+### Files Changed
+- `src/core/media.py` — Created (MediaPipeline, detect_mime_type, MIME/extension security)
+- `src/core/gbnf.py` — Created (schema_to_gbnf, tool_call_grammar, GBNF primitives)
+- `src/core/__init__.py` — Added exports
+- `tests/test_media.py` — Created (50 tests)
+- `tests/test_gbnf.py` — Created (25 tests)
+
+### Findings
+- Magic number detection is much more reliable than extension-based for security — executables can be renamed to .txt
+- RIFF container format requires secondary disambiguation (WEBP vs WAVE vs AVI at bytes 8-12)
+- GBNF grammar generation for mixed required/optional properties needs different strategies: fixed-order for all-required, flexible for mixed
+- Counter-based rule naming is essential to avoid collisions in multi-tool grammars
+
+### Checkpoint
+**Status:** CONTINUE — Media Pipeline and GBNF Grammar complete. Remaining backlog: Knowledge Graph, Feedback Flywheel, Code-as-Action.
+
+### Metrics
+- Files created: 4 (media.py, gbnf.py, test_media.py, test_gbnf.py)
+- Files modified: 1 (__init__.py)
+- Tests added: 75 (637 total passing)

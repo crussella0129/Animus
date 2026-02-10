@@ -156,6 +156,22 @@ from src.core.queue import (
     QueueEntry,
     LaneStats,
 )
+from src.core.media import (
+    MediaPipeline,
+    MediaFile,
+    DownloadResult,
+    DownloadStatus,
+    detect_mime_type,
+    is_mime_allowed,
+    is_extension_blocked,
+    BLOCKED_EXTENSIONS,
+    ALLOWED_MIME_PREFIXES,
+)
+from src.core.gbnf import (
+    schema_to_gbnf,
+    tool_call_grammar,
+    tool_call_array_grammar,
+)
 from src.core.web_validator import (
     WebContentJudge,
     WebContentRuleEngine,
@@ -310,6 +326,20 @@ __all__ = [
     "LaneStatus",
     "QueueEntry",
     "LaneStats",
+    # Media Pipeline
+    "MediaPipeline",
+    "MediaFile",
+    "DownloadResult",
+    "DownloadStatus",
+    "detect_mime_type",
+    "is_mime_allowed",
+    "is_extension_blocked",
+    "BLOCKED_EXTENSIONS",
+    "ALLOWED_MIME_PREFIXES",
+    # GBNF Grammar Constraints
+    "schema_to_gbnf",
+    "tool_call_grammar",
+    "tool_call_array_grammar",
     # Web Content Validation (Ungabunga-Box)
     "WebContentJudge",
     "WebContentRuleEngine",
