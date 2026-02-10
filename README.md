@@ -82,6 +82,16 @@ pytest tests/ --timeout=30 -v
 
 All tests use mocks — no GPU, no API keys, no network required.
 
+## A Note on Local Inference Viability
+
+> **Disclosure — Findings from Development**
+>
+> Over the course of building Animus, empirical testing across multiple model families (Llama, Qwen, Phi, Mistral) at quantizations from Q4 through Q8 revealed a fundamental constraint: without an effective task-chunking strategy that decomposes complex instructions into model-digestible sub-tasks, local models below approximately 150B--200B parameters consistently fail to produce output of professional utility in agentic workflows. Smaller models exhibit compounding degradation across multi-turn tool-use chains — they lose instruction adherence, hallucinate tool arguments, and fail to synthesize results across steps.
+>
+> Furthermore, even assuming access to hardware capable of running a 200B-class model at interactive speeds (multi-GPU configurations north of $5,000--$10,000), the amortized total cost of ownership — electricity, GPU depreciation, thermal management, and the opportunity cost of dedicated hardware — **exceeds the amortized API cost** of running the equivalent workload against frontier cloud models over the realistic service life of consumer-grade equipment.
+>
+> Animus therefore ships with API provider support not as a convenience fallback, but as the economically rational default. The local inference path remains available for air-gapped environments, privacy-sensitive workloads, and — in the spirit of honest engineering — as a monument to the instructive futility of the exercise.
+
 ## Project Structure
 
 ```
