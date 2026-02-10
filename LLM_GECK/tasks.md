@@ -1,6 +1,6 @@
 # Tasks — ANIMUS
 
-**Last Updated:** 2026-02-10 (Log v2, Entry #4: Systest fixes — simple task detection, tool narrowing, raw JSON parsing)
+**Last Updated:** 2026-02-10 (Log v2, Entry #5: Code Knowledge Graph — AST parsing, SQLite storage, blast radius analysis)
 
 ## Design Philosophy
 
@@ -68,7 +68,7 @@ Summary of completed work:
 - [x] **Phase 7: Logging & Token Tracking** — Rotating file handler, `log_llm_call()`, `log_tool_execution()`, `TokenUsage` dataclass, `_cumulative_tokens` (17 tests)
 - [x] **GGUF Pull Enhancement** — MODEL_CATALOG (6 models), `download_gguf()`, Rich progress bar, `--list` flag, auto-config after download
 
-**Lean rebuild tests:** 245 passing (0.86s)
+**Lean rebuild tests:** 276 passing (1.3s)
 
 ---
 
@@ -110,12 +110,52 @@ Summary of completed work:
   - [x] _parse_tool_calls standalone + raw JSON (6 tests)
   - [x] Simple task detection (7 tests)
 
+### Code Knowledge Graph [COMPLETE]
+
+**Goal:** Give the agent structural understanding of codebases — who calls what, class hierarchies, import chains — beyond keyword/vector search.
+
+**Solution:** AST-based Python parser + SQLite graph DB in `src/knowledge/`, zero new dependencies.
+
+**Tasks:**
+- [x] **PythonParser** (`src/knowledge/parser.py`)
+  - [x] AST walking: extract module/class/function/method nodes
+  - [x] Edge extraction: CALLS, INHERITS, CONTAINS, IMPORTS
+  - [x] `_module_name_from_path()` derives qualified names from file paths
+  - [x] `_extract_calls()` resolves `ast.Name` and `ast.Attribute` targets
+  - [x] Syntax errors → empty result (not crash)
+- [x] **GraphDB** (`src/knowledge/graph_db.py`)
+  - [x] SQLite schema: nodes, edges, files tables with WAL mode + foreign keys
+  - [x] `upsert_file_results()` — atomic delete-old → insert-new → resolve edges
+  - [x] `search_nodes()` — SQL LIKE on name/qualified_name
+  - [x] `get_callers()` / `get_callees()` — edge traversal
+  - [x] `get_inheritance_tree()` — INHERITS edge traversal
+  - [x] `get_blast_radius()` — BFS along incoming CALLS/INHERITS/IMPORTS edges
+  - [x] Edge resolution: qualified → same-file → global → external phantom node
+- [x] **Indexer** (`src/knowledge/indexer.py`)
+  - [x] Reuses `Scanner` from `src/memory/scanner.py`, filters to `.py` files
+  - [x] Incremental: mtime + MD5 hash change detection, skip unchanged files
+  - [x] Stale file pruning (tracked but deleted from disk)
+- [x] **Agent Tools** (`src/tools/graph.py`)
+  - [x] `search_code_graph` — pattern search with optional kind filter
+  - [x] `get_callers` — all callers of a symbol
+  - [x] `get_blast_radius` — BFS affected symbols by depth
+  - [x] Registered in `rise()` when `code_graph.db` exists
+  - [x] Added to planner's `_STEP_TYPE_TOOLS[ANALYZE]`
+- [x] **CLI** — `animus graph <path>` command with stats table
+- [x] **Tests** (`tests/test_knowledge.py`) — 31 tests
+  - [x] Parser (13): nodes, edges, docstrings, line numbers, error handling
+  - [x] GraphDB (9): upsert, search, callers, callees, inheritance, blast radius, remove
+  - [x] Indexer (3): directory index, skip unchanged, single file
+  - [x] Tools (6): search, callers, blast radius, no-results, registration
+
+**Verified:** 806 nodes, 1434 edges from Animus's own 34-file codebase. Incremental re-index skips all unchanged files.
+
 ---
 
 ## Backlog
 
 ### High Priority
-- [ ] **Knowledge Graph for Code** (from Potpie) — Neo4j/SQLite code graph, function/class relationships, blast radius analysis
+- [x] **Knowledge Graph for Code** — SQLite code graph, AST parsing, blast radius analysis — `src/knowledge/`, 31 tests
 - [x] Grammar-constrained decoding for llama-cpp-python (GBNF integration) — `src/core/grammar.py`, 15 tests
 
 ### Medium Priority
