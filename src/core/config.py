@@ -61,6 +61,14 @@ class AnimusConfig(BaseSettings):
     def config_file(self) -> Path:
         return self.config_dir / "config.yaml"
 
+    @property
+    def sessions_dir(self) -> Path:
+        return self.config_dir / "sessions"
+
+    @property
+    def logs_dir(self) -> Path:
+        return self.config_dir / "logs"
+
     def save(self) -> None:
         """Save configuration to YAML file."""
         self.config_dir.mkdir(parents=True, exist_ok=True)

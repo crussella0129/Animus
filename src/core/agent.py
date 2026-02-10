@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any
+from collections.abc import Generator
+from typing import Any, Callable, Optional
 
-from src.core.context import ContextWindow
+from src.core.context import ContextWindow, estimate_tokens
 from src.core.errors import RecoveryStrategy, classify_error
 from src.llm.base import ModelProvider
 from src.tools.base import ToolRegistry
@@ -27,6 +28,7 @@ class Agent:
         self._system_prompt = system_prompt
         self._max_turns = max_turns
         self._messages: list[dict[str, str]] = []
+        self._cumulative_tokens: int = 0
 
         # Set up context window based on model capabilities
         caps = provider.capabilities()
@@ -51,10 +53,16 @@ class Agent:
             combined = user_input
             self._messages.append({"role": "user", "content": combined})
 
+        # Track input tokens
+        self._cumulative_tokens += estimate_tokens(user_input)
+
         for turn in range(self._max_turns):
             response_text = self._step()
             if response_text is None:
                 return "Error: Failed to get a response from the model."
+
+            # Track output tokens
+            self._cumulative_tokens += estimate_tokens(response_text)
 
             # Check for tool calls in the response
             tool_calls = self._parse_tool_calls(response_text)
@@ -95,6 +103,73 @@ class Agent:
                 full_messages = [{"role": "system", "content": self._system_prompt}] + shorter
                 try:
                     return self._provider.generate(full_messages, tools=tool_schemas)
+                except Exception:
+                    return None
+            return None
+
+    def run_stream(
+        self,
+        user_input: str,
+        on_chunk: Optional[Callable[[str], None]] = None,
+    ) -> str:
+        """Run the agent loop with streaming output. Calls on_chunk for each token."""
+        chunks = self._context_window.chunk_instruction(user_input)
+        if len(chunks) == 1:
+            self._messages.append({"role": "user", "content": user_input})
+        else:
+            self._messages.append({"role": "user", "content": user_input})
+
+        # Track input tokens
+        self._cumulative_tokens += estimate_tokens(user_input)
+
+        for turn in range(self._max_turns):
+            response_text = self._step_stream(on_chunk)
+            if response_text is None:
+                return "Error: Failed to get a response from the model."
+
+            # Track output tokens
+            self._cumulative_tokens += estimate_tokens(response_text)
+
+            tool_calls = self._parse_tool_calls(response_text)
+            if not tool_calls:
+                return response_text
+
+            self._messages.append({"role": "assistant", "content": response_text})
+            for call in tool_calls:
+                result = self._tools.execute(call["name"], call["arguments"])
+                self._messages.append({
+                    "role": "user",
+                    "content": f"[Tool result for {call['name']}]: {result}",
+                })
+
+        return "Reached maximum turns without a final response."
+
+    def _step_stream(self, on_chunk: Optional[Callable[[str], None]] = None) -> str | None:
+        """Single generation step with streaming support."""
+        trimmed = self._context_window.trim_messages(self._messages, self._system_prompt)
+        full_messages = [{"role": "system", "content": self._system_prompt}] + trimmed
+        tool_schemas = self._tools.to_openai_schemas() if self._tools.names() else None
+
+        try:
+            chunks: list[str] = []
+            for chunk in self._provider.generate_stream(full_messages, tools=tool_schemas):
+                chunks.append(chunk)
+                if on_chunk:
+                    on_chunk(chunk)
+            return "".join(chunks)
+        except Exception as e:
+            classified = classify_error(e)
+            if classified.recovery == RecoveryStrategy.REDUCE_CONTEXT:
+                half = max(1, len(trimmed) // 2)
+                shorter = trimmed[-half:]
+                full_messages = [{"role": "system", "content": self._system_prompt}] + shorter
+                try:
+                    chunks = []
+                    for chunk in self._provider.generate_stream(full_messages, tools=tool_schemas):
+                        chunks.append(chunk)
+                        if on_chunk:
+                            on_chunk(chunk)
+                    return "".join(chunks)
                 except Exception:
                     return None
             return None

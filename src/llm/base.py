@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Generator
 from dataclasses import dataclass
 from typing import Any
 
@@ -56,6 +57,18 @@ class ModelProvider(ABC):
     def capabilities(self) -> ModelCapabilities:
         """Return capabilities of the currently loaded model."""
         ...
+
+    def generate_stream(
+        self,
+        messages: list[dict[str, str]],
+        tools: list[dict] | None = None,
+        **kwargs: Any,
+    ) -> Generator[str, None, None]:
+        """Stream response chunks from the model. Yields str chunks.
+
+        Default implementation falls back to generate() as a single chunk.
+        """
+        yield self.generate(messages, tools=tools, **kwargs)
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         """Generate embeddings. Optional — not all providers support this."""

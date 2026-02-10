@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from collections.abc import Generator
 from typing import Any
 
 import httpx
@@ -60,6 +62,45 @@ class OpenAIProvider(ModelProvider):
         if choices:
             return choices[0].get("message", {}).get("content", "") or ""
         return ""
+
+    def generate_stream(
+        self,
+        messages: list[dict[str, str]],
+        tools: list[dict] | None = None,
+        **kwargs: Any,
+    ) -> Generator[str, None, None]:
+        payload: dict[str, Any] = {
+            "model": self._model_name,
+            "messages": messages,
+            "max_tokens": kwargs.get("max_tokens", 2048),
+            "temperature": kwargs.get("temperature", 0.7),
+            "stream": True,
+        }
+        if tools:
+            payload["tools"] = tools
+
+        with httpx.Client(timeout=self._timeout) as client:
+            with client.stream(
+                "POST",
+                f"{self._base_url}/chat/completions",
+                headers=self._headers(),
+                json=payload,
+            ) as response:
+                response.raise_for_status()
+                for line in response.iter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    data_str = line[6:]
+                    if data_str.strip() == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data_str)
+                        delta = chunk.get("choices", [{}])[0].get("delta", {})
+                        content = delta.get("content", "")
+                        if content:
+                            yield content
+                    except (json.JSONDecodeError, IndexError):
+                        continue
 
     def available(self) -> bool:
         if not self._api_key:
@@ -164,6 +205,55 @@ class AnthropicProvider(ModelProvider):
                 # Already in Anthropic-like format
                 anthropic_tools.append(tool)
         return anthropic_tools
+
+    def generate_stream(
+        self,
+        messages: list[dict[str, str]],
+        tools: list[dict] | None = None,
+        **kwargs: Any,
+    ) -> Generator[str, None, None]:
+        system_text = ""
+        filtered_messages = []
+        for msg in messages:
+            if msg.get("role") == "system":
+                system_text = msg.get("content", "")
+            else:
+                filtered_messages.append(msg)
+
+        payload: dict[str, Any] = {
+            "model": self._model_name,
+            "messages": filtered_messages,
+            "max_tokens": kwargs.get("max_tokens", self._max_tokens),
+            "stream": True,
+        }
+        if system_text:
+            payload["system"] = system_text
+        if kwargs.get("temperature") is not None:
+            payload["temperature"] = kwargs["temperature"]
+        if tools:
+            payload["tools"] = self._convert_tools(tools)
+
+        with httpx.Client(timeout=self._timeout) as client:
+            with client.stream(
+                "POST",
+                f"{self._base_url}/messages",
+                headers=self._headers(),
+                json=payload,
+            ) as response:
+                response.raise_for_status()
+                for line in response.iter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    data_str = line[6:]
+                    try:
+                        event = json.loads(data_str)
+                        if event.get("type") == "content_block_delta":
+                            delta = event.get("delta", {})
+                            text = delta.get("text", "")
+                            if text:
+                                yield text
+                    except json.JSONDecodeError:
+                        continue
 
     def available(self) -> bool:
         return bool(self._api_key)

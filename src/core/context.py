@@ -29,6 +29,23 @@ class ContextBudget:
     available_for_output: int
 
 
+@dataclass
+class TokenUsage:
+    """Cumulative token usage for a session."""
+    input_tokens: int = 0
+    output_tokens: int = 0
+
+    @property
+    def total(self) -> int:
+        return self.input_tokens + self.output_tokens
+
+    def add_input(self, tokens: int) -> None:
+        self.input_tokens += tokens
+
+    def add_output(self, tokens: int) -> None:
+        self.output_tokens += tokens
+
+
 # Tier-specific limits: what fraction of context to use for history vs. output
 _TIER_PROFILES = {
     "small": {

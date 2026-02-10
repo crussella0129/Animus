@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -10,7 +11,7 @@ from rich.table import Table
 
 from src.core.config import AnimusConfig
 from src.core.detection import detect_system
-from src.ui import console, error, info, print_logo, success
+from src.ui import console, error, info, print_logo, success, warn
 
 
 def _startup_callback(ctx: typer.Context) -> None:
@@ -197,13 +198,110 @@ def search(
     info("Note: In-memory store does not persist between runs. Use within a session.")
 
 
-# --- Rise command ---
+# --- Session commands ---
 
 
 @app.command()
-def rise() -> None:
+def sessions() -> None:
+    """List saved conversation sessions."""
+    from src.core.session import Session
+
+    cfg = AnimusConfig.load()
+    listing = Session.list_sessions(cfg.sessions_dir)
+    if not listing:
+        info("No saved sessions.")
+        return
+
+    table = Table(title="Saved Sessions")
+    table.add_column("ID", style="cyan")
+    table.add_column("Provider", style="green")
+    table.add_column("Messages", style="yellow")
+    table.add_column("Created", style="dim")
+    table.add_column("Preview", style="white", max_width=50)
+    for s in listing:
+        created = time.strftime("%Y-%m-%d %H:%M", time.localtime(s["created"])) if s["created"] else "?"
+        table.add_row(s["id"], s["provider"], str(s["messages"]), created, s["preview"])
+    console.print(table)
+
+
+# --- Rise command ---
+
+
+def _make_confirm_callback(cfg: AnimusConfig):
+    """Create a Rich-based confirmation callback for dangerous tool operations."""
+    def _confirm(message: str) -> bool:
+        if not cfg.agent.confirm_dangerous:
+            return True
+        try:
+            response = console.input(f"[bold yellow]\\[!][/] {message} [dim]\\[y/N][/] ")
+            return response.strip().lower() in ("y", "yes")
+        except (EOFError, KeyboardInterrupt):
+            return False
+    return _confirm
+
+
+def _handle_slash_command(command: str, agent, session, cfg: AnimusConfig) -> bool:
+    """Handle slash commands. Returns True if command was handled."""
+    from src.core.context import estimate_messages_tokens
+
+    cmd = command.strip().lower()
+
+    if cmd == "/help":
+        console.print("[bold cyan]Slash Commands:[/]")
+        console.print("  /save    — Save current session")
+        console.print("  /clear   — Reset conversation history")
+        console.print("  /tools   — List available tools")
+        console.print("  /tokens  — Show context usage estimate")
+        console.print("  /help    — Show this help message")
+        return True
+
+    if cmd == "/save":
+        path = session.save()
+        success(f"Session saved: {path}")
+        return True
+
+    if cmd == "/clear":
+        agent.reset()
+        session.clear_messages()
+        success("Conversation history cleared.")
+        return True
+
+    if cmd == "/tools":
+        tools = agent._tools.list_tools()
+        if not tools:
+            info("No tools registered.")
+        else:
+            table = Table(title="Available Tools")
+            table.add_column("Name", style="cyan")
+            table.add_column("Description", style="green")
+            for tool in tools:
+                table.add_row(tool.name, tool.description)
+            console.print(table)
+        return True
+
+    if cmd == "/tokens":
+        token_est = estimate_messages_tokens(agent.messages)
+        budget = agent._context_window.compute_budget(agent._system_prompt, agent.messages)
+        cumulative = getattr(agent, '_cumulative_tokens', 0)
+        console.print(f"[bold cyan]Context Usage:[/]")
+        console.print(f"  History tokens: ~{token_est} / {budget.history_tokens} budget")
+        console.print(f"  Context window: {budget.total}")
+        console.print(f"  Available for output: {budget.available_for_output}")
+        if cumulative:
+            console.print(f"  Cumulative session tokens: ~{cumulative}")
+        return True
+
+    return False
+
+
+@app.command()
+def rise(
+    resume: bool = typer.Option(False, "--resume", help="Resume the most recent session"),
+    session_id: Optional[str] = typer.Option(None, "--session", help="Resume a specific session by ID"),
+) -> None:
     """Awaken Animus. Start an interactive agent session."""
     from src.core.agent import Agent
+    from src.core.session import Session
     from src.llm.factory import ProviderFactory
     from src.tools.base import ToolRegistry
     from src.tools.filesystem import register_filesystem_tools
@@ -217,9 +315,18 @@ def rise() -> None:
         error(f"Provider '{cfg.model.provider}' is not available. Run 'animus status' to check.")
         raise typer.Exit(1)
 
+    # Set up tool registry with confirmation callback
     registry = ToolRegistry()
     register_filesystem_tools(registry)
-    register_shell_tools(registry)
+    confirm_cb = _make_confirm_callback(cfg)
+    register_shell_tools(registry, confirm_callback=confirm_cb)
+
+    # Register git tools if available
+    try:
+        from src.tools.git import register_git_tools
+        register_git_tools(registry, confirm_callback=confirm_cb)
+    except ImportError:
+        pass
 
     agent = Agent(
         provider=provider,
@@ -228,27 +335,95 @@ def rise() -> None:
         max_turns=cfg.agent.max_turns,
     )
 
-    info("Animus chat session started. Type 'exit' or 'quit' to end.")
+    # Session handling: resume or create new
+    session: Session
+    if session_id:
+        try:
+            session = Session.load_by_id(session_id, cfg.sessions_dir)
+            agent._messages = list(session.messages)
+            info(f"Resumed session: {session.id}")
+        except FileNotFoundError:
+            error(f"Session not found: {session_id}")
+            raise typer.Exit(1)
+    elif resume:
+        loaded = Session.load_latest(cfg.sessions_dir)
+        if loaded:
+            session = loaded
+            agent._messages = list(session.messages)
+            info(f"Resumed session: {session.id} ({len(session.messages)} messages)")
+        else:
+            session = Session(
+                sessions_dir=cfg.sessions_dir,
+                provider=cfg.model.provider,
+                model=cfg.model.model_name,
+            )
+            info("No previous session found. Starting new session.")
+    else:
+        session = Session(
+            sessions_dir=cfg.sessions_dir,
+            provider=cfg.model.provider,
+            model=cfg.model.model_name,
+        )
+
+    # Show session info
+    info(f"Provider: [bold]{cfg.model.provider}[/]  Model: [bold]{cfg.model.model_name}[/]")
+    info(f"Session: {session.id}")
+    info("Type 'exit' or 'quit' to end. Type '/help' for commands.")
     console.print()
 
-    while True:
-        try:
-            user_input = console.input("[bold cyan]You>[/] ")
-        except (EOFError, KeyboardInterrupt):
+    try:
+        while True:
+            try:
+                user_input = console.input("[bold cyan]You>[/] ")
+            except (EOFError, KeyboardInterrupt):
+                console.print()
+                break
+
+            stripped = user_input.strip()
+            if stripped.lower() in ("exit", "quit", "q"):
+                break
+
+            if not stripped:
+                continue
+
+            # Handle slash commands
+            if stripped.startswith("/"):
+                if _handle_slash_command(stripped, agent, session, cfg):
+                    console.print()
+                    continue
+                else:
+                    warn(f"Unknown command: {stripped}. Type /help for available commands.")
+                    console.print()
+                    continue
+
+            # Normal message: send to agent with streaming
+            session.add_message("user", stripped)
+            collected: list[str] = []
+            first_chunk = True
+
+            def _on_chunk(chunk: str) -> None:
+                nonlocal first_chunk
+                if first_chunk:
+                    console.print("[bold green]Animus>[/] ", end="")
+                    first_chunk = False
+                console.print(chunk, end="", highlight=False)
+                collected.append(chunk)
+
+            response = agent.run_stream(stripped, on_chunk=_on_chunk)
+            if not collected:
+                # Fallback: stream didn't produce chunks (e.g. error path)
+                console.print(f"[bold green]Animus>[/] {response}")
+            else:
+                console.print()  # newline after streamed output
+            session.add_message("assistant", response)
             console.print()
-            info("Session ended.")
-            break
 
-        if user_input.strip().lower() in ("exit", "quit", "q"):
-            info("Session ended.")
-            break
-
-        if not user_input.strip():
-            continue
-
-        response = agent.run(user_input)
-        console.print(f"[bold green]Animus>[/] {response}")
-        console.print()
+    finally:
+        # Auto-save on exit
+        session.messages = list(agent.messages)
+        session.save()
+        info(f"Session saved: {session.id}")
+        info("Session ended.")
 
 
 if __name__ == "__main__":
