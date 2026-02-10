@@ -232,13 +232,13 @@ animus rise                    # start interactive session
 
 ### What to expect by model size
 
-**1B models (small tier)** -- fast but limited:
-- Produces valid tool calls only with GBNF grammar (plan-then-execute mode)
-- Direct mode returns prose/code blocks instead of JSON tool calls
-- Best for: single-step file operations via planner, simple Q&A
+**1B models (small tier)** -- fast, functional with constraints:
+- Valid tool calls in both direct mode (GBNF grammar) and plan-then-execute
+- Cannot transition from tool-call mode to prose after receiving results
+- Best for: single-step file operations (list, read, write), simple Q&A
 
 **3-4B models (small/medium tier)** -- usable for structured tasks:
-- Reliable tool calling with GBNF, occasional success in direct mode
+- Reliable tool calling with GBNF, occasional success without grammar
 - Can handle 3-5 step plans
 - Best for: file operations, simple code generation, exploration
 
@@ -252,12 +252,13 @@ animus rise                    # start interactive session
 
 | Capability | 1B (Llama 3.2) | 7B (Qwen Coder) |
 |-----------|----------------|------------------|
-| Tool call via GBNF | Valid JSON, correct tool names | Valid JSON, better argument quality |
+| Tool call via GBNF | Valid JSON, correct args | Valid JSON, better argument quality |
+| Direct mode tool calls | 4/5 tasks succeed (with grammar + prompt) | Reliable |
 | File write quality | Generator-based flatten (works but unusual) | List-based flatten with example usage |
 | Plan decomposition | 3 steps at ctx=4096 | 5 steps at ctx=4096 |
 | Self-verification | None | Reads back files, attempts to run code |
-| Direct mode tool calls | Never (prose only) | Rare (prose with code blocks) |
-| Speed (RTX 2080 Ti) | ~6s per step | ~30-50s per step |
+| Multi-turn reasoning | Cannot switch from JSON to prose | Can summarize tool results |
+| Speed (RTX 2080 Ti) | ~1-6s per step | ~30-50s per step |
 
 ## Model VRAM Requirements
 
@@ -319,6 +320,68 @@ Planning complexity also scales with context via `log2(context_length / 1024)`, 
 | **explorer** | Navigates codebases, reads files, searches | Needs context retention across tool rounds | llama-3.2-3b, phi-4-mini, qwen-2.5-3b, qwen-2.5-7b, qwen-2.5-coder-7b, gemma-3-4b |
 
 Use `animus models --role planner` to filter by role, or `animus models --vram 4` to find models that fit your GPU.
+
+## Research Findings
+
+Empirical results from iterative development and testing on an RTX 2080 Ti (11 GB), using Llama 3.2 1B and Qwen 2.5 Coder 7B at Q4_K_M quantization.
+
+### Phase 1: The Prose Problem
+
+Initial observation: 1B models replied with prose explanations instead of executing tool calls.
+
+- The `Agent._step()` path called `provider.generate()` **without** GBNF grammar constraints
+- The `ChunkedExecutor` (plan-then-execute) path called `provider.generate()` **with** GBNF grammar -- and tool calls worked
+- Both paths used the same model and the same tools
+- The difference was entirely infrastructure, not model capability
+
+### Phase 2: Isolating the Variables
+
+A controlled diagnostic tested every combination of prompt style and grammar:
+
+- **Generic prompt, no grammar** -- 1B model produced prose (explained `ls` command instead of calling `list_dir`)
+- **Generic prompt + GBNF grammar** -- 1B model produced valid JSON tool calls, but used wrong argument names (copied `"key"` from the example literally)
+- **Focused prompt with tool examples, no grammar** -- 1B model produced **correct** tool calls with right argument names
+- **Focused prompt + GBNF grammar** -- perfect tool calls
+
+Key finding: **GBNF grammar forces JSON structure; the prompt teaches correct content.** Both are needed together. Neither alone is sufficient for reliable tool calling.
+
+### Phase 3: The Argument Name Problem
+
+The system prompt example `{"name": "tool_name", "arguments": {"key": "value"}}` caused the 1B model to use `"key"` as the literal argument name in every call. The model has no concept of placeholder vs. literal text.
+
+- Fix: generate concrete tool call examples from the actual registered tools, using real parameter names
+- Example: `list_dir: {"name": "list_dir", "arguments": {"path": "example_path", "recursive": false}}`
+- After fix: 1B model used `"path"` correctly on first attempt
+
+### Phase 4: The Mode-Switching Floor
+
+After a successful tool call, the agent feeds the tool result back for the model to summarize. The 1B model keeps producing JSON tool calls instead of switching to natural language -- it's "stuck" in JSON mode.
+
+- GBNF grammar on first turn only (disabled after tool results) -- model still produces JSON without grammar
+- The system prompt's "respond with ONLY the JSON tool call" instruction persists across turns
+- The 1B model cannot reason about when to use tools vs. when to summarize results
+- **Workaround**: return the last tool result directly as the response (graceful degradation)
+- **Floor**: multi-turn tool-call-then-summarize requires ~3-4B models
+
+### Phase 5: 1B vs 7B Comparison
+
+After applying all fixes, side-by-side comparison on identical tasks:
+
+- **1B model (Llama 3.2)**: 4/5 tool-calling tasks succeed in direct mode. Correct tool names and argument names. ~1s per generation. Cannot summarize tool results -- returns raw tool output.
+- **7B model (Qwen Coder)**: All tasks succeed. Produces higher-quality code (proper error handling, docstrings, example usage). Shows initiative -- reads files back to verify writes, attempts to run generated code. 5 plan steps vs 3 at same context length. ~30-50s per generation.
+- Both models benefit from GBNF grammar, but the 7B model occasionally succeeds without it
+- The 7B model's plan-then-execute path produced over-decomposed plans (5 separate write_file calls that overwrote each other) -- more steps is not always better
+
+### Summary of Floors
+
+| Capability | Minimum Model Size | Notes |
+|-----------|-------------------|-------|
+| Single tool call (with grammar + prompt) | **1B** | GBNF + concrete examples in prompt |
+| Single tool call (without grammar) | **3-4B** | Focused prompt alone sufficient |
+| Multi-turn tool use (call, get result, summarize) | **3-4B** | 1B cannot switch from JSON to prose |
+| Multi-step planning (decompose + execute) | **1B** (with planner) | Planner handles decomposition, GBNF handles execution |
+| Self-verification (read back, check work) | **7B** | Requires initiative beyond instruction following |
+| Code quality suitable for production use | **7B+** | Error handling, edge cases, documentation |
 
 ## Testing
 
