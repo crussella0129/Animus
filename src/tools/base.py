@@ -42,6 +42,33 @@ class Tool(ABC):
         }
 
 
+def _coerce_args(args: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]:
+    """Coerce argument types based on JSON Schema declarations.
+
+    LLMs sometimes return integers as strings (e.g., "30" instead of 30).
+    Uses the tool's parameter schema to cast values to their declared types.
+    """
+    properties = schema.get("properties", {})
+    coerced = dict(args)
+    for key, value in coerced.items():
+        if key not in properties:
+            continue
+        expected_type = properties[key].get("type")
+        if expected_type == "integer" and isinstance(value, str):
+            try:
+                coerced[key] = int(value)
+            except (ValueError, TypeError):
+                pass
+        elif expected_type == "number" and isinstance(value, str):
+            try:
+                coerced[key] = float(value)
+            except (ValueError, TypeError):
+                pass
+        elif expected_type == "boolean" and isinstance(value, str):
+            coerced[key] = value.lower() in ("true", "1", "yes")
+    return coerced
+
+
 class ToolRegistry:
     """Registry for managing available tools."""
 
@@ -70,6 +97,7 @@ class ToolRegistry:
         if tool is None:
             return f"Error: Unknown tool '{name}'"
         try:
-            return tool.execute(args)
+            coerced = _coerce_args(args, tool.parameters)
+            return tool.execute(coerced)
         except Exception as e:
             return f"Error executing {name}: {e}"

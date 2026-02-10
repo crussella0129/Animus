@@ -211,7 +211,7 @@ def _filter_tools(registry: ToolRegistry, step_type: StepType, step_description:
 
 _TYPE_KEYWORDS: list[tuple[StepType, list[str]]] = [
     (StepType.GIT, ["commit", "branch", "checkout", "stage", "git add", "git status", "git diff", "git log", "push", "merge"]),
-    (StepType.WRITE, ["write", "create file", "save", "modify", "edit", "update file", "add to file", "append"]),
+    (StepType.WRITE, ["write", "create file", "create a", "make a", "save", "modify", "edit", "update file", "add to file", "append"]),
     (StepType.READ, ["read", "view", "open", "inspect", "examine", "look at", "check file", "cat "]),
     (StepType.SHELL, ["run ", "execute", "install", "pip", "npm", "command", "terminal", "shell", "pytest", "test"]),
     (StepType.GENERATE, ["generate", "produce", "draft", "compose", "build", "construct", "implement", "code"]),
@@ -435,6 +435,11 @@ class ChunkedExecutor:
         tool_schemas = filtered_registry.to_openai_schemas() if filtered_registry.names() else None
 
         # Agentic loop for this single step
+        import json as _json
+
+        prev_call_key: str | None = None
+        repeat_count = 0
+        last_tool_result = ""
         for turn in range(self._max_step_turns):
             full_messages = [{"role": "system", "content": system_prompt}] + messages
             # Trim if needed
@@ -473,17 +478,37 @@ class ChunkedExecutor:
                 # No tool calls — step is complete
                 return StepResult(step=step, status=StepStatus.COMPLETED, output=response)
 
+            # Detect repeated identical tool calls to prevent infinite loops
+            call_key = _json.dumps(
+                [(c["name"], c["arguments"]) for c in tool_calls], sort_keys=True
+            )
+            if call_key == prev_call_key:
+                repeat_count += 1
+                if repeat_count >= 2:
+                    messages.append({"role": "assistant", "content": response})
+                    messages.append({
+                        "role": "user",
+                        "content": "[System]: That tool call was repeated and failed. Move on to a different action.",
+                    })
+                    if last_tool_result:
+                        return StepResult(step=step, status=StepStatus.COMPLETED, output=last_tool_result)
+                    continue
+            else:
+                repeat_count = 0
+            prev_call_key = call_key
+
             # Execute tools and continue the loop
             messages.append({"role": "assistant", "content": response})
             for call in tool_calls:
                 result = filtered_registry.execute(call["name"], call["arguments"])
+                last_tool_result = result
                 messages.append({
                     "role": "user",
                     "content": f"[Tool result for {call['name']}]: {result}",
                 })
 
         # Exhausted turns — consider the step complete with what we have
-        last_output = messages[-1].get("content", "") if messages else ""
+        last_output = last_tool_result or (messages[-1].get("content", "") if messages else "")
         return StepResult(step=step, status=StepStatus.COMPLETED, output=last_output)
 
 
@@ -589,6 +614,9 @@ class PlanExecutor:
         For simple tasks, skips the LLM planning step and creates a single
         step directly — still uses the execution framework (GBNF grammar, tool
         schemas) which is essential for small models to produce tool calls.
+
+        For multi-step tasks, tries LLM decomposition first, then falls back
+        to heuristic conjunction splitting if the LLM produces too few steps.
         """
         if _is_simple_task(task):
             # Skip planning — single-step execution with grammar constraints
@@ -606,8 +634,16 @@ class PlanExecutor:
             # Phase 2: Parse
             steps = self._parser.parse(raw_plan)
 
+            # Fallback: if LLM produced <=1 step for a multi-conjunction task,
+            # use heuristic splitting instead. Small models often collapse
+            # multi-step instructions into a single step.
+            if len(steps) <= 1:
+                heuristic_steps = _heuristic_decompose(task)
+                if heuristic_steps:
+                    steps = heuristic_steps
+
             if not steps:
-                # Fallback: if parsing found no steps, create a single step
+                # Final fallback: single step with full task
                 steps = [Step(
                     number=1,
                     description=task,
@@ -666,3 +702,37 @@ def _is_simple_task(task: str) -> bool:
         return True
 
     return False
+
+
+def _heuristic_decompose(task: str) -> list[Step]:
+    """Split a multi-step task into steps using conjunction splitting.
+
+    Handles "then", "and then", ". Then,", period-separated sentences.
+    Used as a fallback when the LLM planner fails to produce enough steps
+    for a clearly multi-part task. Each part becomes its own step with
+    inferred type and tools.
+    """
+    # Normalize separators into a common delimiter
+    text = task
+    # ". Then" / ", then" / "; then" → split point
+    text = re.sub(r'[.;,]\s*[Tt]hen\s*,?\s*', '\n---SPLIT---\n', text)
+    # " and then " / " then "
+    text = re.sub(r'\s+and\s+then\s+', '\n---SPLIT---\n', text, flags=re.IGNORECASE)
+    text = re.sub(r'\s+then\s+', '\n---SPLIT---\n', text, flags=re.IGNORECASE)
+
+    parts = [p.strip() for p in text.split('---SPLIT---') if p.strip()]
+
+    if len(parts) <= 1:
+        return []  # No splits found, caller should fall back
+
+    steps: list[Step] = []
+    for i, part in enumerate(parts, 1):
+        step_type = _infer_step_type(part)
+        steps.append(Step(
+            number=i,
+            description=part,
+            step_type=step_type,
+            relevant_tools=list(_STEP_TYPE_TOOLS.get(step_type, [])),
+        ))
+
+    return steps

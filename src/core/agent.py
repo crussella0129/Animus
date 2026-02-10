@@ -173,8 +173,13 @@ class Agent:
         (without grammar). If the model keeps producing tool calls, each is
         executed. After all tool calls are done, the last tool result is
         returned directly as a fallback.
+
+        Repeated identical tool calls are detected and broken to prevent
+        infinite loops (e.g. model retrying a denied command).
         """
         last_tool_result = ""
+        prev_call_key: str | None = None
+        repeat_count = 0
         for turn in range(self._max_turns):
             # Use grammar on the first turn only; after tool results,
             # let the model respond freely.
@@ -191,6 +196,25 @@ class Agent:
             tool_calls = self._parse_tool_calls(response_text)
             if not tool_calls:
                 return response_text
+
+            # Detect repeated identical tool calls
+            call_key = json.dumps(
+                [(c["name"], c["arguments"]) for c in tool_calls], sort_keys=True
+            )
+            if call_key == prev_call_key:
+                repeat_count += 1
+                if repeat_count >= 2:
+                    self._messages.append({"role": "assistant", "content": response_text})
+                    self._messages.append({
+                        "role": "user",
+                        "content": "[System]: That tool call was repeated and failed. Try a different approach or skip this action.",
+                    })
+                    if last_tool_result:
+                        return last_tool_result
+                    continue
+            else:
+                repeat_count = 0
+            prev_call_key = call_key
 
             self._messages.append({"role": "assistant", "content": response_text})
             for call in tool_calls:
@@ -211,9 +235,14 @@ class Agent:
         on_chunk: Optional[Callable[[str], None]] = None,
     ) -> str:
         """Core agentic loop with streaming support."""
+        last_tool_result = ""
+        prev_call_key: str | None = None
+        repeat_count = 0
         for turn in range(self._max_turns):
             response_text = self._step_stream(on_chunk)
             if response_text is None:
+                if last_tool_result:
+                    return last_tool_result
                 return "Error: Failed to get a response from the model."
 
             self._cumulative_tokens += estimate_tokens(response_text)
@@ -222,14 +251,36 @@ class Agent:
             if not tool_calls:
                 return response_text
 
+            # Detect repeated identical tool calls
+            call_key = json.dumps(
+                [(c["name"], c["arguments"]) for c in tool_calls], sort_keys=True
+            )
+            if call_key == prev_call_key:
+                repeat_count += 1
+                if repeat_count >= 2:
+                    self._messages.append({"role": "assistant", "content": response_text})
+                    self._messages.append({
+                        "role": "user",
+                        "content": "[System]: That tool call was repeated and failed. Try a different approach or skip this action.",
+                    })
+                    if last_tool_result:
+                        return last_tool_result
+                    continue
+            else:
+                repeat_count = 0
+            prev_call_key = call_key
+
             self._messages.append({"role": "assistant", "content": response_text})
             for call in tool_calls:
                 result = self._tools.execute(call["name"], call["arguments"])
+                last_tool_result = result
                 self._messages.append({
                     "role": "user",
                     "content": f"[Tool result for {call['name']}]: {result}",
                 })
 
+        if last_tool_result:
+            return last_tool_result
         return "Reached maximum turns without a final response."
 
     def _step(self, use_grammar: bool = True) -> str | None:

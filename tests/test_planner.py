@@ -18,6 +18,7 @@ from src.core.planner import (
     TaskDecomposer,
     _compute_planning_profile,
     _filter_tools,
+    _heuristic_decompose,
     _infer_step_type,
     _is_simple_task,
     _parse_tool_calls,
@@ -489,17 +490,17 @@ class TestPlanExecutor:
         assert result.success
 
     def test_fallback_when_parser_finds_no_steps(self):
-        # LLM returns garbage that parser can't extract
-        # Task must be complex enough to trigger planning
+        # LLM returns garbage that parser can't extract.
+        # Task has no conjunctions so heuristic decompose also returns nothing.
         provider = _make_provider([
             "I don't know how to make a plan.",  # decomposer output
             "Ok I did the thing.",  # fallback single-step execution
         ])
         registry = _make_registry("read_file")
         executor = PlanExecutor(provider, registry)
-        result = executor.run("Read all the configuration files then analyze them and create a summary report with recommendations")
+        result = executor.run("Analyze all configuration files and summarize the findings with recommendations for improvement")
 
-        # Should fallback to a single step (parser found nothing)
+        # Should fallback to a single step (parser and heuristic both found nothing)
         assert len(result.steps) == 1
         assert len(result.results) == 1
 
@@ -778,3 +779,45 @@ class TestDynamicPlanningProfiles:
         profile_unknown = _compute_planning_profile(caps_unknown)
         profile_medium = _compute_planning_profile(caps_medium)
         assert profile_unknown == profile_medium
+
+
+class TestHeuristicDecompose:
+    """Test conjunction-based task splitting for small model fallback."""
+
+    def test_then_conjunction_splits(self):
+        task = "Create a folder. Then, create a file inside it. Then, write code to it"
+        steps = _heuristic_decompose(task)
+        assert len(steps) == 3
+        assert "folder" in steps[0].description.lower()
+        assert "file" in steps[1].description.lower()
+        assert "code" in steps[2].description.lower()
+
+    def test_and_then_splits(self):
+        task = "Read the file and then write a summary"
+        steps = _heuristic_decompose(task)
+        assert len(steps) == 2
+
+    def test_simple_task_no_splits(self):
+        task = "List the files in the current directory"
+        steps = _heuristic_decompose(task)
+        assert steps == []
+
+    def test_infers_step_types(self):
+        task = "Read the config file. Then, write a python script"
+        steps = _heuristic_decompose(task)
+        assert len(steps) == 2
+        assert steps[0].step_type == StepType.READ   # "read" maps to READ
+        assert steps[1].step_type == StepType.WRITE   # "write" maps to WRITE
+
+    def test_step_numbering(self):
+        task = "Do A then do B then do C"
+        steps = _heuristic_decompose(task)
+        assert len(steps) == 3
+        assert [s.number for s in steps] == [1, 2, 3]
+
+    def test_each_step_has_relevant_tools(self):
+        task = "Read the config file then run the tests"
+        steps = _heuristic_decompose(task)
+        assert len(steps) == 2
+        assert len(steps[0].relevant_tools) > 0
+        assert len(steps[1].relevant_tools) > 0

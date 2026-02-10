@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
-from src.tools.base import ToolRegistry
+from src.tools.base import ToolRegistry, _coerce_args
 from src.tools.filesystem import ListDirTool, ReadFileTool, WriteFileTool, register_filesystem_tools
 from src.tools.shell import RunShellTool, register_shell_tools
 
@@ -136,3 +136,50 @@ class TestToolRegistry:
             assert "function" in schema
             assert "name" in schema["function"]
             assert "parameters" in schema["function"]
+
+
+class TestArgCoercion:
+    """Test that LLM string arguments are coerced to declared schema types."""
+
+    def test_integer_string_coerced(self):
+        schema = {"properties": {"timeout": {"type": "integer"}}}
+        result = _coerce_args({"timeout": "30"}, schema)
+        assert result["timeout"] == 30
+        assert isinstance(result["timeout"], int)
+
+    def test_integer_already_int(self):
+        schema = {"properties": {"timeout": {"type": "integer"}}}
+        result = _coerce_args({"timeout": 30}, schema)
+        assert result["timeout"] == 30
+
+    def test_number_string_coerced(self):
+        schema = {"properties": {"threshold": {"type": "number"}}}
+        result = _coerce_args({"threshold": "0.5"}, schema)
+        assert result["threshold"] == 0.5
+
+    def test_boolean_string_coerced(self):
+        schema = {"properties": {"recursive": {"type": "boolean"}}}
+        assert _coerce_args({"recursive": "true"}, schema)["recursive"] is True
+        assert _coerce_args({"recursive": "false"}, schema)["recursive"] is False
+
+    def test_invalid_integer_string_left_as_is(self):
+        schema = {"properties": {"count": {"type": "integer"}}}
+        result = _coerce_args({"count": "not_a_number"}, schema)
+        assert result["count"] == "not_a_number"
+
+    def test_string_params_not_touched(self):
+        schema = {"properties": {"command": {"type": "string"}}}
+        result = _coerce_args({"command": "echo hello"}, schema)
+        assert result["command"] == "echo hello"
+
+    def test_unknown_key_not_touched(self):
+        schema = {"properties": {}}
+        result = _coerce_args({"extra": "42"}, schema)
+        assert result["extra"] == "42"
+
+    def test_shell_timeout_string_via_registry(self):
+        """The actual bug: LLM passes timeout as '30' string to run_shell."""
+        registry = ToolRegistry()
+        register_shell_tools(registry)
+        result = registry.execute("run_shell", {"command": "echo coerced", "timeout": "5"})
+        assert "coerced" in result
