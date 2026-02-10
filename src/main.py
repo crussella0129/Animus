@@ -10,12 +10,19 @@ from rich.table import Table
 
 from src.core.config import AnimusConfig
 from src.core.detection import detect_system
-from src.ui import console, error, info, success
+from src.ui import console, error, info, print_logo, success
+
+
+def _startup_callback(ctx: typer.Context) -> None:
+    """Show the logo when any command is invoked."""
+    print_logo()
+
 
 app = typer.Typer(
     name="animus",
     help="Local-first AI agent with RAG and tool use.",
     no_args_is_help=True,
+    callback=_startup_callback,
 )
 
 
@@ -190,12 +197,12 @@ def search(
     info("Note: In-memory store does not persist between runs. Use within a session.")
 
 
-# --- Chat command ---
+# --- Rise command ---
 
 
 @app.command()
-def chat() -> None:
-    """Start an interactive chat session with the agent."""
+def rise() -> None:
+    """Awaken Animus. Start an interactive agent session."""
     from src.core.agent import Agent
     from src.llm.factory import ProviderFactory
     from src.tools.base import ToolRegistry
