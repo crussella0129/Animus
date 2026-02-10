@@ -108,7 +108,43 @@ Implemented Plan-Then-Execute architecture (`src/core/planner.py`). Three-phase 
 - Tool filter mappings: 6
 
 ### Checkpoint
-**Status:** CONTINUE — Implementation complete. Next: systest with Llama-3.2-1B on a real multi-step task.
+**Status:** COMPLETE — Implementation complete.
+
+---
+
+## Entry #2 — 2026-02-10
+
+### Summary
+Systest and iterative prompt tuning for Plan-Then-Execute on Llama-3.2-1B. Four systest rounds exposed and fixed: over-decomposition (10 steps → 3), missing tool awareness, missing cwd awareness, and inconsistent JSON from 1B model. Added tier-aware planning profiles that scale plan steps, turn counts, and output tokens to model size.
+
+### Actions
+- **Systest Round 1** (original prompts): 10 steps for "list files", no tool calls, hallucinated output
+- **Fix**: Rewrote planning prompt to be agent-aware ("You are an AI agent with tools: ..."), added `_MAX_PLAN_STEPS` cap
+- **Fix**: Rewrote execution prompt to show available tool schemas with parameter names/types, not just tool names
+- **Systest Round 2**: 2 steps, model produced valid `list_dir` JSON tool call, but used "/" instead of cwd
+- **Fix**: Added `cwd` to both planning and execution prompts
+- **Fix**: Added tier-aware `_PLANNING_PROFILES` — small: max 3 steps, 3 turns, 256 output tokens; medium: 5/5/512; large: 7/10/2048
+- **Systest Round 3**: Model used correct cwd, produced valid tool call, plan reduced to 3 steps
+- **Remaining issue**: 1B model produces inconsistent JSON (missing braces, wrong param names). This is the known small-model tool-call reliability problem that GBNF grammar constraints would solve.
+- Added 5 new tests for tier-aware behavior (55 planner tests total, 217 suite total)
+
+### Files Changed
+- `src/core/planner.py` — Rewrote planning + execution prompts, added `_PLANNING_PROFILES`, tier-aware max steps/turns/output tokens, tool schemas in execution prompt, cwd in both prompts
+- `tests/test_planner.py` — Added 5 tier-aware tests (TestTierAwarePlanning)
+
+### Findings
+- **1B models can plan and call tools** when prompts include: (a) the tool names, (b) the parameter schemas, (c) the working directory, (d) explicit JSON format examples
+- **Over-decomposition** is a real problem — 1B models will happily generate 10+ tutorial steps. Hard caps (3 for small, 5 for medium, 7 for large) are essential.
+- **Context budget matters** — capping output tokens to 256 for small models prevents the model from filling its context window with a single verbose response
+- **JSON reliability** remains the #1 bottleneck for small model tool use. GBNF grammar constraints are the next priority.
+
+### Metrics
+- Systest rounds: 4 (3 with fixes, 1 baseline)
+- Tests added: 5 (55 planner, 217 total)
+- Planning profiles: 3 (small/medium/large)
+
+### Checkpoint
+**Status:** CONTINUE — Plan-then-execute works mechanically. JSON reliability is the blocker. Next: GBNF grammar constraints for tool call schemas.
 
 ---
 

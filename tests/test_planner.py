@@ -551,6 +551,81 @@ class TestShouldUsePlanner:
 
 
 # ---------------------------------------------------------------------------
+# Tier-aware planning profile tests
+# ---------------------------------------------------------------------------
+
+
+class TestTierAwarePlanning:
+    def test_small_model_caps_steps_at_3(self):
+        """Small model parser should enforce max 3 steps."""
+        provider = _make_provider([
+            "1. Step one\n2. Step two\n3. Step three\n4. Step four\n5. Step five",
+            "Done 1.", "Done 2.", "Done 3.",
+        ], size_tier="small")
+        registry = _make_registry("read_file")
+        executor = PlanExecutor(provider, registry)
+        result = executor.run("Big task")
+        # Small model: max 3 steps even though LLM produced 5
+        assert len(result.steps) <= 3
+
+    def test_large_model_allows_more_steps(self):
+        provider = _make_provider([
+            "1. A\n2. B\n3. C\n4. D\n5. E\n6. F\n7. G",
+            "Done.", "Done.", "Done.", "Done.", "Done.", "Done.", "Done.",
+        ], size_tier="large")
+        registry = _make_registry("read_file")
+        executor = PlanExecutor(provider, registry)
+        result = executor.run("Complex task")
+        assert len(result.steps) <= 7
+        assert len(result.steps) >= 5  # Large model should keep more steps
+
+    def test_small_model_fewer_step_turns(self):
+        """Small model executor should use fewer turns per step."""
+        # Produce tool calls that would exhaust turns
+        tool_response = '```json\n{"name": "read_file", "arguments": {"path": "x"}}\n```'
+        provider = _make_provider([tool_response] * 10, size_tier="small")
+        registry = _make_registry("read_file")
+        executor = ChunkedExecutor(provider, registry)
+        # Small model: max_step_turns=3, so it should stop early
+        steps = [Step(number=1, description="Read things", step_type=StepType.READ)]
+        results = executor.execute_plan(steps, "Test")
+        # Should complete (not error) even with many tool calls
+        assert len(results) == 1
+        # Provider called at most max_step_turns times (3 for small)
+        assert provider.generate.call_count <= 3
+
+    def test_planning_prompt_includes_tool_names(self):
+        """Planning prompt should list available tools."""
+        provider = _make_provider(["1. List the files"])
+        decomposer = TaskDecomposer(provider, tool_names=["read_file", "list_dir"])
+        decomposer.decompose("Show me the files")
+        call_args = provider.generate.call_args[0][0]
+        user_msg = call_args[1]["content"]
+        assert "read_file" in user_msg
+        assert "list_dir" in user_msg
+
+    def test_execution_prompt_includes_tool_names(self):
+        """Execution prompt should tell the model which tools are available."""
+        call_messages = []
+
+        def capture_generate(messages, **kwargs):
+            call_messages.append([m.copy() for m in messages])
+            return "Done."
+
+        provider = MagicMock()
+        provider.generate.side_effect = capture_generate
+        provider.capabilities.return_value = ModelCapabilities(context_length=4096, size_tier="small")
+        registry = _make_registry("read_file", "list_dir")
+        executor = ChunkedExecutor(provider, registry)
+
+        steps = [Step(number=1, description="List files", step_type=StepType.READ)]
+        executor.execute_plan(steps, "Test")
+
+        system_msg = call_messages[0][0]["content"]
+        assert "read_file" in system_msg or "list_dir" in system_msg
+
+
+# ---------------------------------------------------------------------------
 # _parse_tool_calls tests
 # ---------------------------------------------------------------------------
 

@@ -18,7 +18,7 @@ from typing import Any, Callable, Optional
 
 from src.core.context import ContextWindow, estimate_tokens
 from src.core.errors import classify_error, RecoveryStrategy
-from src.llm.base import ModelProvider
+from src.llm.base import ModelCapabilities, ModelProvider
 from src.tools.base import Tool, ToolRegistry
 
 
@@ -102,6 +102,37 @@ _STEP_TYPE_TOOLS: dict[StepType, list[str]] = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Tier-aware planning profiles: scale complexity to model capacity
+# ---------------------------------------------------------------------------
+
+_PLANNING_PROFILES: dict[str, dict[str, int]] = {
+    "small": {
+        "max_plan_steps": 3,        # 1B models: keep plans very short
+        "max_step_turns": 3,        # Few tool-call rounds per step
+        "max_output_tokens": 256,   # Cap output to stay in budget
+        "max_step_desc_tokens": 50, # Keep step descriptions short
+    },
+    "medium": {
+        "max_plan_steps": 5,
+        "max_step_turns": 5,
+        "max_output_tokens": 512,
+        "max_step_desc_tokens": 100,
+    },
+    "large": {
+        "max_plan_steps": 7,
+        "max_step_turns": 10,
+        "max_output_tokens": 2048,
+        "max_step_desc_tokens": 0,  # No limit
+    },
+}
+
+
+def _get_planning_profile(caps: ModelCapabilities) -> dict[str, int]:
+    """Get planning profile for a model's capabilities."""
+    return _PLANNING_PROFILES.get(caps.size_tier, _PLANNING_PROFILES["medium"])
+
+
 def _filter_tools(registry: ToolRegistry, step_type: StepType) -> ToolRegistry:
     """Create a new registry containing only tools relevant to the step type."""
     allowed_names = set(_STEP_TYPE_TOOLS.get(step_type, []))
@@ -139,14 +170,16 @@ def _infer_step_type(description: str) -> StepType:
 # 1. TaskDecomposer — LLM call with focused prompt
 # ---------------------------------------------------------------------------
 
-_PLANNING_PROMPT = """Break the following task into a numbered list of simple, atomic steps.
-Each step should be one clear action that can be done independently.
-Do NOT include tool names or code. Just describe what to do in plain English.
-Number each step starting from 1.
+_PLANNING_PROMPT = """You are an AI agent. Your working directory is: {cwd}
+Your tools: {tool_names}
+Break this task into 1-5 numbered steps. Each step is one tool call.
+Do NOT include "open terminal" or "press Enter". Keep it short.
 
 Task: {task}
 
 Steps:"""
+
+_MAX_PLAN_STEPS = 7  # Hard cap: discard steps beyond this
 
 
 class TaskDecomposer:
@@ -160,19 +193,24 @@ class TaskDecomposer:
         self,
         provider: ModelProvider,
         planning_provider: Optional[ModelProvider] = None,
+        tool_names: Optional[list[str]] = None,
     ) -> None:
         self._provider = planning_provider or provider
         self._prompt_template = _PLANNING_PROMPT
+        self._tool_names = tool_names or []
 
     def decompose(self, task: str) -> str:
         """Send the task to the LLM and return raw plan text."""
-        prompt = self._prompt_template.format(task=task)
+        import os
+
+        tool_str = ", ".join(self._tool_names) if self._tool_names else "read_file, write_file, list_dir, run_shell"
+        prompt = self._prompt_template.format(task=task, tool_names=tool_str, cwd=os.getcwd())
         messages = [
-            {"role": "system", "content": "You are a task planner. Output ONLY a numbered list of steps. No explanations, no preamble."},
+            {"role": "system", "content": "You are a task planner. Output ONLY a numbered list of 1-5 steps. No explanations, no preamble, no conversational text."},
             {"role": "user", "content": prompt},
         ]
         # No tools, no history — minimal context
-        return self._provider.generate(messages, tools=None, max_tokens=1024, temperature=0.3)
+        return self._provider.generate(messages, tools=None, max_tokens=512, temperature=0.3)
 
 
 # ---------------------------------------------------------------------------
@@ -188,6 +226,9 @@ _STEP_PATTERN = re.compile(
 
 class PlanParser:
     """Parse LLM plan output into structured Step objects. Zero LLM involvement."""
+
+    def __init__(self, max_steps: int = _MAX_PLAN_STEPS) -> None:
+        self._max_steps = max_steps
 
     def parse(self, plan_text: str) -> list[Step]:
         """Extract numbered steps from plan text using regex."""
@@ -217,23 +258,26 @@ class PlanParser:
                 relevant_tools=relevant,
             ))
 
-        # Sort by step number
+        # Sort by step number and enforce cap
         steps.sort(key=lambda s: s.number)
-        return steps
+        return steps[:self._max_steps]
 
 
 # ---------------------------------------------------------------------------
 # 3. ChunkedExecutor — fresh context per step, tool filtering
 # ---------------------------------------------------------------------------
 
-_EXECUTION_PROMPT = """You are executing step {step_num} of {total_steps} in a plan.
+_EXECUTION_PROMPT = """You are an AI agent. Call a tool to complete this step.
+Working directory: {cwd}
 
-Original request: {original_request}
+{tool_schemas}
 
-Current step: {step_description}
+Call a tool by outputting EXACTLY this format:
+```json
+{{"name": "TOOL_NAME", "arguments": {{"PARAM": "VALUE"}}}}
+```
 
-Execute this step using the available tools. Be concise and focused.
-When done, state what you accomplished."""
+Step {step_num}/{total_steps}: {step_description}"""
 
 
 class ChunkedExecutor:
@@ -244,6 +288,7 @@ class ChunkedExecutor:
     - Only tools relevant to the step type are available
     - Memory between steps is filesystem/git state, not conversation
     - Progress reporting via on_progress callback
+    - Tier-aware: output tokens and turn counts scale with model size
     """
 
     def __init__(
@@ -256,7 +301,6 @@ class ChunkedExecutor:
     ) -> None:
         self._provider = provider
         self._full_registry = tool_registry
-        self._max_step_turns = max_step_turns
         self._on_progress = on_progress
         self._on_step_output = on_step_output
 
@@ -265,6 +309,11 @@ class ChunkedExecutor:
             context_length=caps.context_length,
             size_tier=caps.size_tier,
         )
+
+        # Scale execution parameters to model capacity
+        profile = _get_planning_profile(caps)
+        self._max_step_turns = min(max_step_turns, profile["max_step_turns"])
+        self._max_output_tokens = profile["max_output_tokens"]
 
     def execute_plan(self, steps: list[Step], original_request: str) -> list[StepResult]:
         """Execute all steps sequentially, returning results for each."""
@@ -287,20 +336,35 @@ class ChunkedExecutor:
 
     def _execute_step(self, step: Step, total: int, original_request: str) -> StepResult:
         """Execute a single step with fresh context and filtered tools."""
+        import os
+
         # Filter tools for this step type
         filtered_registry = _filter_tools(self._full_registry, step.step_type)
 
-        # Build fresh system prompt for this step
+        # Build concise tool schema descriptions for the system prompt
+        tool_lines = []
+        for tool in filtered_registry.list_tools():
+            params = tool.parameters.get("properties", {})
+            param_strs = []
+            for pname, pinfo in params.items():
+                ptype = pinfo.get("type", "string")
+                pdesc = pinfo.get("description", "")
+                param_strs.append(f'{pname} ({ptype}): {pdesc}')
+            params_text = "; ".join(param_strs) if param_strs else "none"
+            tool_lines.append(f"- {tool.name}: {tool.description} Params: {params_text}")
+        tool_schemas_str = "\n".join(tool_lines) if tool_lines else "No tools available."
+
         system_prompt = _EXECUTION_PROMPT.format(
             step_num=step.number,
             total_steps=total,
-            original_request=original_request,
             step_description=step.description,
+            tool_schemas=tool_schemas_str,
+            cwd=os.getcwd(),
         )
 
         # Fresh message history — no carryover from previous steps
         messages: list[dict[str, str]] = [
-            {"role": "user", "content": f"Execute this step: {step.description}"},
+            {"role": "user", "content": step.description},
         ]
 
         tool_schemas = filtered_registry.to_openai_schemas() if filtered_registry.names() else None
@@ -313,7 +377,9 @@ class ChunkedExecutor:
             full_messages = [{"role": "system", "content": system_prompt}] + trimmed
 
             try:
-                response = self._provider.generate(full_messages, tools=tool_schemas)
+                response = self._provider.generate(
+                    full_messages, tools=tool_schemas, max_tokens=self._max_output_tokens
+                )
             except Exception as e:
                 classified = classify_error(e)
                 if classified.recovery == RecoveryStrategy.REDUCE_CONTEXT and turn < self._max_step_turns - 1:
@@ -415,8 +481,14 @@ class PlanExecutor:
         on_progress: Optional[Callable[[int, int, str], None]] = None,
         on_step_output: Optional[Callable[[str], None]] = None,
     ) -> None:
-        self._decomposer = TaskDecomposer(provider, planning_provider)
-        self._parser = PlanParser()
+        # Scale to model capacity
+        caps = provider.capabilities()
+        profile = _get_planning_profile(caps)
+
+        self._decomposer = TaskDecomposer(
+            provider, planning_provider, tool_names=tool_registry.names()
+        )
+        self._parser = PlanParser(max_steps=profile["max_plan_steps"])
         self._executor = ChunkedExecutor(
             provider=provider,
             tool_registry=tool_registry,
