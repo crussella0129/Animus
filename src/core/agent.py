@@ -47,6 +47,7 @@ from src.core.tokenizer import count_tokens, is_tiktoken_available
 from src.core.planner import Planner, ExecutionPlan, PlanStep, StepStatus
 from src.core.fallback import ModelFallbackChain, FallbackModel
 from src.core.loop_detector import LoopDetector, LoopDetectorConfig, InterventionLevel
+from src.core.auth_rotation import AuthRotator, AuthProfile
 
 
 @dataclass
@@ -131,6 +132,10 @@ class AgentConfig:
     loop_nudge_threshold: int = 3  # Consecutive identical actions → nudge
     loop_force_threshold: int = 5  # → force different approach
     loop_break_threshold: int = 7  # → stop execution
+
+    # Auth profile rotation: failover across multiple API credentials
+    # List of (name, api_key) or (name, api_key, api_base) tuples
+    auth_profiles: Optional[list[tuple]] = None
 
 
 @dataclass
@@ -333,6 +338,20 @@ class Agent:
                 ],
                 auto_deescalate=self.config.fallback_auto_deescalate,
             )
+
+        # Auth profile rotation
+        self._auth_rotator: Optional[AuthRotator] = None
+        if self.config.auth_profiles:
+            profiles = []
+            for entry in self.config.auth_profiles:
+                if len(entry) == 2:
+                    profiles.append(AuthProfile(name=entry[0], api_key=entry[1]))
+                elif len(entry) >= 3:
+                    profiles.append(AuthProfile(
+                        name=entry[0], api_key=entry[1], api_base=entry[2],
+                    ))
+            if profiles:
+                self._auth_rotator = AuthRotator(profiles)
 
         # Session compaction
         self._compactor: Optional[SessionCompactor] = None
@@ -578,6 +597,21 @@ class Agent:
         if self._fallback_chain:
             return self._fallback_chain.current_model
         return self.config.model
+
+    def _apply_auth_profile(self, profile: AuthProfile) -> None:
+        """Apply an auth profile's credentials to the provider."""
+        if hasattr(self.provider, "api_key"):
+            self.provider.api_key = profile.api_key
+        if hasattr(self.provider, "_api_key"):
+            self.provider._api_key = profile.api_key
+        if profile.api_base:
+            if hasattr(self.provider, "api_base"):
+                self.provider.api_base = profile.api_base
+            if hasattr(self.provider, "_api_base"):
+                self.provider._api_base = profile.api_base
+        # Force new HTTP client with updated headers (APIProvider)
+        if hasattr(self.provider, "_client"):
+            self.provider._client = None
 
     def _build_messages(self, include_tools: bool = True) -> list[Message]:
         """Build message list for the LLM."""
@@ -1288,14 +1322,29 @@ class Agent:
                     config=gen_config,
                     tools=tool_schemas,
                 )
-                # Record success for fallback chain
+                # Record success
                 if self._fallback_chain:
                     self._fallback_chain.record_success()
+                if self._auth_rotator:
+                    self._auth_rotator.record_success()
+                    self._auth_rotator.try_recover_preferred()
                 break  # Success, exit retry loop
             except Exception as e:
                 classified = classify_error(e)
                 last_error = classified
                 self._last_error = classified
+
+                # Auth failure: try rotating credentials before anything else
+                if (
+                    classified.category == ErrorCategory.AUTH_FAILURE
+                    and self._auth_rotator
+                ):
+                    rotated = self._auth_rotator.record_failure()
+                    if rotated:
+                        # Apply new credentials to provider
+                        self._apply_auth_profile(self._auth_rotator.current)
+                        backoff = self.config.retry_backoff_base
+                        continue
 
                 # Record failure and try fallback escalation
                 if self._fallback_chain:
@@ -1931,6 +1980,8 @@ When done, provide a brief summary of what was accomplished."""
             self._loop_detector.reset()
         if self._fallback_chain:
             self._fallback_chain.reset()
+        if self._auth_rotator:
+            self._auth_rotator.reset()
         self._decision_recorder.clear()
         if self._compactor:
             self._compactor.clear_history()

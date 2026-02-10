@@ -1,6 +1,6 @@
 # Tasks — ANIMUS
 
-**Last Updated:** 2026-02-09 (Entry #41: Action loop detection, 361 tests)
+**Last Updated:** 2026-02-09 (Entry #42: Auth profile rotation, 390 tests)
 
 ## Design Philosophy Update
 
@@ -938,6 +938,11 @@ Audio features are completely optional:
 
 ## Completed (Recent)
 
+- **Auth Profile Rotation** (Entry #42, Backlog High Priority) ✓
+  - `AuthProfile` with cooldown tracking, per-profile usage metrics
+  - `AuthRotator` with automatic failover on auth failures, preferred-profile recovery
+  - Integrated into Agent step() retry loop, applies credentials to provider on rotation
+  - 29 new tests (6 profile, 16 rotator, 7 agent integration)
 - **Action Loop Detection** (Entry #41, GECK Repor Recommendation #9) ✓
   - `LoopDetector` with consecutive + alternating pattern detection
   - Escalating intervention: nudge (3) → force (5) → break (7)

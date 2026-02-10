@@ -4092,3 +4092,40 @@ Agents can get stuck in loops — repeating the same tool call or alternating be
 - Files created: 2 (loop_detector.py, test_loop_detector.py)
 - Files modified: 2 (agent.py, __init__.py)
 - Tests added: 23 (361 total passing)
+
+---
+
+## Entry #42 — 2026-02-09
+
+### Summary
+Auth Profile Rotation: Multiple API credential profiles with automatic failover on auth failures, cooldown tracking, and preferred-profile recovery.
+
+### Understood Goals
+Implement auth profile rotation from the high-priority backlog — allow configuring multiple API keys that automatically rotate when authentication fails.
+
+### Actions
+- Created `src/core/auth_rotation.py` with `AuthProfile`, `RotationEvent`, and `AuthRotator` classes
+- Integrated into Agent: `_auth_rotator` field, auth rotation in `step()` retry loop before fallback chain
+- On AUTH_FAILURE: rotate to next available (non-cooldown) profile, apply credentials to provider
+- On success: record success, try recovering preferred profile if cooldown expired
+- `_apply_auth_profile()` updates provider's api_key, api_base, and resets HTTP client
+- Added `auth_profiles` config to AgentConfig (list of name/key/base tuples)
+
+### Files Changed
+- `src/core/auth_rotation.py` — Created (AuthProfile, RotationEvent, AuthRotator)
+- `src/core/agent.py` — Import, config field, __init__ setup, step() integration, apply method, reset
+- `src/core/__init__.py` — Added AuthRotator, AuthProfile, RotationEvent exports
+- `tests/test_auth_rotation.py` — Created (29 tests)
+
+### Findings
+- Auth rotation should happen before fallback chain in the retry loop — rotating credentials is cheaper than escalating models
+- Provider credential injection requires resetting the HTTP client (APIProvider caches headers at client creation)
+- Cooldown-based recovery works well — after success on backup profile, the rotator checks if the preferred profile's cooldown expired
+
+### Checkpoint
+**Status:** CONTINUE — Auth profile rotation complete. Next: Knowledge Compounding (#22), then Specialist Sub-Agents (#23).
+
+### Metrics
+- Files created: 2 (auth_rotation.py, test_auth_rotation.py)
+- Files modified: 2 (agent.py, __init__.py)
+- Tests added: 29 (390 total passing)

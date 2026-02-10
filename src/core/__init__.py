@@ -116,6 +116,11 @@ from src.core.fallback import (
     FallbackModel,
     FallbackEvent,
 )
+from src.core.auth_rotation import (
+    AuthRotator,
+    AuthProfile,
+    RotationEvent,
+)
 from src.core.web_validator import (
     WebContentJudge,
     WebContentRuleEngine,
@@ -235,6 +240,10 @@ __all__ = [
     "ModelFallbackChain",
     "FallbackModel",
     "FallbackEvent",
+    # Auth Profile Rotation
+    "AuthRotator",
+    "AuthProfile",
+    "RotationEvent",
     # Web Content Validation (Ungabunga-Box)
     "WebContentJudge",
     "WebContentRuleEngine",
