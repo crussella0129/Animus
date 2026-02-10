@@ -12,6 +12,36 @@ from src.core.errors import RecoveryStrategy, classify_error
 from src.llm.base import ModelProvider
 from src.tools.base import ToolRegistry
 
+# Appended to the system prompt when tools are available, so even small
+# models know to respond with JSON tool calls instead of prose.
+_TOOL_CALL_INSTRUCTION = """
+
+When you need to perform an action, respond with ONLY a JSON tool call.
+Available tools: {tool_names}
+
+{tool_examples}
+Respond with ONLY the JSON object. No explanation, no markdown."""
+
+
+def _build_tool_examples(registry: ToolRegistry) -> str:
+    """Build concrete tool call examples from registered tools."""
+    examples = []
+    for tool in registry.list_tools():
+        # Build a minimal example with the actual parameter names
+        params = tool.parameters.get("properties", {})
+        example_args = {}
+        for param_name, param_info in list(params.items())[:2]:
+            if param_info.get("type") == "integer":
+                example_args[param_name] = 10
+            elif param_info.get("type") == "boolean":
+                example_args[param_name] = False
+            else:
+                example_args[param_name] = f"example_{param_name}"
+        import json
+        example_json = json.dumps({"name": tool.name, "arguments": example_args})
+        examples.append(f"  {tool.name}: {example_json}")
+    return "Examples:\n" + "\n".join(examples)
+
 
 class Agent:
     """Core agent: manages conversation, tool calls, and context window."""
@@ -26,7 +56,7 @@ class Agent:
     ) -> None:
         self._provider = provider
         self._tools = tool_registry
-        self._system_prompt = system_prompt
+        self._base_system_prompt = system_prompt
         self._max_turns = max_turns
         self._messages: list[dict[str, str]] = []
         self._cumulative_tokens: int = 0
@@ -37,6 +67,32 @@ class Agent:
         self._context_window = ContextWindow(
             context_length=caps.context_length,
             size_tier=caps.size_tier,
+        )
+
+        # Build GBNF grammar for native providers (None for API providers)
+        self._grammar = self._build_tool_grammar()
+
+        # Augment system prompt with tool call instructions when tools exist
+        self._system_prompt = self._build_system_prompt()
+
+    def _build_tool_grammar(self) -> Any:
+        """Build GBNF grammar from registered tools. Returns None if unavailable."""
+        if not self._tools.names():
+            return None
+        try:
+            from src.core.grammar import build_grammar
+            return build_grammar(self._tools.list_tools())
+        except Exception:
+            return None
+
+    def _build_system_prompt(self) -> str:
+        """Augment the base system prompt with tool call format instructions."""
+        tool_names = self._tools.names()
+        if not tool_names:
+            return self._base_system_prompt
+        return self._base_system_prompt + _TOOL_CALL_INSTRUCTION.format(
+            tool_names=", ".join(tool_names),
+            tool_examples=_build_tool_examples(self._tools),
         )
 
     @property
@@ -110,10 +166,24 @@ class Agent:
         return last_response
 
     def _run_agentic_loop(self) -> str:
-        """Core agentic loop: generate, check for tool calls, execute, repeat."""
+        """Core agentic loop: generate, check for tool calls, execute, repeat.
+
+        Grammar is used on the first turn to get a valid tool call. After
+        executing a tool, the result is fed back for the model to summarize
+        (without grammar). If the model keeps producing tool calls, each is
+        executed. After all tool calls are done, the last tool result is
+        returned directly as a fallback.
+        """
+        last_tool_result = ""
         for turn in range(self._max_turns):
-            response_text = self._step()
+            # Use grammar on the first turn only; after tool results,
+            # let the model respond freely.
+            use_grammar = (turn == 0)
+            response_text = self._step(use_grammar=use_grammar)
             if response_text is None:
+                # If generation failed but we have a tool result, return it
+                if last_tool_result:
+                    return last_tool_result
                 return "Error: Failed to get a response from the model."
 
             self._cumulative_tokens += estimate_tokens(response_text)
@@ -125,11 +195,15 @@ class Agent:
             self._messages.append({"role": "assistant", "content": response_text})
             for call in tool_calls:
                 result = self._tools.execute(call["name"], call["arguments"])
+                last_tool_result = result
                 self._messages.append({
                     "role": "user",
                     "content": f"[Tool result for {call['name']}]: {result}",
                 })
 
+        # Exhausted turns but have a tool result — return it directly
+        if last_tool_result:
+            return last_tool_result
         return "Reached maximum turns without a final response."
 
     def _run_agentic_loop_stream(
@@ -158,14 +232,23 @@ class Agent:
 
         return "Reached maximum turns without a final response."
 
-    def _step(self) -> str | None:
-        """Single generation step with context management and error handling."""
+    def _step(self, use_grammar: bool = True) -> str | None:
+        """Single generation step with context management and error handling.
+
+        Args:
+            use_grammar: Whether to apply GBNF grammar constraint. Set False
+                after tool results so the model can respond in natural language.
+        """
         trimmed = self._context_window.trim_messages(self._messages, self._system_prompt)
         full_messages = [{"role": "system", "content": self._system_prompt}] + trimmed
         tool_schemas = self._tools.to_openai_schemas() if self._tools.names() else None
 
+        kwargs: dict[str, Any] = {}
+        if use_grammar and self._grammar is not None:
+            kwargs["grammar"] = self._grammar
+
         try:
-            return self._provider.generate(full_messages, tools=tool_schemas)
+            return self._provider.generate(full_messages, tools=tool_schemas, **kwargs)
         except Exception as e:
             classified = classify_error(e)
             if classified.recovery == RecoveryStrategy.REDUCE_CONTEXT:
@@ -173,7 +256,7 @@ class Agent:
                 shorter = trimmed[-half:]
                 full_messages = [{"role": "system", "content": self._system_prompt}] + shorter
                 try:
-                    return self._provider.generate(full_messages, tools=tool_schemas)
+                    return self._provider.generate(full_messages, tools=tool_schemas, **kwargs)
                 except Exception:
                     return None
             return None
@@ -199,6 +282,8 @@ class Agent:
         full_messages = [{"role": "system", "content": self._system_prompt}] + trimmed
         tool_schemas = self._tools.to_openai_schemas() if self._tools.names() else None
 
+        # Note: GBNF grammar is not passed for streaming because llama-cpp-python
+        # does not support grammar constraints with streaming chat completions.
         try:
             chunks: list[str] = []
             for chunk in self._provider.generate_stream(full_messages, tools=tool_schemas):
@@ -224,8 +309,21 @@ class Agent:
             return None
 
     def _parse_tool_calls(self, text: str) -> list[dict[str, Any]]:
-        """Parse tool calls from LLM response. Tries JSON blocks first, then regex fallback."""
+        """Parse tool calls from LLM response. Tries multiple strategies."""
         calls = []
+
+        # Strategy 0: Raw JSON (GBNF grammar output — no wrapping)
+        stripped = text.strip()
+        try:
+            data = json.loads(stripped)
+            if isinstance(data, dict) and "name" in data and "arguments" in data:
+                calls.append({
+                    "name": data["name"],
+                    "arguments": data["arguments"] if isinstance(data["arguments"], dict) else {},
+                })
+                return calls
+        except (json.JSONDecodeError, TypeError):
+            pass
 
         # Strategy 1: JSON code blocks with tool_call structure
         json_blocks = re.findall(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
