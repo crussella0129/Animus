@@ -1,6 +1,6 @@
 # Tasks — ANIMUS
 
-**Last Updated:** 2026-02-09 (Entry #48: Media Pipeline, GBNF Grammar, 637 tests)
+**Last Updated:** 2026-02-09 (Entry #50: Feedback Flywheel, Code-as-Action Sandbox, 727 tests)
 
 ## Design Philosophy Update
 
@@ -772,10 +772,10 @@ Audio features are completely optional:
 
 - [ ] **Skills Platform** (from Clawdbot) — **MOVED TO PHASE 13**
 
-- [ ] **Safe Code Sandbox** (from Hive)
-  - Whitelist-based `safe_eval()` and `safe_exec()`
-  - Timeout and memory limits
-  - No access to dangerous modules
+- [x] **Safe Code Sandbox** (from Hive) ✓ Entry #50
+  - Whitelist-based sandbox with SAFE_BUILTINS, BLOCKED_BUILTINS, BLOCKED_ATTRIBUTES
+  - Timeout enforcement via daemon threads
+  - No imports, no eval/exec, no file I/O, no dunder escapes
 
 - [ ] **MCP Server** (from Hive) — **MOVED TO PHASE 12**
 
@@ -939,6 +939,16 @@ Audio features are completely optional:
 
 ## Completed (Recent)
 
+- **Code-as-Action Sandbox** (Entry #50, Medium Priority Backlog) ✓
+  - `CodeActionSandbox` with restricted builtins, AST analysis, blocked attributes, timeout enforcement
+  - Tool wrappers via `run_coroutine_threadsafe`, stdout/stderr capture, return value extraction
+  - `generate_tool_api_docs()` for system prompt injection
+  - 53 new tests
+- **Feedback Flywheel** (Entry #49, GECK Repor Recommendation #15) ✓
+  - `FeedbackStore` with JSONL persistence, `InferenceLog` with structured telemetry
+  - 4 hardcoded validators: JSON parse, tool schema, tool exists, non-empty
+  - Aggregate stats, failure pattern detection, per-model comparison
+  - 37 new tests
 - **Media Pipeline + GBNF Grammar** (Entry #48, Backlog + Recommendation #1) ✓
   - `MediaPipeline` with streaming download, 25+ magic-number MIME signatures, extension blocklist
   - `detect_mime_type()` with RIFF disambiguation (WebP vs WAV vs AVI)

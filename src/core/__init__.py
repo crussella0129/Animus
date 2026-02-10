@@ -172,12 +172,31 @@ from src.core.gbnf import (
     tool_call_grammar,
     tool_call_array_grammar,
 )
+from src.core.feedback import (
+    InferenceLog,
+    ValidationCheck,
+    ValidationResult,
+    FeedbackStore,
+    hash_prompt,
+    validate_inference,
+)
 from src.core.web_validator import (
     WebContentJudge,
     WebContentRuleEngine,
     WebContentLLMValidator,
     LLMValidatorConfig,
     create_web_content_judge,
+)
+from src.core.code_action import (
+    CodeActionSandbox,
+    CodeActionResult,
+    CodeSnapshot,
+    SandboxViolation,
+    SAFE_BUILTINS,
+    BLOCKED_BUILTINS,
+    BLOCKED_ATTRIBUTES,
+    BLOCKED_AST_NODES,
+    generate_tool_api_docs,
 )
 
 __all__ = [
@@ -340,10 +359,27 @@ __all__ = [
     "schema_to_gbnf",
     "tool_call_grammar",
     "tool_call_array_grammar",
+    # Feedback Flywheel (Inference Telemetry)
+    "InferenceLog",
+    "ValidationCheck",
+    "ValidationResult",
+    "FeedbackStore",
+    "hash_prompt",
+    "validate_inference",
     # Web Content Validation (Ungabunga-Box)
     "WebContentJudge",
     "WebContentRuleEngine",
     "WebContentLLMValidator",
     "LLMValidatorConfig",
     "create_web_content_judge",
+    # Code-as-Action Sandbox
+    "CodeActionSandbox",
+    "CodeActionResult",
+    "CodeSnapshot",
+    "SandboxViolation",
+    "SAFE_BUILTINS",
+    "BLOCKED_BUILTINS",
+    "BLOCKED_ATTRIBUTES",
+    "BLOCKED_AST_NODES",
+    "generate_tool_api_docs",
 ]

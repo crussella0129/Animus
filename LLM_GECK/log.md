@@ -4369,3 +4369,114 @@ Media Pipeline: Safe file download with size limits, magic-number MIME detection
 - Files created: 4 (media.py, gbnf.py, test_media.py, test_gbnf.py)
 - Files modified: 1 (__init__.py)
 - Tests added: 75 (637 total passing)
+
+---
+
+## Entry #49 — 2026-02-09
+
+### Summary
+Feedback Flywheel: Structured inference telemetry with automated validation. Logs every LLM inference with model, prompt hash, response, tool calls, latency, and success. Four hardcoded validators check JSON parsing, tool schema compliance, tool existence, and non-empty responses. JSONL-based store with aggregate stats, failure pattern detection, and per-model comparison.
+
+### Understood Goals
+1. Implement Feedback Flywheel from GECK Repor Recommendation #15 — structured telemetry for every inference to enable prompt optimization and model comparison.
+
+### Actions
+
+**Feedback Flywheel (`src/core/feedback.py`, ~493 lines):**
+- `InferenceLog` dataclass: model, prompt_hash, response, tool_calls, latency_ms, validations, success, timestamp, session_id, turn_number, tags
+- `ValidationCheck` dataclass with name, result (pass/fail/skip), detail
+- `ValidationResult` enum: PASS, FAIL, SKIP
+- `hash_prompt()`: SHA-256 of messages for deduplication (first 16 hex chars)
+- `validate_inference()`: Runs all 4 validators, mutates log.validations in-place
+- 4 hardcoded validators:
+  - `_validate_response_not_empty()` — checks non-whitespace content
+  - `_validate_json_parse()` — checks for valid JSON objects/arrays, including in code blocks
+  - `_validate_tool_calls()` — checks name field, arguments is dict, schema compliance
+  - `_validate_tool_exists()` — checks tool names against known set
+- `FeedbackStore` class: JSONL persistence at `~/.animus/data/feedback.jsonl`
+  - `record()`, `get_all()`, `count()`, `clear()`
+  - `stats()` — aggregate: total, success_rate, avg_latency, validation pass rates, model/tool usage
+  - `failure_patterns()` — groups failures by check+detail, filters by min_occurrences
+  - `model_comparison()` — per-model success rate, latency, validation rates
+- Serialization: `to_dict()`/`from_dict()` with enum conversion
+- Cached loading with invalidation on write
+
+### Files Changed
+- `src/core/feedback.py` — Created (FeedbackStore, InferenceLog, validators)
+- `src/core/__init__.py` — Added exports
+- `tests/test_feedback.py` — Created (37 tests)
+
+### Findings
+- Separating validation from logging keeps the pipeline fast — validators are pure functions on response data
+- Prompt hashing enables dedup without storing full prompts (privacy + space savings)
+- Failure pattern detection with min_occurrences threshold filters noise from one-off errors
+- Model comparison enables data-driven model selection per task type
+
+### Checkpoint
+**Status:** CONTINUE — Feedback Flywheel complete. Next: Code-as-Action sandbox.
+
+### Metrics
+- Files created: 2 (feedback.py, test_feedback.py)
+- Files modified: 1 (__init__.py)
+- Tests added: 37 (674 total passing)
+
+---
+
+## Entry #50 — 2026-02-09
+
+### Summary
+Code-as-Action Sandbox: Sandboxed Python execution with tool access. Allows the agent to write Python code that calls tool functions directly, collapsing N tool-call round trips into a single code-generation step. Restricted builtins, AST-based analysis, blocked attribute access, timeout enforcement via daemon threads. Inspired by Pydantic Monty's code-as-action pattern.
+
+### Understood Goals
+1. Implement Code-as-Action mode from GECK Repor — allow LLM to generate Python code that calls tools directly instead of one-tool-at-a-time JSON.
+2. Maintain sandbox security: no imports, no eval/exec, no file I/O, no dunder escapes.
+
+### Actions
+
+**Code-as-Action Sandbox (`src/core/code_action.py`, ~515 lines):**
+- `SAFE_BUILTINS` set: types, functions, exception classes, `__build_class__` — deliberately minimal
+- `BLOCKED_BUILTINS` set: exec, eval, compile, __import__, open, input, globals, locals, etc.
+- `BLOCKED_AST_NODES` set: Import, ImportFrom
+- `BLOCKED_ATTRIBUTES` set: __class__, __bases__, __subclasses__, __globals__, __code__, __closure__, __builtins__, __import__, __dict__
+- `CodeSnapshot` dataclass: pre-execution analysis (tool names, blocked ops, requires_confirmation)
+- `CodeActionResult` dataclass: success, output, errors, return_value, tool_calls, tool_results, execution_time_ms
+- `SandboxViolation` exception class
+- `CodeActionSandbox` class:
+  - `analyze(code)` — AST walking for violations, tool name detection, confirmation requirements
+  - `execute(code, timeout_s, extra_vars)` — full sandbox execution:
+    - Pre-flight analysis rejects blocked operations
+    - Builds restricted namespace with safe builtins + tool wrappers + allowed modules
+    - Separates last expression for return value capture
+    - Executes in daemon thread with asyncio.wait_for timeout
+    - Tool calls scheduled via run_coroutine_threadsafe back to main event loop
+    - Captures stdout/stderr via redirect_stdout/redirect_stderr
+    - Output truncation (max_output_chars)
+  - `_build_namespace()` — restricted builtins + tool wrappers + allowed modules + extra vars
+  - `_make_tool_wrapper()` — sync wrapper for async tools, uses run_coroutine_threadsafe
+- `_ToolCallTracker` — tracks calls and results during execution
+- `generate_tool_api_docs()` — generates API documentation for system prompt injection
+- Bug fix: Added `ZeroDivisionError`, `OverflowError`, `ArithmeticError`, `LookupError`, `NameError`, `NotImplementedError` to SAFE_BUILTINS
+- Bug fix: Moved `__build_class__` from BLOCKED_BUILTINS to SAFE_BUILTINS (required for class definitions)
+- Bug fix: Added `__name__` to sandbox namespace (required by `__build_class__` for `__qualname__` resolution)
+
+### Files Changed
+- `src/core/code_action.py` — Created (CodeActionSandbox, analysis, execution, tool wrapping)
+- `src/core/__init__.py` — Added exports
+- `tests/test_code_action.py` — Created (53 tests)
+
+### Findings
+- Daemon thread execution with asyncio.wait_for is necessary to interrupt CPU-bound infinite loops (asyncio.shield alone can't interrupt CPU-bound code)
+- Tool wrappers need run_coroutine_threadsafe to bridge sync thread → async event loop
+- `__build_class__` must be in safe builtins for class definitions to work (Python uses it internally)
+- `__name__` must be in the namespace for classes to set their `__qualname__` correctly
+- Separating last expression from body enables REPL-like return value capture
+- Pre-flight AST analysis allows rejection before execution, reducing attack surface
+- allowed_modules parameter enables injecting pre-approved modules (json, re, math) without import statements
+
+### Checkpoint
+**Status:** CONTINUE — Code-as-Action and Feedback Flywheel complete. 727 total tests passing.
+
+### Metrics
+- Files created: 2 (code_action.py, test_code_action.py)
+- Files modified: 1 (__init__.py)
+- Tests added: 53 (727 total passing)
