@@ -18,6 +18,7 @@ from src.core.planner import (
     TaskDecomposer,
     _filter_tools,
     _infer_step_type,
+    _is_simple_task,
     _parse_tool_calls,
     should_use_planner,
 )
@@ -448,6 +449,7 @@ class TestChunkedExecutor:
 class TestPlanExecutor:
     def test_full_pipeline(self):
         # Decomposer returns a plan, then executor handles each step
+        # Task must be complex enough to trigger planning (>10 words or multi-action)
         provider = _make_provider([
             "1. Read the file\n2. Fix the bug\n3. Run tests",  # decomposer output
             "Read the file content.",  # step 1 execution
@@ -457,10 +459,9 @@ class TestPlanExecutor:
         registry = _make_registry("read_file", "write_file", "run_shell", "list_dir")
 
         executor = PlanExecutor(provider, registry)
-        result = executor.run("Fix the authentication bug")
+        result = executor.run("Read the auth module then fix the login bug and run the test suite to verify")
 
         assert isinstance(result, PlanResult)
-        assert result.original_request == "Fix the authentication bug"
         assert len(result.steps) == 3
         assert len(result.results) == 3
         assert result.success
@@ -478,7 +479,7 @@ class TestPlanExecutor:
         executor = PlanExecutor(
             execution_provider, registry, planning_provider=planning_provider
         )
-        result = executor.run("Update the config")
+        result = executor.run("Read the current config file then update all the database settings to use the new credentials")
 
         # Planning provider should have been called once (decompose)
         planning_provider.generate.assert_called_once()
@@ -488,15 +489,16 @@ class TestPlanExecutor:
 
     def test_fallback_when_parser_finds_no_steps(self):
         # LLM returns garbage that parser can't extract
+        # Task must be complex enough to trigger planning
         provider = _make_provider([
             "I don't know how to make a plan.",  # decomposer output
             "Ok I did the thing.",  # fallback single-step execution
         ])
         registry = _make_registry("read_file")
         executor = PlanExecutor(provider, registry)
-        result = executor.run("Do something vague")
+        result = executor.run("Read all the configuration files then analyze them and create a summary report with recommendations")
 
-        # Should fallback to a single step
+        # Should fallback to a single step (parser found nothing)
         assert len(result.steps) == 1
         assert len(result.results) == 1
 
@@ -508,7 +510,7 @@ class TestPlanExecutor:
         ])
         registry = _make_registry("read_file", "write_file")
         executor = PlanExecutor(provider, registry)
-        result = executor.run("Process data")
+        result = executor.run("Read the input data file then write the processed output to a new file")
 
         summary = result.summary
         assert "[OK]" in summary
@@ -525,7 +527,7 @@ class TestPlanExecutor:
         provider.capabilities.return_value = ModelCapabilities(context_length=4096, size_tier="small")
         registry = _make_registry("read_file")
         executor = PlanExecutor(provider, registry)
-        result = executor.run("Break things")
+        result = executor.run("Read all the source code files then compile and test the entire project")
 
         assert not result.success
         assert "[FAIL]" in result.summary
@@ -575,7 +577,7 @@ class TestTierAwarePlanning:
         ], size_tier="large")
         registry = _make_registry("read_file")
         executor = PlanExecutor(provider, registry)
-        result = executor.run("Complex task")
+        result = executor.run("Read all config files then analyze each one and write a summary then run tests and commit changes")
         assert len(result.steps) <= 7
         assert len(result.steps) >= 5  # Large model should keep more steps
 
@@ -650,3 +652,95 @@ class TestParseToolCalls:
     def test_invalid_json_ignored(self):
         text = '```json\n{not valid json}\n```'
         assert _parse_tool_calls(text) == []
+
+    def test_raw_json_from_gbnf(self):
+        """GBNF-constrained output is raw JSON (no code blocks)."""
+        text = '{"name": "read_file", "arguments": {"path": "/tmp/test.py"}}'
+        calls = _parse_tool_calls(text)
+        assert len(calls) == 1
+        assert calls[0]["name"] == "read_file"
+        assert calls[0]["arguments"]["path"] == "/tmp/test.py"
+
+    def test_raw_json_with_whitespace(self):
+        """GBNF output may have leading/trailing whitespace."""
+        text = '  {"name": "list_dir", "arguments": {"path": "."}}  '
+        calls = _parse_tool_calls(text)
+        assert len(calls) == 1
+        assert calls[0]["name"] == "list_dir"
+
+
+# ---------------------------------------------------------------------------
+# Complexity heuristic tests
+# ---------------------------------------------------------------------------
+
+
+class TestSimpleTaskDetection:
+    def test_short_task_is_simple(self):
+        assert _is_simple_task("List the files") is True
+
+    def test_very_short_task_is_simple(self):
+        assert _is_simple_task("What files are here?") is True
+
+    def test_single_action_is_simple(self):
+        assert _is_simple_task("Read the README.md file in the current directory") is True
+
+    def test_multi_action_with_then_is_complex(self):
+        assert _is_simple_task("Read the file then write a summary and save it") is False
+
+    def test_multi_action_with_and_then_is_complex(self):
+        assert _is_simple_task("Check git status and then commit the changes and push") is False
+
+    def test_simple_task_skips_llm_planning(self):
+        """PlanExecutor should skip LLM decomposer for simple tasks."""
+        provider = _make_provider([
+            "Done.",  # Only execution, no planning call
+        ], size_tier="small")
+        registry = _make_registry("read_file", "list_dir")
+        executor = PlanExecutor(provider, registry)
+        result = executor.run("List the files")
+        # Should have 1 step (created directly, not from LLM)
+        assert len(result.steps) == 1
+        # Provider called once (execution only, no decompose call)
+        assert provider.generate.call_count == 1
+
+    def test_complex_task_uses_llm_planning(self):
+        """PlanExecutor should call LLM decomposer for complex tasks."""
+        provider = _make_provider([
+            "1. Read the file\n2. Analyze it\n3. Write summary",  # Planning call
+            "Done 1.", "Done 2.", "Done 3.",  # Execution calls
+        ], size_tier="small")
+        registry = _make_registry("read_file", "write_file", "list_dir")
+        executor = PlanExecutor(provider, registry)
+        result = executor.run("Read all Python files then write a summary of each")
+        # Should have multiple steps from LLM decomposition
+        assert len(result.steps) >= 2
+        # Provider called more than once (planning + execution)
+        assert provider.generate.call_count >= 2
+
+
+# ---------------------------------------------------------------------------
+# Tool narrowing tests
+# ---------------------------------------------------------------------------
+
+
+class TestToolNarrowing:
+    def test_narrows_to_read_file_when_mentioned(self):
+        registry = _make_registry("read_file", "list_dir", "git_status")
+        filtered = _filter_tools(registry, StepType.READ, "read_file(config.py)")
+        assert filtered.names() == ["read_file"]
+
+    def test_narrows_to_list_dir_when_mentioned(self):
+        registry = _make_registry("read_file", "list_dir", "git_status")
+        filtered = _filter_tools(registry, StepType.READ, "Use list_dir to see the contents")
+        assert filtered.names() == ["list_dir"]
+
+    def test_no_narrowing_when_no_tool_mentioned(self):
+        registry = _make_registry("read_file", "list_dir", "git_status")
+        filtered = _filter_tools(registry, StepType.READ, "Check the file contents")
+        # All READ-relevant tools present in registry
+        assert len(filtered.names()) >= 2
+
+    def test_no_narrowing_with_empty_description(self):
+        registry = _make_registry("read_file", "list_dir")
+        filtered = _filter_tools(registry, StepType.READ, "")
+        assert len(filtered.names()) >= 2

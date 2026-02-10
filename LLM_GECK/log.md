@@ -182,6 +182,41 @@ Implemented GBNF grammar constraints for tool call schemas. Small local models n
 
 ---
 
+## Entry #4 — 2026-02-10
+
+### Summary
+Systested GBNF grammar + plan-then-execute on Llama-3.2-1B. Four rounds exposed and fixed: PARAM placeholder copied literally by model, wrong argument keys with multi-tool grammar, over-decomposition for simple tasks. Added simple task detection (skip LLM planning, keep grammar framework), tool narrowing (single-tool GBNF when step mentions a tool by name), raw JSON parsing for GBNF output, and realistic execution prompt example.
+
+### Actions
+- **Systest Round 1** ("What files are in the current directory?"): GBNF produces 100% valid JSON. But: over-decomposition (3 identical steps), model uses `"recursive": "true"` (string not boolean), dumps .git contents.
+- **Systest Round 2** ("Read the file src/core/grammar.py and tell me how many lines it has"): GBNF still valid JSON. But: wrong argument keys — `"src"` and `"PARAM"` instead of `"path"`. Model repeats same failing call 3 times.
+- **Fix**: Execution prompt example changed from `{{"PARAM": "VALUE"}}` to `{{"path": "/example/file.txt"}}` — realistic example the model can pattern-match from.
+- **Fix**: Tool narrowing — `_filter_tools()` now accepts `step_description` and narrows to single tool when step text mentions a tool name (e.g. "use read_file"). Single-tool GBNF grammar fully constrains argument keys.
+- **Fix**: Simple task detection — `_is_simple_task()` heuristic (word count, conjunction check, action verb count). Simple tasks skip LLM planning but still route through ChunkedExecutor for GBNF grammar constraints. Key insight: small models need the grammar framework even for trivial tasks.
+- **Fix**: Raw JSON parsing (Strategy 0) in `_parse_tool_calls()` — tries parsing entire response as JSON first, since GBNF output is raw JSON without code blocks.
+- **Systest Round 4** (same query): Simple task detected → [1/1] single step, no LLM planning call. GBNF grammar produced valid JSON with correct argument keys. Tool executed successfully.
+- Added 13 new tests: TestSimpleTaskDetection (7), TestToolNarrowing (4), raw JSON parsing (2). Updated 5 existing tests with longer multi-action descriptions to avoid false simple-task classification.
+
+### Files Changed
+- `src/core/planner.py` — Execution prompt fix, `_filter_tools()` with tool narrowing, `_is_simple_task()`, `PlanExecutor.run()` skips planning for simple tasks, raw JSON Strategy 0 in `_parse_tool_calls()`
+- `tests/test_planner.py` — 13 new tests, 5 updated test descriptions
+
+### Findings
+- **PARAM placeholder**: 1B models copy template placeholders literally. Always use realistic examples in prompts.
+- **Multi-tool grammar limitation**: With multiple tools, GBNF arguments are generic `{"type": "object"}` — keys unconstrained. Tool narrowing (single tool per step) is the workaround.
+- **Simple task detection essential**: Without it, "list files" generates 3 identical planning steps. With it, 1 step, no planning overhead.
+- **Grammar framework vs planning**: Small models need GBNF grammar for *all* tasks (even simple ones), but only need LLM planning for *complex* tasks. These are orthogonal concerns.
+
+### Metrics
+- Systest rounds: 4
+- Tests added: 13 (total suite: 245 passing, 2 skipped, 0.86s)
+- Planner tests: 63 (was 50)
+
+### Checkpoint
+**Status:** COMPLETE — Plan-then-execute systested. 1B model produces correct tool calls via single-step grammar-constrained execution.
+
+---
+
 ## Appendix A — External Repository Reference
 
 *Carried forward from prior log entries #15, #16, #33. These repos contain patterns and features we want to bring into Animus over time. Ollama has been removed from the stack — Animus uses llama-cpp-python for local inference.*

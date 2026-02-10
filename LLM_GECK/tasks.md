@@ -1,6 +1,6 @@
 # Tasks — ANIMUS
 
-**Last Updated:** 2026-02-10 (Log v2, Entry #0: Synopsis + Plan-Then-Execute proposal)
+**Last Updated:** 2026-02-10 (Log v2, Entry #4: Systest fixes — simple task detection, tool narrowing, raw JSON parsing)
 
 ## Design Philosophy
 
@@ -68,7 +68,7 @@ Summary of completed work:
 - [x] **Phase 7: Logging & Token Tracking** — Rotating file handler, `log_llm_call()`, `log_tool_execution()`, `TokenUsage` dataclass, `_cumulative_tokens` (17 tests)
 - [x] **GGUF Pull Enhancement** — MODEL_CATALOG (6 models), `download_gguf()`, Rich progress bar, `--list` flag, auto-config after download
 
-**Lean rebuild tests:** 232 passing (0.86s)
+**Lean rebuild tests:** 245 passing (0.86s)
 
 ---
 
@@ -99,15 +99,16 @@ Summary of completed work:
   - [x] Auto-detect: use chunked execution for small/medium models, direct for large
   - [x] `agent.run_planned()` with force flag and auto-detection
   - [x] Manual override: `/plan` slash command to toggle plan mode
-- [x] **Tests** (`tests/test_planner.py`) — 50 tests
+- [x] **Tests** (`tests/test_planner.py`) — 63 tests
   - [x] StepType inference (10 tests)
   - [x] PlanParser regex extraction (12 tests)
   - [x] TaskDecomposer with mock provider (3 tests)
-  - [x] Tool filtering (5 tests)
+  - [x] Tool filtering + tool narrowing (9 tests)
   - [x] ChunkedExecutor with mock provider and tools (8 tests)
   - [x] PlanExecutor full pipeline integration (5 tests)
   - [x] should_use_planner auto-detection (3 tests)
-  - [x] _parse_tool_calls standalone (4 tests)
+  - [x] _parse_tool_calls standalone + raw JSON (6 tests)
+  - [x] Simple task detection (7 tests)
 
 ---
 
@@ -147,9 +148,10 @@ Summary of completed work:
 
 ## Success Criteria
 
-### Plan-Then-Execute (Implementation Complete — Needs Systest)
-- [ ] Llama-3.2-1B can complete a multi-file task via chunked execution
+### Plan-Then-Execute (Systested)
+- [x] Llama-3.2-1B can complete a single-step tool call via grammar-constrained execution (verified by systest Round 4)
+- [ ] Llama-3.2-1B can complete a multi-file task via chunked execution (multi-step systest pending)
 - [x] Each step executes in isolated context without thrashing (verified by test_fresh_context_per_step)
 - [x] Hybrid mode works: API plans, local executes (verified by test_hybrid_mode_different_providers)
 - [x] Fallback to direct mode for large/API models (verified by test_large_model_skips_planner)
-- [x] Tests cover decomposer, parser, executor, integration, and grammar (70 tests passing)
+- [x] Tests cover decomposer, parser, executor, integration, grammar, and systest fixes (83 tests passing)

@@ -133,13 +133,27 @@ def _get_planning_profile(caps: ModelCapabilities) -> dict[str, int]:
     return _PLANNING_PROFILES.get(caps.size_tier, _PLANNING_PROFILES["medium"])
 
 
-def _filter_tools(registry: ToolRegistry, step_type: StepType) -> ToolRegistry:
-    """Create a new registry containing only tools relevant to the step type."""
+def _filter_tools(registry: ToolRegistry, step_type: StepType, step_description: str = "") -> ToolRegistry:
+    """Create a new registry containing only tools relevant to the step type.
+
+    If the step description explicitly mentions a tool name (e.g. "read_file(grammar.py)"),
+    narrows to just that tool for tighter GBNF grammar constraints.
+    """
     allowed_names = set(_STEP_TYPE_TOOLS.get(step_type, []))
+    available = [tool for tool in registry.list_tools() if tool.name in allowed_names]
+
+    # Narrow to a single tool if the step description mentions one by name
+    if step_description and available:
+        desc_lower = step_description.lower()
+        for tool in available:
+            if tool.name in desc_lower:
+                filtered = ToolRegistry()
+                filtered.register(tool)
+                return filtered
+
     filtered = ToolRegistry()
-    for tool in registry.list_tools():
-        if tool.name in allowed_names:
-            filtered.register(tool)
+    for tool in available:
+        filtered.register(tool)
     return filtered
 
 
@@ -272,10 +286,8 @@ Working directory: {cwd}
 
 {tool_schemas}
 
-Call a tool by outputting EXACTLY this format:
-```json
-{{"name": "TOOL_NAME", "arguments": {{"PARAM": "VALUE"}}}}
-```
+Respond with ONLY a JSON tool call. Example:
+{{"name": "read_file", "arguments": {{"path": "/example/file.txt"}}}}
 
 Step {step_num}/{total_steps}: {step_description}"""
 
@@ -338,8 +350,8 @@ class ChunkedExecutor:
         """Execute a single step with fresh context and filtered tools."""
         import os
 
-        # Filter tools for this step type
-        filtered_registry = _filter_tools(self._full_registry, step.step_type)
+        # Filter tools for this step type (narrows to single tool if description mentions one)
+        filtered_registry = _filter_tools(self._full_registry, step.step_type, step.description)
 
         # Build GBNF grammar constraint for native models (None for API providers)
         from src.core.grammar import build_grammar
@@ -432,10 +444,30 @@ class ChunkedExecutor:
 # ---------------------------------------------------------------------------
 
 def _parse_tool_calls(text: str) -> list[dict[str, Any]]:
-    """Parse tool calls from LLM response. Hardcoded regex, no LLM involvement."""
+    """Parse tool calls from LLM response. Hardcoded regex, no LLM involvement.
+
+    Handles three formats:
+    1. JSON code blocks: ```json {"name": ..., "arguments": ...} ```
+    2. Inline JSON: {"name": ..., "arguments": ...}
+    3. Raw JSON (from GBNF-constrained output): the entire text is valid JSON
+    """
     import json
 
+    text = text.strip()
     calls: list[dict[str, Any]] = []
+
+    # Strategy 0: Raw JSON (GBNF grammar output — entire response is JSON)
+    if text.startswith("{"):
+        try:
+            data = json.loads(text)
+            if "name" in data and "arguments" in data:
+                calls.append({
+                    "name": data["name"],
+                    "arguments": data["arguments"] if isinstance(data["arguments"], dict) else {},
+                })
+                return calls
+        except json.JSONDecodeError:
+            pass
 
     # Strategy 1: JSON code blocks
     json_blocks = re.findall(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
@@ -504,21 +536,36 @@ class PlanExecutor:
         )
 
     def run(self, task: str) -> PlanResult:
-        """Decompose, parse, and execute a task."""
-        # Phase 1: Decompose
-        raw_plan = self._decomposer.decompose(task)
+        """Decompose, parse, and execute a task.
 
-        # Phase 2: Parse
-        steps = self._parser.parse(raw_plan)
-
-        if not steps:
-            # Fallback: if parsing found no steps, create a single step
+        For simple tasks, skips the LLM planning step and creates a single
+        step directly — still uses the execution framework (GBNF grammar, tool
+        schemas) which is essential for small models to produce tool calls.
+        """
+        if _is_simple_task(task):
+            # Skip planning — single-step execution with grammar constraints
+            step_type = _infer_step_type(task)
             steps = [Step(
                 number=1,
                 description=task,
-                step_type=_infer_step_type(task),
-                relevant_tools=list(_STEP_TYPE_TOOLS.get(_infer_step_type(task), [])),
+                step_type=step_type,
+                relevant_tools=list(_STEP_TYPE_TOOLS.get(step_type, [])),
             )]
+        else:
+            # Phase 1: Decompose
+            raw_plan = self._decomposer.decompose(task)
+
+            # Phase 2: Parse
+            steps = self._parser.parse(raw_plan)
+
+            if not steps:
+                # Fallback: if parsing found no steps, create a single step
+                steps = [Step(
+                    number=1,
+                    description=task,
+                    step_type=_infer_step_type(task),
+                    relevant_tools=list(_STEP_TYPE_TOOLS.get(_infer_step_type(task), [])),
+                )]
 
         # Phase 3: Execute
         results = self._executor.execute_plan(steps, task)
@@ -534,11 +581,40 @@ class PlanExecutor:
 # Helper: should we use plan-then-execute for this model?
 # ---------------------------------------------------------------------------
 
-def should_use_planner(provider: ModelProvider) -> bool:
+def should_use_planner(provider: ModelProvider, task: str = "") -> bool:
     """Auto-detect whether to use plan-then-execute based on model size tier.
 
-    Small and medium models benefit from chunked execution.
-    Large/API models can handle direct execution.
+    Small and medium models always go through the planner framework.
+    The framework itself handles complexity: simple tasks skip the LLM
+    planning step and execute directly with grammar constraints.
+    Large/API models use direct execution.
     """
     caps = provider.capabilities()
     return caps.size_tier in ("small", "medium")
+
+
+def _is_simple_task(task: str) -> bool:
+    """Heuristic: detect tasks simple enough to skip planning.
+
+    Simple = short, single action, no multi-step conjunctions.
+    """
+    lower = task.lower()
+
+    # Multi-step conjunctions always indicate complex tasks
+    if " then " in lower or " and then " in lower:
+        return False
+
+    # Very short tasks are almost always single-action
+    words = task.split()
+    if len(words) <= 10:
+        return True
+
+    # Count action verbs — multiple actions suggest multi-step
+    _action_words = {"read", "write", "create", "list", "show", "find", "check",
+                     "run", "execute", "commit", "search", "open", "delete", "edit",
+                     "update", "add", "remove", "install", "build", "test", "diff"}
+    action_count = sum(1 for w in words if w.lower().strip(",.!?") in _action_words)
+    if action_count <= 1:
+        return True
+
+    return False
