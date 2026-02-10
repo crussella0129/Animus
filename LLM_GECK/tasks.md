@@ -150,6 +150,43 @@ Summary of completed work:
 
 **Verified:** 806 nodes, 1434 edges from Animus's own 34-file codebase. Incremental re-index skips all unchanged files.
 
+### SQLite-vec Vector Store [COMPLETE]
+
+**Goal:** Replace brute-force Python vector search with native SIMD-accelerated search via sqlite-vec extension.
+
+**Solution:** `SQLiteVecVectorStore` class using vec0 virtual tables in `src/memory/vectorstore.py`.
+
+**Tasks:**
+- [x] **SQLiteVecVectorStore** (`src/memory/vectorstore.py`)
+  - [x] Load sqlite-vec extension via `sqlite_vec.load()`
+  - [x] Create vec0 virtual table for efficient vector storage
+  - [x] Separate metadata table for text/metadata/file tracking
+  - [x] Native KNN search using `WHERE embedding MATCH ? AND k = ?` syntax
+  - [x] L2 distance → similarity score conversion
+  - [x] Maintains same interface as SQLiteVectorStore (drop-in replacement)
+  - [x] Dimension validation for embeddings and queries
+  - [x] File tracking: upsert, remove, get stats
+- [x] **Tests** (`tests/test_memory.py`) — 16 new tests
+  - [x] Initialization with dimension parameter
+  - [x] Add and search with native vec search
+  - [x] Empty store handling
+  - [x] Clear operation
+  - [x] Dimension validation (add + query)
+  - [x] Persistence across close/reopen
+  - [x] Metadata roundtrip
+  - [x] File tracking (get_file_info, upsert_file, remove_file_chunks, get_tracked_files)
+  - [x] Stats reporting
+  - [x] Stale file pruning
+  - [x] top_k limiting
+  - [x] Multiple files support
+  - [x] ImportError when sqlite-vec not installed
+- [x] **Dependencies** — Added `sqlite-vec>=0.1` to pyproject.toml
+- [x] **Exports** — Updated `src/memory/__init__.py` with SQLiteVecVectorStore
+
+**Performance:** Native SIMD-accelerated search (AVX/NEON) vs brute-force Python loops. Scales better with large vector stores.
+
+**All tests:** 55 passing (memory module complete)
+
 ---
 
 ## Backlog
@@ -159,9 +196,9 @@ Summary of completed work:
 - [x] Grammar-constrained decoding for llama-cpp-python (GBNF integration) — `src/core/grammar.py`, 15 tests
 
 ### Medium Priority
-- [ ] Real TTS Integration (replace MIDI phoneme synthesis)
+- [ ] Real TTS Integration (replace MIDI phoneme synthesis with TTS Soundboard "david" voice)
 - [ ] Moto Perpetuo background music (proper MIDI files)
-- [ ] SQLite-vec persistent vector store
+- [x] **SQLite-vec persistent vector store** — `src/memory/vectorstore.py`, native SIMD-accelerated vector search, 16 tests
 - [ ] Container isolation with `--paranoid` flag (Ungabunga-Box Phase 3)
 - [ ] API key authentication for MCP HTTP transport
 
