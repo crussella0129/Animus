@@ -125,23 +125,67 @@ def status() -> None:
 
 
 @app.command()
-def pull(model_name: str = typer.Argument(..., help="Model name to pull (e.g. llama3.2)")) -> None:
-    """Pull a model via the configured provider."""
-    from src.llm.factory import ProviderFactory
+def pull(
+    model_name: str = typer.Argument(None, help="Model name (e.g. llama-3.2-1b) or HuggingFace URL"),
+    list_models: bool = typer.Option(False, "--list", "-l", help="List available models"),
+) -> None:
+    """Pull/download a GGUF model for local inference."""
+    from rich.progress import BarColumn, DownloadColumn, Progress, TransferSpeedColumn
+
+    from src.llm.native import MODEL_CATALOG, download_gguf, list_available_models
+
+    if list_models or model_name is None:
+        table = Table(title="Available Models")
+        table.add_column("Name", style="cyan")
+        table.add_column("Size", style="green")
+        table.add_column("Repository", style="dim")
+        for name in list_available_models():
+            repo, filename, params = MODEL_CATALOG[name]
+            table.add_row(name, f"~{params}B params", repo)
+        console.print(table)
+        info("Usage: animus pull <model-name>")
+        info("Or: animus pull <huggingface-url-to-gguf>")
+        return
 
     cfg = AnimusConfig.load()
-    factory = ProviderFactory()
-    provider = factory.create(cfg.model.provider)
-    if provider is None:
-        error(f"Provider '{cfg.model.provider}' not available")
-        raise typer.Exit(1)
-    info(f"Pulling {model_name} via {cfg.model.provider}...")
+    info(f"Pulling {model_name}...")
+
+    progress = Progress(
+        "[progress.description]{task.description}",
+        BarColumn(),
+        DownloadColumn(),
+        TransferSpeedColumn(),
+        console=console,
+    )
+
+    task_id = None
+
+    def _on_progress(downloaded: int, total: int) -> None:
+        nonlocal task_id
+        if task_id is None:
+            task_id = progress.add_task("Downloading", total=total)
+            progress.start()
+        progress.update(task_id, completed=downloaded)
+
     try:
-        provider.pull(model_name)
-        success(f"Model {model_name} pulled successfully")
+        model_path = download_gguf(model_name, cfg.models_dir, on_progress=_on_progress)
     except Exception as e:
+        if task_id is not None:
+            progress.stop()
         error(f"Failed to pull model: {e}")
         raise typer.Exit(1)
+
+    if task_id is not None:
+        progress.stop()
+
+    success(f"Model downloaded: {model_path}")
+
+    # Auto-configure: set model_path and model_name in config
+    cfg.model.model_path = str(model_path)
+    cfg.model.model_name = model_name
+    cfg.model.provider = "native"
+    cfg.save()
+    success(f"Config updated: provider=native, model_path={model_path}")
 
 
 # --- RAG commands ---
@@ -309,7 +353,15 @@ def rise(
 
     cfg = AnimusConfig.load()
     factory = ProviderFactory()
-    provider = factory.create(cfg.model.provider)
+    provider = factory.create(
+        cfg.model.provider,
+        model_path=cfg.model.model_path,
+        model_name=cfg.model.model_name,
+        context_length=cfg.model.context_length,
+        gpu_layers=cfg.model.gpu_layers,
+        size_tier=cfg.model.size_tier,
+        max_tokens=cfg.model.max_tokens,
+    )
 
     if provider is None or not provider.available():
         error(f"Provider '{cfg.model.provider}' is not available. Run 'animus status' to check.")

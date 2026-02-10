@@ -8,6 +8,40 @@ from typing import Any
 
 from src.llm.base import ModelCapabilities, ModelProvider
 
+# Known model catalog: short name -> (HuggingFace repo, filename, param billions)
+MODEL_CATALOG: dict[str, tuple[str, str, float]] = {
+    "llama-3.2-1b": (
+        "bartowski/Llama-3.2-1B-Instruct-GGUF",
+        "Llama-3.2-1B-Instruct-Q4_K_M.gguf",
+        1.0,
+    ),
+    "llama-3.2-3b": (
+        "bartowski/Llama-3.2-3B-Instruct-GGUF",
+        "Llama-3.2-3B-Instruct-Q4_K_M.gguf",
+        3.0,
+    ),
+    "phi-4-mini": (
+        "bartowski/phi-4-mini-instruct-GGUF",
+        "phi-4-mini-instruct-Q4_K_M.gguf",
+        3.8,
+    ),
+    "qwen-2.5-3b": (
+        "bartowski/Qwen2.5-3B-Instruct-GGUF",
+        "Qwen2.5-3B-Instruct-Q4_K_M.gguf",
+        3.0,
+    ),
+    "qwen-2.5-7b": (
+        "bartowski/Qwen2.5-7B-Instruct-GGUF",
+        "Qwen2.5-7B-Instruct-Q4_K_M.gguf",
+        7.0,
+    ),
+    "gemma-3-4b": (
+        "bartowski/google_gemma-3-4b-it-GGUF",
+        "google_gemma-3-4b-it-Q4_K_M.gguf",
+        4.0,
+    ),
+}
+
 
 def _estimate_params_from_filename(path: str) -> float:
     """Estimate parameter count from GGUF filename conventions like 'model-7B-Q4'."""
@@ -16,6 +50,65 @@ def _estimate_params_from_filename(path: str) -> float:
     if match:
         return float(match.group(1))
     return 0.0
+
+
+def list_available_models() -> list[str]:
+    """Return list of known model short names."""
+    return sorted(MODEL_CATALOG.keys())
+
+
+def download_gguf(
+    model_name: str,
+    models_dir: Path,
+    on_progress: Any = None,
+) -> Path:
+    """Download a GGUF model from HuggingFace.
+
+    Args:
+        model_name: Short name from MODEL_CATALOG or a direct HuggingFace URL.
+        models_dir: Directory to save the model file.
+        on_progress: Optional callback(downloaded_bytes, total_bytes) for progress.
+
+    Returns:
+        Path to the downloaded model file.
+    """
+    import httpx
+
+    if model_name in MODEL_CATALOG:
+        repo, filename, _ = MODEL_CATALOG[model_name]
+        url = f"https://huggingface.co/{repo}/resolve/main/{filename}"
+    elif model_name.startswith("http"):
+        url = model_name
+        filename = url.split("/")[-1]
+    else:
+        raise ValueError(
+            f"Unknown model: {model_name}\n"
+            f"Available models: {', '.join(sorted(MODEL_CATALOG.keys()))}\n"
+            f"Or provide a direct HuggingFace URL to a .gguf file."
+        )
+
+    dest = models_dir / filename
+    if dest.exists():
+        return dest
+
+    models_dir.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_suffix(".gguf.part")
+
+    with httpx.Client(timeout=None, follow_redirects=True) as client:
+        with client.stream("GET", url) as response:
+            response.raise_for_status()
+            total = int(response.headers.get("content-length", 0))
+            downloaded = 0
+
+            with open(tmp, "wb") as f:
+                for chunk in response.iter_bytes(chunk_size=1024 * 1024):
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    if on_progress:
+                        on_progress(downloaded, total)
+
+    tmp.rename(dest)
+    return dest
 
 
 class NativeProvider(ModelProvider):
@@ -89,3 +182,10 @@ class NativeProvider(ModelProvider):
             cap.size_tier = self._size_tier
             return cap
         return ModelCapabilities.from_parameter_count(params_b, self._context_length)
+
+    def pull(self, model_name: str) -> None:
+        """Pull/download a GGUF model. Delegates to download_gguf()."""
+        from src.core.config import AnimusConfig
+
+        cfg = AnimusConfig.load()
+        download_gguf(model_name, cfg.models_dir)
