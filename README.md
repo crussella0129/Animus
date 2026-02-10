@@ -45,11 +45,97 @@ pip install -e ".[embeddings]"   # sentence-transformers for local embeddings
 
 ## Quick Start
 
+### 1. Install and initialize
+
 ```bash
-animus init          # Create config at ~/.animus/config.yaml
-animus detect        # Show hardware and GPU info
-animus status        # Check system readiness
-animus rise          # Awaken Animus
+pip install -e ".[dev]"
+animus init
+```
+
+### 2. Set up a model
+
+**Option A — Local model (no internet after download):**
+
+```bash
+pip install -e ".[native]"
+animus pull llama-3.2-1b          # Downloads ~0.7 GB GGUF
+animus pull --list                # See all available models
+```
+
+**Option B — API provider:**
+
+```bash
+# OpenAI
+export OPENAI_API_KEY="sk-..."
+
+# Or Anthropic
+export ANTHROPIC_API_KEY="sk-ant-..."
+```
+
+Then edit `~/.animus/config.yaml`:
+
+```yaml
+model:
+  provider: openai        # or "anthropic"
+  model_name: gpt-4       # or "claude-sonnet-4-5-20250929"
+```
+
+### 3. Start a session
+
+```bash
+animus rise
+```
+
+### 4. Try these test tasks
+
+Once inside the REPL, try these to verify everything works:
+
+**Basic conversation:**
+```
+You> What files are in the current directory?
+You> Read the README.md file
+```
+
+**Tool use (filesystem):**
+```
+You> Create a file called hello.txt with the text "Hello from Animus"
+You> List the files in this directory to confirm it was created
+```
+
+**Git operations (run from a git repo):**
+```
+You> What's the git status?
+You> Show me the last 5 commits
+You> Show me the diff of any uncommitted changes
+```
+
+**Multi-step tasks (tests plan-then-execute on small models):**
+```
+You> Read all the Python files in src/core/, then tell me which one has the most lines of code
+You> Check git status, then list all modified files and show the diff for each one
+```
+
+**Slash commands:**
+```
+/tools       Show available tools
+/tokens      Show context window usage
+/plan        Toggle plan-then-execute mode (auto for small models)
+/save        Save session
+/clear       Reset conversation
+/help        List all commands
+```
+
+**Exit:**
+```
+You> exit
+```
+
+### 5. Resume a session
+
+```bash
+animus rise --resume              # Resume most recent session
+animus rise --session <id>        # Resume a specific session
+animus sessions                   # List all saved sessions
 ```
 
 ## Commands
@@ -96,19 +182,22 @@ All tests use mocks — no GPU, no API keys, no network required.
 
 ```
 src/
-├── main.py              # Typer CLI (detect, init, config, rise, ...)
+├── main.py              # Typer CLI (detect, init, config, rise, pull, ...)
 ├── core/
-│   ├── agent.py         # Agent loop with tool calling
+│   ├── agent.py         # Agent loop with tool calling + plan-then-execute
 │   ├── config.py        # Pydantic config + YAML persistence
 │   ├── context.py       # Model-size-aware context management
 │   ├── detection.py     # OS / GPU / hardware detection
 │   ├── errors.py        # Error classification + recovery
-│   └── permission.py    # Path and command deny lists
+│   ├── logging.py       # Structured logging + rotating file handler
+│   ├── permission.py    # Path and command deny lists
+│   ├── planner.py       # Plan-then-execute pipeline (decompose → parse → execute)
+│   └── session.py       # Session persistence (save/load/resume)
 ├── llm/
 │   ├── base.py          # ModelProvider ABC + capabilities
-│   ├── api.py           # OpenAI + Anthropic providers
+│   ├── api.py           # OpenAI + Anthropic providers (with SSE streaming)
 │   ├── factory.py       # Provider factory with fallback
-│   └── native.py        # llama-cpp-python GGUF provider
+│   └── native.py        # llama-cpp-python GGUF provider + model catalog
 ├── memory/
 │   ├── scanner.py       # .gitignore-aware directory walker
 │   ├── chunker.py       # Token + code-aware chunking
@@ -117,6 +206,7 @@ src/
 ├── tools/
 │   ├── base.py          # Tool ABC + registry
 │   ├── filesystem.py    # read_file, write_file, list_dir
+│   ├── git.py           # git status/diff/log/branch/add/commit/checkout
 │   └── shell.py         # run_shell with safety checks
 └── ui/
     └── __init__.py      # Rich console helpers + logo
