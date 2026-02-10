@@ -120,3 +120,12 @@ def graph_db(tmp_path: Path):
     db = GraphDB(tmp_path / "test_graph.db")
     yield db
     db.close()
+
+
+@pytest.fixture
+def sqlite_vector_store(tmp_path: Path):
+    """Create a temporary SQLiteVectorStore instance."""
+    from src.memory.vectorstore import SQLiteVectorStore
+    store = SQLiteVectorStore(tmp_path / "test_vectors.db")
+    yield store
+    store.close()

@@ -195,18 +195,24 @@ def pull(
 def ingest(
     path: str = typer.Argument(..., help="Directory or file to ingest"),
     glob: str = typer.Option("**/*", "--glob", "-g", help="Glob pattern for file matching"),
+    force: bool = typer.Option(False, "--force", "-f", help="Re-ingest all files, ignoring cache"),
 ) -> None:
-    """Ingest files into the vector store for RAG."""
+    """Ingest files into the persistent vector store for RAG."""
+    import hashlib
+
     from src.memory.chunker import Chunker
     from src.memory.embedder import MockEmbedder
     from src.memory.scanner import Scanner
-    from src.memory.vectorstore import InMemoryVectorStore
+    from src.memory.vectorstore import SQLiteVectorStore
 
     cfg = AnimusConfig.load()
+    cfg.vector_dir.mkdir(parents=True, exist_ok=True)
+    db_path = cfg.vector_dir / "vectors.db"
+
     scanner = Scanner()
     chunker = Chunker(chunk_size=cfg.rag.chunk_size, overlap=cfg.rag.chunk_overlap)
     embedder = MockEmbedder()
-    store = InMemoryVectorStore()
+    store = SQLiteVectorStore(db_path)
 
     target = Path(path)
     if not target.exists():
@@ -217,19 +223,74 @@ def ingest(
     info(f"Found {len(files)} files")
 
     total_chunks = 0
-    for file_path in files:
+    files_ingested = 0
+    files_skipped = 0
+    seen_paths: set[str] = set()
+
+    for fp in files:
+        path_str = str(fp)
+        seen_paths.add(path_str)
+
+        if not force:
+            # Incremental check: mtime + hash
+            try:
+                mtime = fp.stat().st_mtime
+                file_info = store.get_file_info(path_str)
+                if file_info is not None:
+                    stored_mtime, stored_hash = file_info
+                    if stored_mtime == mtime:
+                        files_skipped += 1
+                        continue
+                    current_hash = hashlib.md5(fp.read_bytes()).hexdigest()
+                    if current_hash == stored_hash:
+                        # Content unchanged, update mtime
+                        store.upsert_file(path_str, mtime, current_hash)
+                        files_skipped += 1
+                        continue
+            except OSError:
+                pass
+
         try:
-            text = file_path.read_text(encoding="utf-8", errors="ignore")
-            chunks = chunker.chunk(text, metadata={"source": str(file_path)})
+            text = fp.read_text(encoding="utf-8", errors="ignore")
+            chunks = chunker.chunk(text, metadata={"source": path_str})
             if chunks:
+                # Remove old chunks for this file before adding new ones
+                store.remove_file_chunks(path_str)
+
                 texts = [c["text"] for c in chunks]
                 embeddings = embedder.embed(texts)
-                store.add(texts, embeddings, [c.get("metadata", {}) for c in chunks])
+                current_hash = hashlib.md5(fp.read_bytes()).hexdigest()
+                mtime = fp.stat().st_mtime
+                store.add(
+                    texts, embeddings,
+                    [c.get("metadata", {}) for c in chunks],
+                    file_path=path_str, file_hash=current_hash,
+                )
+                store.upsert_file(path_str, mtime, current_hash)
                 total_chunks += len(chunks)
+                files_ingested += 1
         except Exception as e:
-            error(f"Failed to process {file_path}: {e}")
+            error(f"Failed to process {fp}: {e}")
 
-    success(f"Ingested {total_chunks} chunks from {len(files)} files")
+    # Prune stale files (tracked but no longer on disk)
+    for tracked_path in store.get_tracked_files():
+        if tracked_path not in seen_paths:
+            store.remove_file_chunks(tracked_path)
+
+    stats = store.get_stats()
+    store.close()
+
+    table = Table(title="Ingestion Stats")
+    table.add_column("Metric", style="cyan")
+    table.add_column("Value", style="green")
+    table.add_row("Files found", str(len(files)))
+    table.add_row("Files ingested", str(files_ingested))
+    table.add_row("Files skipped (unchanged)", str(files_skipped))
+    table.add_row("Chunks added this run", str(total_chunks))
+    table.add_row("Total chunks in store", str(stats["chunks"]))
+    table.add_row("Total files tracked", str(stats["files"]))
+    console.print(table)
+    success(f"Vector store saved to {db_path}")
 
 
 @app.command()
@@ -238,8 +299,36 @@ def search(
     top_k: int = typer.Option(5, "--top-k", "-k", help="Number of results"),
 ) -> None:
     """Search the vector store."""
-    info(f"Search for: {query} (top_k={top_k})")
-    info("Note: In-memory store does not persist between runs. Use within a session.")
+    from src.memory.embedder import MockEmbedder
+    from src.memory.vectorstore import SQLiteVectorStore
+
+    cfg = AnimusConfig.load()
+    db_path = cfg.vector_dir / "vectors.db"
+    if not db_path.exists():
+        error("No vector store found. Run 'animus ingest <path>' first.")
+        raise typer.Exit(1)
+
+    embedder = MockEmbedder()
+    store = SQLiteVectorStore(db_path)
+
+    query_embedding = embedder.embed([query])[0]
+    results = store.search(query_embedding, top_k=top_k)
+    store.close()
+
+    if not results:
+        info("No results found.")
+        return
+
+    table = Table(title=f"Search Results for '{query}'")
+    table.add_column("#", style="dim", width=3)
+    table.add_column("Score", style="cyan", width=8)
+    table.add_column("Source", style="green")
+    table.add_column("Text", style="white", max_width=60)
+    for i, r in enumerate(results, 1):
+        source = r.metadata.get("source", "unknown")
+        text_preview = r.text[:100].replace("\n", " ")
+        table.add_row(str(i), f"{r.score:.3f}", source, text_preview)
+    console.print(table)
 
 
 # --- Session commands ---
@@ -445,6 +534,19 @@ def rise(
             from src.tools.graph import register_graph_tools
             graph_db = GraphDB(graph_db_path)
             register_graph_tools(registry, graph_db)
+        except Exception:
+            pass
+
+    # Register search tools if the vector store exists
+    vector_db_path = cfg.vector_dir / "vectors.db"
+    if vector_db_path.exists():
+        try:
+            from src.memory.embedder import MockEmbedder
+            from src.memory.vectorstore import SQLiteVectorStore
+            from src.tools.search import register_search_tools
+            vector_store = SQLiteVectorStore(vector_db_path)
+            search_embedder = MockEmbedder()
+            register_search_tools(registry, vector_store, search_embedder)
         except Exception:
             pass
 

@@ -93,11 +93,11 @@ class PlanResult:
 # ---------------------------------------------------------------------------
 
 _STEP_TYPE_TOOLS: dict[StepType, list[str]] = {
-    StepType.READ: ["read_file", "list_dir", "git_status", "git_diff", "git_log"],
+    StepType.READ: ["read_file", "list_dir", "git_status", "git_diff", "git_log", "search_codebase"],
     StepType.WRITE: ["read_file", "write_file", "list_dir"],
     StepType.SHELL: ["run_shell", "read_file", "list_dir"],
     StepType.GIT: ["git_status", "git_diff", "git_log", "git_branch", "git_add", "git_commit", "git_checkout"],
-    StepType.ANALYZE: ["read_file", "list_dir", "git_status", "git_diff", "git_log", "run_shell", "search_code_graph", "get_callers", "get_blast_radius"],
+    StepType.ANALYZE: ["read_file", "list_dir", "git_status", "git_diff", "git_log", "run_shell", "search_code_graph", "get_callers", "get_blast_radius", "search_codebase"],
     StepType.GENERATE: ["read_file", "write_file", "list_dir"],
 }
 

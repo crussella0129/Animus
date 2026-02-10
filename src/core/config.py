@@ -77,6 +77,10 @@ class AnimusConfig(BaseSettings):
     def graph_dir(self) -> Path:
         return self.config_dir / "graph"
 
+    @property
+    def vector_dir(self) -> Path:
+        return self.config_dir / "vectorstore"
+
     def save(self) -> None:
         """Save configuration to YAML file."""
         self.config_dir.mkdir(parents=True, exist_ok=True)
