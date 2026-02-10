@@ -133,6 +133,13 @@ from src.core.specialists import (
     spawn_specialist,
     list_specialists,
 )
+from src.core.queue import (
+    CommandQueue,
+    Lane,
+    LaneStatus,
+    QueueEntry,
+    LaneStats,
+)
 from src.core.web_validator import (
     WebContentJudge,
     WebContentRuleEngine,
@@ -266,6 +273,12 @@ __all__ = [
     "get_specialist",
     "spawn_specialist",
     "list_specialists",
+    # Command Queue
+    "CommandQueue",
+    "Lane",
+    "LaneStatus",
+    "QueueEntry",
+    "LaneStats",
     # Web Content Validation (Ungabunga-Box)
     "WebContentJudge",
     "WebContentRuleEngine",

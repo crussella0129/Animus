@@ -1,6 +1,6 @@
 # Tasks — ANIMUS
 
-**Last Updated:** 2026-02-09 (Entry #44: Specialist sub-agents, 447 tests)
+**Last Updated:** 2026-02-09 (Entry #45: Lane-based queueing, 470 tests)
 
 ## Design Philosophy Update
 
@@ -725,12 +725,12 @@ Audio features are completely optional:
   - [ ] Consider grammar-constrained decoding for llama-cpp-python (future)
   - Rationale: Qwen2.5-Coder excels at JSON, leverage this consistently
 
-- [ ] **Auth Profile Rotation** (from Clawdbot)
+- [x] **Auth Profile Rotation** (from Clawdbot) ✓ Entry #42
   - Multiple API keys with cooldown tracking
   - Automatic failover on auth failures
   - Per-profile usage metrics
 
-- [ ] **Lane-Based Queueing** (from Clawdbot, OpenClaw)
+- [x] **Lane-Based Queueing** (from Clawdbot, OpenClaw) ✓ Entry #45
   - Serialize commands per session
   - Prevent interleaving of concurrent runs
   - Priority queue support
@@ -747,7 +747,7 @@ Audio features are completely optional:
   - Enable "blast radius" analysis
   - Semantic code navigation
 
-- [ ] **Specialist Sub-Agents** (from OpenCode, Potpie)
+- [x] **Specialist Sub-Agents** (from OpenCode, Potpie) ✓ Entry #44
   - Explore agent (fast, read-only search)
   - Plan agent (analysis without edits)
   - Debug agent (stacktrace analysis)
@@ -938,6 +938,11 @@ Audio features are completely optional:
 
 ## Completed (Recent)
 
+- **Lane-Based Queueing** (Entry #45, Backlog High Priority) ✓
+  - `CommandQueue` with `Lane` per session — sequential within lane, parallel across lanes
+  - Priority ordering (higher = sooner), pause/resume per lane, graceful shutdown
+  - Stats tracking (wait time, run time, completed/failed counts)
+  - 23 new tests (2 entry, 6 lane, 15 queue)
 - **Specialist Sub-Agents** (Entry #44, Backlog High Priority) ✓
   - 4 specialist types: Explore (read-only search), Plan (analysis), Debug (stacktrace), Test (write+run)
   - Pre-configured role, scope, tool restrictions, and focused prompts per type

@@ -4201,3 +4201,33 @@ Define specialist sub-agent roles (from backlog) with pre-configured scope/promp
 - Files created: 2 (specialists.py, test_specialists.py)
 - Files modified: 1 (__init__.py)
 - Tests added: 27 (447 total passing)
+
+---
+
+## Entry #45 — 2026-02-09
+
+### Summary
+Lane-Based Queueing: Multi-lane command queue that serializes operations per session while running different sessions in parallel. Supports priority ordering and pause/resume.
+
+### Understood Goals
+Implement lane-based queueing from the high-priority backlog — serialize commands within a session, prevent interleaving of concurrent runs, add priority support and pause/resume.
+
+### Actions
+- Created `src/core/queue.py` with `LaneStatus`, `QueueEntry`, `LaneStats`, `Lane`, `CommandQueue`
+- Each lane runs a sequential worker task processing from a priority queue
+- `CommandQueue.submit()` returns a completed `QueueEntry` with result or error
+- Pause/resume per lane, graceful shutdown with timeout
+- Max lanes enforcement with automatic idle-lane reuse
+
+### Files Changed
+- `src/core/queue.py` — Created (LaneStatus, QueueEntry, LaneStats, Lane, CommandQueue)
+- `src/core/__init__.py` — Added exports
+- `tests/test_queue.py` — Created (23 tests)
+
+### Checkpoint
+**Status:** CONTINUE — Lane-based queueing complete. Next: DICL (#25), Unified Error Translation (#26).
+
+### Metrics
+- Files created: 2 (queue.py, test_queue.py)
+- Files modified: 1 (__init__.py)
+- Tests added: 23 (470 total passing)
