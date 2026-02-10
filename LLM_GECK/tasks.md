@@ -1,6 +1,6 @@
 # Tasks — ANIMUS
 
-**Last Updated:** 2026-02-09 (Entry #45: Lane-based queueing, 470 tests)
+**Last Updated:** 2026-02-09 (Entry #47: DICL, Unified Error Translation, 562 tests)
 
 ## Design Philosophy Update
 
@@ -938,6 +938,18 @@ Audio features are completely optional:
 
 ## Completed (Recent)
 
+- **Dynamic In-Context Learning (DICL)** (Entry #47, GECK Repor Recommendation #13) ✓
+  - `DICLStore` with JSONL persistence, keyword search, few-shot formatting
+  - `ToolCallExample` storing task, tool_calls, tool_results, response, tags
+  - Two injection modes: `format_few_shot()` for system prompt, `format_messages()` for conversation history
+  - `create_example_from_turn()` helper with auto-tag generation
+  - 35 new tests
+- **Unified Error Translation Layer** (Entry #46, GECK Repor Recommendation #14) ✓
+  - 5 canonical InvokeError types: Connection, RateLimit, Authorization, ServerUnavailable, BadRequest
+  - `translate_invoke_error()` with pattern matching for httpx, litellm, llama-cpp, stdlib errors
+  - `invoke_error_to_classified()` for integration with existing RecoveryStrategy system
+  - JSON serialization via `to_dict()`/`to_json()` for LLM self-correction
+  - 57 new tests
 - **Lane-Based Queueing** (Entry #45, Backlog High Priority) ✓
   - `CommandQueue` with `Lane` per session — sequential within lane, parallel across lanes
   - Priority ordering (higher = sooner), pause/resume per lane, graceful shutdown

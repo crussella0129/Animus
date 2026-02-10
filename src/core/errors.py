@@ -316,3 +316,248 @@ class ToolExecutionError(AnimusError):
     def __init__(self, tool_name: str, message: str):
         super().__init__(f"Tool '{tool_name}' failed: {message}", ErrorCategory.TOOL_FAILURE)
         self.tool_name = tool_name
+
+
+# =============================================================================
+# Unified Invoke Error Types (Dify-inspired)
+# =============================================================================
+# These 5 canonical error types normalize all backend-specific errors so that
+# consumer code handles only these types regardless of the underlying provider.
+
+
+class InvokeError(Exception):
+    """
+    Base class for unified invoke errors.
+
+    All LLM provider operations should raise one of the 5 InvokeError subclasses,
+    enabling consistent error handling across llama-cpp-python, Ollama, LiteLLM,
+    and external APIs.
+    """
+
+    def __init__(self, message: str, original: Optional[Exception] = None):
+        super().__init__(message)
+        self.message = message
+        self.original = original
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize error for LLM self-correction or logging."""
+        return {
+            "type": type(self).__name__,
+            "message": self.message,
+            "original_type": type(self.original).__name__ if self.original else None,
+            "original_message": str(self.original) if self.original else None,
+        }
+
+    def to_json(self) -> str:
+        """Serialize to JSON string."""
+        import json
+        return json.dumps(self.to_dict())
+
+
+class InvokeConnectionError(InvokeError):
+    """
+    Network or connection failure.
+
+    Covers: DNS resolution, socket errors, connection refused, connection reset,
+    network unreachable, SSL/TLS failures.
+
+    Recovery: Retry with backoff, check network connectivity.
+    """
+
+    def __init__(self, message: str = "Connection failed", original: Optional[Exception] = None):
+        super().__init__(message, original)
+
+
+class InvokeRateLimitError(InvokeError):
+    """
+    Rate limit or quota exceeded.
+
+    Covers: HTTP 429, quota exhausted, capacity limits, billing issues,
+    concurrent request limits.
+
+    Recovery: Wait for retry_after seconds, switch to backup API key.
+    """
+
+    def __init__(
+        self,
+        message: str = "Rate limit exceeded",
+        original: Optional[Exception] = None,
+        retry_after: Optional[float] = None,
+    ):
+        super().__init__(message, original)
+        self.retry_after = retry_after
+
+
+class InvokeAuthorizationError(InvokeError):
+    """
+    Authentication or authorization failure.
+
+    Covers: Invalid API key, expired token, missing credentials, forbidden access,
+    HTTP 401/403.
+
+    Recovery: Rotate to backup credentials, prompt user for new API key.
+    """
+
+    def __init__(self, message: str = "Authorization failed", original: Optional[Exception] = None):
+        super().__init__(message, original)
+
+
+class InvokeServerUnavailableError(InvokeError):
+    """
+    Server-side error or unavailability.
+
+    Covers: HTTP 5xx errors, model not found, server overloaded, maintenance mode,
+    internal server errors, service temporarily unavailable.
+
+    Recovery: Retry with backoff, fall back to alternative model/provider.
+    """
+
+    def __init__(self, message: str = "Server unavailable", original: Optional[Exception] = None):
+        super().__init__(message, original)
+
+
+class InvokeBadRequestError(InvokeError):
+    """
+    Invalid request or input.
+
+    Covers: Malformed JSON, invalid parameters, context length exceeded,
+    unsupported model features, HTTP 400.
+
+    Recovery: Fix input, reduce context size, adjust parameters.
+    """
+
+    def __init__(self, message: str = "Bad request", original: Optional[Exception] = None):
+        super().__init__(message, original)
+
+
+def translate_invoke_error(error: Exception) -> InvokeError:
+    """
+    Translate a backend-specific error into a unified InvokeError.
+
+    This function maps errors from various sources (httpx, litellm, llama-cpp,
+    standard library) into one of 5 canonical InvokeError types.
+
+    Args:
+        error: Any exception from an LLM provider operation.
+
+    Returns:
+        An InvokeError subclass appropriate for the error type.
+    """
+    error_str = str(error).lower()
+    error_type = type(error).__name__
+
+    # Already an InvokeError — return as-is
+    if isinstance(error, InvokeError):
+        return error
+
+    # --- Connection Errors ---
+    connection_patterns = [
+        "connection", "network", "socket", "dns", "unreachable", "refused",
+        "reset by peer", "ssl", "tls", "certificate", "handshake", "econnreset",
+        "econnrefused", "etimedout", "enetunreach", "ehostunreach",
+    ]
+    if any(p in error_str for p in connection_patterns):
+        return InvokeConnectionError(str(error), error)
+
+    # Python standard connection errors
+    if isinstance(error, (ConnectionError, ConnectionRefusedError, ConnectionResetError)):
+        return InvokeConnectionError(str(error), error)
+
+    # httpx connection errors
+    if error_type in ("ConnectError", "ConnectTimeout", "ReadTimeout", "WriteTimeout"):
+        return InvokeConnectionError(str(error), error)
+
+    # --- Rate Limit Errors ---
+    # Note: "overloaded" removed - server_patterns handles "overload" for server issues
+    rate_patterns = [
+        "rate limit", "rate_limit", "too many requests", "429", "throttle",
+        "quota exceeded", "capacity", "insufficient_quota", "billing",
+        "payment required", "quota_exceeded", "usage limit",
+    ]
+    if any(p in error_str for p in rate_patterns):
+        # Try to extract retry-after
+        retry_after = None
+        retry_match = re.search(r'retry.?after[:\s]*(\d+)', error_str)
+        if retry_match:
+            retry_after = float(retry_match.group(1))
+        return InvokeRateLimitError(str(error), error, retry_after)
+
+    # --- Authorization Errors ---
+    auth_patterns = [
+        "unauthorized", "authentication", "invalid api key", "api key",
+        "401", "403", "forbidden", "invalid_api_key", "invalid token",
+        "expired", "credentials", "access denied", "permission denied",
+    ]
+    if any(p in error_str for p in auth_patterns):
+        return InvokeAuthorizationError(str(error), error)
+
+    if isinstance(error, PermissionError):
+        return InvokeAuthorizationError(str(error), error)
+
+    # --- Server Unavailable Errors ---
+    server_patterns = [
+        "500", "502", "503", "504", "internal server error", "server error",
+        "service unavailable", "bad gateway", "gateway timeout", "overload",
+        "maintenance", "model not found", "model_not_found", "no such model",
+        "server unavailable", "temporarily unavailable",
+    ]
+    if any(p in error_str for p in server_patterns):
+        return InvokeServerUnavailableError(str(error), error)
+
+    # httpx HTTP status errors (5xx)
+    if hasattr(error, "response"):
+        status = getattr(error.response, "status_code", None)
+        if status and 500 <= status < 600:
+            return InvokeServerUnavailableError(str(error), error)
+
+    # --- Bad Request Errors ---
+    bad_request_patterns = [
+        "400", "bad request", "invalid", "malformed", "parse error",
+        "json", "context length", "context window", "token limit",
+        "max_tokens", "context_length_exceeded", "unsupported", "invalid parameter",
+    ]
+    if any(p in error_str for p in bad_request_patterns):
+        return InvokeBadRequestError(str(error), error)
+
+    # httpx HTTP status errors (4xx except 401, 403, 429)
+    if hasattr(error, "response"):
+        status = getattr(error.response, "status_code", None)
+        if status:
+            if status == 401 or status == 403:
+                return InvokeAuthorizationError(str(error), error)
+            if status == 429:
+                return InvokeRateLimitError(str(error), error)
+            if 400 <= status < 500:
+                return InvokeBadRequestError(str(error), error)
+
+    # Timeouts typically indicate connection issues
+    if isinstance(error, (TimeoutError, asyncio.TimeoutError)):
+        return InvokeConnectionError("Request timed out", error)
+
+    # FileNotFoundError for model loading
+    if isinstance(error, FileNotFoundError):
+        return InvokeServerUnavailableError(f"Model not found: {error}", error)
+
+    # Default to BadRequest for unknown errors (safest default for retrying)
+    return InvokeBadRequestError(f"Unknown error: {error}", error)
+
+
+# Mapping from InvokeError types to ErrorCategory for integration with existing system
+INVOKE_TO_CATEGORY: dict[type, ErrorCategory] = {
+    InvokeConnectionError: ErrorCategory.NETWORK_ERROR,
+    InvokeRateLimitError: ErrorCategory.RATE_LIMIT,
+    InvokeAuthorizationError: ErrorCategory.AUTH_FAILURE,
+    InvokeServerUnavailableError: ErrorCategory.MODEL_NOT_FOUND,
+    InvokeBadRequestError: ErrorCategory.INVALID_INPUT,
+}
+
+
+def invoke_error_to_classified(error: InvokeError) -> ClassifiedError:
+    """Convert an InvokeError to a ClassifiedError for the existing recovery system."""
+    category = INVOKE_TO_CATEGORY.get(type(error), ErrorCategory.UNKNOWN)
+    return ClassifiedError(
+        category=category,
+        original_error=error.original or error,
+        message=error.message,
+        strategy=DEFAULT_STRATEGIES[category],
+    )

@@ -4231,3 +4231,88 @@ Implement lane-based queueing from the high-priority backlog — serialize comma
 - Files created: 2 (queue.py, test_queue.py)
 - Files modified: 1 (__init__.py)
 - Tests added: 23 (470 total passing)
+
+---
+
+## Entry #46 — 2026-02-09
+
+### Summary
+Unified Error Translation Layer: 5 canonical InvokeError types that normalize all backend-specific errors (httpx, litellm, llama-cpp, stdlib) for consistent error handling.
+
+### Understood Goals
+Implement GECK Repor Recommendation #14 — map all backend-specific errors to 5 canonical types based on Dify's `_invoke_error_mapping` pattern.
+
+### Actions
+- Created 5 InvokeError subclasses in `src/core/errors.py`:
+  - `InvokeConnectionError` — Network/connection failures (socket, DNS, SSL, timeout)
+  - `InvokeRateLimitError` — Rate limits, quotas, billing issues (with retry_after extraction)
+  - `InvokeAuthorizationError` — Auth failures (401, 403, invalid API key)
+  - `InvokeServerUnavailableError` — Server issues (5xx, model not found)
+  - `InvokeBadRequestError` — Invalid requests (400, malformed, context length)
+- Implemented `translate_invoke_error(error)` function with pattern matching:
+  - Checks error message patterns against keyword lists
+  - Handles httpx response status codes
+  - Handles Python stdlib exception types (ConnectionError, TimeoutError, PermissionError)
+  - Extracts retry-after value from rate limit messages
+- Implemented `invoke_error_to_classified(error)` for integration with existing RecoveryStrategy system
+- Added `to_dict()` and `to_json()` methods for LLM self-correction and logging
+- Updated `src/core/__init__.py` with all exports
+
+### Files Changed
+- `src/core/errors.py` — Added InvokeError hierarchy and translation functions (~200 lines)
+- `src/core/__init__.py` — Added exports
+- `tests/test_invoke_errors.py` — Created (57 tests)
+
+### Findings
+- Pattern matching order matters: connection patterns checked before rate limit to avoid false matches on "connection reset" vs "capacity"
+- "overloaded" is ambiguous (rate limit vs server load) — resolved by keeping "capacity" for rate limits and "overload" for server issues
+- Integration with ClassifiedError preserves existing recovery strategies (retry, backoff, fallback)
+
+### Checkpoint
+**Status:** CONTINUE — Unified error translation complete. Next: DICL (Dynamic In-Context Learning).
+
+### Metrics
+- Files created: 1 (test_invoke_errors.py)
+- Files modified: 2 (errors.py, __init__.py)
+- Tests added: 57 (527 total passing)
+
+---
+
+## Entry #47 — 2026-02-09
+
+### Summary
+Dynamic In-Context Learning (DICL): Store and retrieve successful tool call sequences as few-shot examples for injection at inference time.
+
+### Understood Goals
+Implement GECK Repor Recommendation #13 — retrieve relevant past successful interactions and inject as few-shot examples at inference time. Based on TensorZero's DICL pattern.
+
+### Actions
+- Created `src/core/dicl.py` with complete DICL implementation (~300 lines):
+  - `ToolCallExample` dataclass: stores task, tool_calls, tool_results, response, tags
+  - `DICLHit` dataclass: search result with example + score
+  - `DICLStore` class: JSONL persistence, keyword search, formatting
+  - `create_example_from_turn()` helper for easy recording
+- Implemented two formatting modes for injection:
+  - `format_few_shot()` — Compact text format for system prompt injection
+  - `format_messages()` — Message list format for conversation history injection
+- Search scoring weights task matches (0.4), tool name matches (0.3), tag matches (0.2)
+- Storage at `~/.animus/data/dicl_examples.jsonl`
+- Only successful examples recorded (success=False skipped)
+
+### Files Changed
+- `src/core/dicl.py` — Created (DICLStore, ToolCallExample, formatting functions)
+- `src/core/__init__.py` — Added exports
+- `tests/test_dicl.py` — Created (35 tests)
+
+### Findings
+- Separate from KnowledgeStore because DICL stores complete interaction sequences while KnowledgeStore stores high-level summaries
+- Two formatting modes cover different use cases: system prompt injection (format_few_shot) vs conversation history prepending (format_messages)
+- Auto-generating tags from tool names provides useful categorization without manual effort
+
+### Checkpoint
+**Status:** CONTINUE — DICL complete. Remaining: tasks.md backlog items.
+
+### Metrics
+- Files created: 2 (dicl.py, test_dicl.py)
+- Files modified: 1 (__init__.py)
+- Tests added: 35 (562 total passing)

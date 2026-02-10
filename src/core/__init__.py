@@ -21,6 +21,16 @@ from src.core.errors import (
     AuthenticationError,
     RateLimitError,
     ToolExecutionError,
+    # Unified Invoke Errors (5 canonical types)
+    InvokeError,
+    InvokeConnectionError,
+    InvokeRateLimitError,
+    InvokeAuthorizationError,
+    InvokeServerUnavailableError,
+    InvokeBadRequestError,
+    translate_invoke_error,
+    invoke_error_to_classified,
+    INVOKE_TO_CATEGORY,
 )
 from src.core.decision import (
     Decision,
@@ -126,6 +136,12 @@ from src.core.knowledge import (
     SolutionRecord,
     SearchHit,
 )
+from src.core.dicl import (
+    DICLStore,
+    ToolCallExample,
+    DICLHit,
+    create_example_from_turn,
+)
 from src.core.specialists import (
     SpecialistType,
     SpecialistConfig,
@@ -176,6 +192,16 @@ __all__ = [
     "AuthenticationError",
     "RateLimitError",
     "ToolExecutionError",
+    # Unified Invoke Errors (5 canonical types)
+    "InvokeError",
+    "InvokeConnectionError",
+    "InvokeRateLimitError",
+    "InvokeAuthorizationError",
+    "InvokeServerUnavailableError",
+    "InvokeBadRequestError",
+    "translate_invoke_error",
+    "invoke_error_to_classified",
+    "INVOKE_TO_CATEGORY",
     # Decision Recording
     "Decision",
     "DecisionType",
@@ -267,6 +293,11 @@ __all__ = [
     "KnowledgeStore",
     "SolutionRecord",
     "SearchHit",
+    # Dynamic In-Context Learning (DICL)
+    "DICLStore",
+    "ToolCallExample",
+    "DICLHit",
+    "create_example_from_turn",
     # Specialist Sub-Agents
     "SpecialistType",
     "SpecialistConfig",
