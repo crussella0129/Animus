@@ -93,9 +93,13 @@ def _flat_table(table: Table, data: dict, prefix: str = "") -> None:
 
 
 @app.command()
-def models() -> None:
+def models(
+    vram: Optional[float] = typer.Option(None, "--vram", help="Show models fitting in N GB of VRAM"),
+    role: Optional[str] = typer.Option(None, "--role", help="Filter models by role (executor, planner, explorer)"),
+) -> None:
     """List available model providers and their status."""
     from src.llm.factory import ProviderFactory
+    from src.llm.native import MODEL_CATALOG, get_models_fitting_vram, get_models_for_role
 
     factory = ProviderFactory()
     table = Table(title="Model Providers")
@@ -107,6 +111,36 @@ def models() -> None:
         status = "[green]Yes[/]" if available else "[red]No[/]"
         table.add_row(name, status)
     console.print(table)
+
+    # Show VRAM-filtered model table if requested
+    if vram is not None or role is not None:
+        if vram is not None and role is not None:
+            matching = [n for n in get_models_fitting_vram(vram) if n in get_models_for_role(role)]
+            title = f"Models fitting in {vram} GB VRAM with role '{role}'"
+        elif vram is not None:
+            matching = get_models_fitting_vram(vram)
+            title = f"Models fitting in {vram} GB VRAM"
+        else:
+            matching = get_models_for_role(role)
+            title = f"Models with role '{role}'"
+
+        if matching:
+            mtable = Table(title=title)
+            mtable.add_column("Name", style="cyan")
+            mtable.add_column("Params", style="green")
+            mtable.add_column("VRAM (Q4)", style="yellow")
+            mtable.add_column("Context", style="blue")
+            mtable.add_column("Roles", style="magenta")
+            mtable.add_column("Notes", style="dim")
+            for name in sorted(matching):
+                m = MODEL_CATALOG[name]
+                mtable.add_row(
+                    name, f"{m.params_b}B", f"{m.vram_q4_gb} GB",
+                    str(m.context_length), ", ".join(m.roles), m.notes,
+                )
+            console.print(mtable)
+        else:
+            info("No models match the specified criteria.")
 
 
 @app.command()
@@ -138,10 +172,18 @@ def pull(
         table = Table(title="Available Models")
         table.add_column("Name", style="cyan")
         table.add_column("Size", style="green")
+        table.add_column("VRAM (Q4)", style="yellow")
+        table.add_column("Context", style="blue")
+        table.add_column("Roles", style="magenta")
+        table.add_column("Notes", style="dim")
         table.add_column("Repository", style="dim")
         for name in list_available_models():
-            repo, filename, params = MODEL_CATALOG[name]
-            table.add_row(name, f"~{params}B params", repo)
+            m = MODEL_CATALOG[name]
+            table.add_row(
+                name, f"~{m.params_b}B params",
+                f"{m.vram_q4_gb} GB", str(m.context_length),
+                ", ".join(m.roles), m.notes, m.repo,
+            )
         console.print(table)
         info("Usage: animus pull <model-name>")
         info("Or: animus pull <huggingface-url-to-gguf>")

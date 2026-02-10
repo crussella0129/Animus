@@ -3,44 +3,110 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from src.llm.base import ModelCapabilities, ModelProvider
 
-# Known model catalog: short name -> (HuggingFace repo, filename, param billions)
-MODEL_CATALOG: dict[str, tuple[str, str, float]] = {
-    "llama-3.2-1b": (
-        "bartowski/Llama-3.2-1B-Instruct-GGUF",
-        "Llama-3.2-1B-Instruct-Q4_K_M.gguf",
-        1.0,
+
+@dataclass
+class ModelInfo:
+    """Metadata for a model in the catalog."""
+    repo: str
+    filename: str
+    params_b: float
+    context_length: int = 4096
+    vram_q4_gb: float = 0.0
+    roles: list[str] = field(default_factory=list)
+    notes: str = ""
+
+    def __iter__(self):
+        """Backward compat: repo, filename, _ = MODEL_CATALOG[name]."""
+        return iter((self.repo, self.filename, self.params_b))
+
+    def __getitem__(self, index):
+        """Backward compat: MODEL_CATALOG[name][0]."""
+        return (self.repo, self.filename, self.params_b)[index]
+
+
+# Known model catalog: short name -> ModelInfo
+# VRAM estimates use Q4_K_M rule of thumb: params_b * 0.6 + 0.3 GB + ~15% runtime overhead
+MODEL_CATALOG: dict[str, ModelInfo] = {
+    "llama-3.2-1b": ModelInfo(
+        repo="bartowski/Llama-3.2-1B-Instruct-GGUF",
+        filename="Llama-3.2-1B-Instruct-Q4_K_M.gguf",
+        params_b=1.0,
+        context_length=4096,
+        vram_q4_gb=1.2,
+        roles=["executor"],
+        notes="Fastest, minimal VRAM",
     ),
-    "llama-3.2-3b": (
-        "bartowski/Llama-3.2-3B-Instruct-GGUF",
-        "Llama-3.2-3B-Instruct-Q4_K_M.gguf",
-        3.0,
+    "llama-3.2-3b": ModelInfo(
+        repo="bartowski/Llama-3.2-3B-Instruct-GGUF",
+        filename="Llama-3.2-3B-Instruct-Q4_K_M.gguf",
+        params_b=3.0,
+        context_length=4096,
+        vram_q4_gb=2.4,
+        roles=["executor", "explorer"],
+        notes="Good balance of speed and capability",
     ),
-    "phi-4-mini": (
-        "bartowski/phi-4-mini-instruct-GGUF",
-        "phi-4-mini-instruct-Q4_K_M.gguf",
-        3.8,
+    "phi-4-mini": ModelInfo(
+        repo="bartowski/phi-4-mini-instruct-GGUF",
+        filename="phi-4-mini-instruct-Q4_K_M.gguf",
+        params_b=3.8,
+        context_length=8192,
+        vram_q4_gb=2.9,
+        roles=["executor", "planner"],
+        notes="Strong reasoning for size, 8K context",
     ),
-    "qwen-2.5-3b": (
-        "bartowski/Qwen2.5-3B-Instruct-GGUF",
-        "Qwen2.5-3B-Instruct-Q4_K_M.gguf",
-        3.0,
+    "qwen-2.5-3b": ModelInfo(
+        repo="bartowski/Qwen2.5-3B-Instruct-GGUF",
+        filename="Qwen2.5-3B-Instruct-Q4_K_M.gguf",
+        params_b=3.0,
+        context_length=32768,
+        vram_q4_gb=2.4,
+        roles=["executor", "explorer"],
+        notes="32K context, good multilingual",
     ),
-    "qwen-2.5-7b": (
-        "bartowski/Qwen2.5-7B-Instruct-GGUF",
-        "Qwen2.5-7B-Instruct-Q4_K_M.gguf",
-        7.0,
+    "qwen-2.5-7b": ModelInfo(
+        repo="bartowski/Qwen2.5-7B-Instruct-GGUF",
+        filename="Qwen2.5-7B-Instruct-Q4_K_M.gguf",
+        params_b=7.0,
+        context_length=32768,
+        vram_q4_gb=4.8,
+        roles=["executor", "planner", "explorer"],
+        notes="Best all-round, 32K context",
     ),
-    "gemma-3-4b": (
-        "bartowski/google_gemma-3-4b-it-GGUF",
-        "google_gemma-3-4b-it-Q4_K_M.gguf",
-        4.0,
+    "gemma-3-4b": ModelInfo(
+        repo="bartowski/google_gemma-3-4b-it-GGUF",
+        filename="google_gemma-3-4b-it-Q4_K_M.gguf",
+        params_b=4.0,
+        context_length=8192,
+        vram_q4_gb=2.9,
+        roles=["executor", "explorer"],
+        notes="Google, strong coding",
+    ),
+    "qwen-2.5-coder-7b": ModelInfo(
+        repo="bartowski/Qwen2.5-Coder-7B-Instruct-GGUF",
+        filename="Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf",
+        params_b=7.0,
+        context_length=32768,
+        vram_q4_gb=4.8,
+        roles=["executor", "planner", "explorer"],
+        notes="Code-specialized 7B, 32K context",
     ),
 }
+
+
+def get_models_for_role(role: str) -> list[str]:
+    """Return model names that support the given role."""
+    return [name for name, info in MODEL_CATALOG.items() if role in info.roles]
+
+
+def get_models_fitting_vram(vram_gb: float) -> list[str]:
+    """Return model names that fit within the given VRAM budget (GB)."""
+    return [name for name, info in MODEL_CATALOG.items() if info.vram_q4_gb <= vram_gb]
 
 
 def _estimate_params_from_filename(path: str) -> float:

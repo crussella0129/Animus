@@ -45,34 +45,109 @@ class Agent:
 
     def run(self, user_input: str) -> str:
         """Run the agent loop: send user message, handle tool calls, return final response."""
-        # For small models, chunk large instructions
         chunks = self._context_window.chunk_instruction(user_input)
 
-        if len(chunks) == 1:
-            self._messages.append({"role": "user", "content": user_input})
-        else:
-            # Feed instruction in chunks with a combining message
-            combined = user_input
-            self._messages.append({"role": "user", "content": combined})
+        if len(chunks) > 1:
+            return self._run_chunked(chunks)
 
-        # Track input tokens
+        self._messages.append({"role": "user", "content": user_input})
         self._cumulative_tokens += estimate_tokens(user_input)
+        return self._run_agentic_loop()
 
+    def _run_chunked(self, chunks: list[str]) -> str:
+        """Process multiple instruction chunks sequentially.
+
+        Each chunk is sent as a separate user message with part numbering.
+        After each chunk's response, a condensed summary carries context
+        to the next chunk. The final chunk's response is the overall response.
+        """
+        total = len(chunks)
+        last_response = ""
+
+        for i, chunk in enumerate(chunks, 1):
+            if i == 1:
+                content = f"[Part {i}/{total}] {chunk}"
+            else:
+                summary = last_response[:200].strip()
+                content = f"[Part {i}/{total}] (Previous context: {summary})\n\n{chunk}"
+
+            self._messages.append({"role": "user", "content": content})
+            self._cumulative_tokens += estimate_tokens(content)
+            last_response = self._run_agentic_loop()
+
+            if i < total:
+                # Store assistant response for context continuity
+                self._messages.append({"role": "assistant", "content": last_response})
+
+        return last_response
+
+    def _run_chunked_stream(
+        self,
+        chunks: list[str],
+        on_chunk: Optional[Callable[[str], None]] = None,
+    ) -> str:
+        """Process multiple instruction chunks with streaming output."""
+        total = len(chunks)
+        last_response = ""
+
+        for i, chunk in enumerate(chunks, 1):
+            if i == 1:
+                content = f"[Part {i}/{total}] {chunk}"
+            else:
+                summary = last_response[:200].strip()
+                content = f"[Part {i}/{total}] (Previous context: {summary})\n\n{chunk}"
+
+            self._messages.append({"role": "user", "content": content})
+            self._cumulative_tokens += estimate_tokens(content)
+
+            # Only stream the final chunk's output to avoid confusing partial output
+            if i == total:
+                last_response = self._run_agentic_loop_stream(on_chunk)
+            else:
+                last_response = self._run_agentic_loop()
+                self._messages.append({"role": "assistant", "content": last_response})
+
+        return last_response
+
+    def _run_agentic_loop(self) -> str:
+        """Core agentic loop: generate, check for tool calls, execute, repeat."""
         for turn in range(self._max_turns):
             response_text = self._step()
             if response_text is None:
                 return "Error: Failed to get a response from the model."
 
-            # Track output tokens
             self._cumulative_tokens += estimate_tokens(response_text)
 
-            # Check for tool calls in the response
             tool_calls = self._parse_tool_calls(response_text)
             if not tool_calls:
-                # No tool calls — this is the final response
                 return response_text
 
-            # Execute tools and append results
+            self._messages.append({"role": "assistant", "content": response_text})
+            for call in tool_calls:
+                result = self._tools.execute(call["name"], call["arguments"])
+                self._messages.append({
+                    "role": "user",
+                    "content": f"[Tool result for {call['name']}]: {result}",
+                })
+
+        return "Reached maximum turns without a final response."
+
+    def _run_agentic_loop_stream(
+        self,
+        on_chunk: Optional[Callable[[str], None]] = None,
+    ) -> str:
+        """Core agentic loop with streaming support."""
+        for turn in range(self._max_turns):
+            response_text = self._step_stream(on_chunk)
+            if response_text is None:
+                return "Error: Failed to get a response from the model."
+
+            self._cumulative_tokens += estimate_tokens(response_text)
+
+            tool_calls = self._parse_tool_calls(response_text)
+            if not tool_calls:
+                return response_text
+
             self._messages.append({"role": "assistant", "content": response_text})
             for call in tool_calls:
                 result = self._tools.execute(call["name"], call["arguments"])
@@ -85,13 +160,8 @@ class Agent:
 
     def _step(self) -> str | None:
         """Single generation step with context management and error handling."""
-        # Trim messages to fit context window
         trimmed = self._context_window.trim_messages(self._messages, self._system_prompt)
-
-        # Build message list with system prompt
         full_messages = [{"role": "system", "content": self._system_prompt}] + trimmed
-
-        # Include tool schemas
         tool_schemas = self._tools.to_openai_schemas() if self._tools.names() else None
 
         try:
@@ -99,7 +169,6 @@ class Agent:
         except Exception as e:
             classified = classify_error(e)
             if classified.recovery == RecoveryStrategy.REDUCE_CONTEXT:
-                # Try with fewer messages
                 half = max(1, len(trimmed) // 2)
                 shorter = trimmed[-half:]
                 full_messages = [{"role": "system", "content": self._system_prompt}] + shorter
@@ -116,35 +185,13 @@ class Agent:
     ) -> str:
         """Run the agent loop with streaming output. Calls on_chunk for each token."""
         chunks = self._context_window.chunk_instruction(user_input)
-        if len(chunks) == 1:
-            self._messages.append({"role": "user", "content": user_input})
-        else:
-            self._messages.append({"role": "user", "content": user_input})
 
-        # Track input tokens
+        if len(chunks) > 1:
+            return self._run_chunked_stream(chunks, on_chunk)
+
+        self._messages.append({"role": "user", "content": user_input})
         self._cumulative_tokens += estimate_tokens(user_input)
-
-        for turn in range(self._max_turns):
-            response_text = self._step_stream(on_chunk)
-            if response_text is None:
-                return "Error: Failed to get a response from the model."
-
-            # Track output tokens
-            self._cumulative_tokens += estimate_tokens(response_text)
-
-            tool_calls = self._parse_tool_calls(response_text)
-            if not tool_calls:
-                return response_text
-
-            self._messages.append({"role": "assistant", "content": response_text})
-            for call in tool_calls:
-                result = self._tools.execute(call["name"], call["arguments"])
-                self._messages.append({
-                    "role": "user",
-                    "content": f"[Tool result for {call['name']}]: {result}",
-                })
-
-        return "Reached maximum turns without a final response."
+        return self._run_agentic_loop_stream(on_chunk)
 
     def _step_stream(self, on_chunk: Optional[Callable[[str], None]] = None) -> str | None:
         """Single generation step with streaming support."""

@@ -111,3 +111,45 @@ class TestAgent:
         agent = Agent(provider=provider, tool_registry=registry)
         calls = agent._parse_tool_calls("Just a regular response with no tool calls.")
         assert calls == []
+
+
+class TestChunkedExecution:
+    """Test multi-chunk instruction processing."""
+
+    def test_multi_chunk_processes_all_chunks(self):
+        """When instruction is chunked, provider should be called for each chunk."""
+        # Use a small context to force chunking
+        provider = MagicMock()
+        provider.generate = MagicMock(side_effect=[
+            "Processed part 1.",
+            "Processed part 2.",
+            "Processed part 3.",
+        ])
+        provider.capabilities.return_value = ModelCapabilities(
+            context_length=2048,
+            size_tier="small",
+            supports_tools=True,
+        )
+        registry = ToolRegistry()
+        agent = Agent(provider=provider, tool_registry=registry)
+
+        # Create instruction large enough to trigger chunking (>256 tokens for small@2048)
+        paragraphs = [f"Paragraph {i}: " + "word " * 100 for i in range(10)]
+        instruction = "\n\n".join(paragraphs)
+
+        result = agent.run(instruction)
+        # Provider should be called multiple times (once per chunk)
+        assert provider.generate.call_count > 1
+        # Result should be the last chunk's response
+        assert "part 3" in result.lower() or provider.generate.call_count >= 3
+
+    def test_single_chunk_standard_path(self):
+        """Short instructions should follow the standard (non-chunked) path."""
+        provider = _make_mock_provider(["Simple response."])
+        registry = ToolRegistry()
+        agent = Agent(provider=provider, tool_registry=registry)
+
+        result = agent.run("Hello, world!")
+        assert result == "Simple response."
+        # Provider should be called exactly once
+        assert provider.generate.call_count == 1

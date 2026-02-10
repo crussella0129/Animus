@@ -46,28 +46,55 @@ class TokenUsage:
         self.output_tokens += tokens
 
 
-# Tier-specific limits: what fraction of context to use for history vs. output
-_TIER_PROFILES = {
+# ---------------------------------------------------------------------------
+# Ratio-based tier profiles: absolute values computed from context_length
+# ---------------------------------------------------------------------------
+
+_TIER_RATIOS = {
     "small": {
         "max_history_ratio": 0.3,   # Small models thrash with too much history
-        "max_output_tokens": 512,
-        "instruction_chunk_size": 256,  # Break large instructions into smaller pieces
+        "output_ratio": 0.25,
+        "chunk_ratio": 0.125,       # Break large instructions into smaller pieces
     },
     "medium": {
         "max_history_ratio": 0.5,
-        "max_output_tokens": 1024,
-        "instruction_chunk_size": 512,
+        "output_ratio": 0.25,
+        "chunk_ratio": 0.125,
     },
     "large": {
         "max_history_ratio": 0.7,
-        "max_output_tokens": 2048,
-        "instruction_chunk_size": 0,  # No chunking needed
+        "output_ratio": 0.25,
+        "chunk_ratio": 0.0,         # No chunking needed
+    },
+}
+
+# Deprecated: computed alias for backward compatibility with external references.
+# Values match the original fixed profiles at context_length=2048/4096/8192.
+_TIER_PROFILES = {
+    "small": {
+        "max_history_ratio": 0.3,
+        "max_output_tokens": 512,          # 2048 * 0.25
+        "instruction_chunk_size": 256,     # 2048 * 0.125
+    },
+    "medium": {
+        "max_history_ratio": 0.5,
+        "max_output_tokens": 1024,         # 4096 * 0.25
+        "instruction_chunk_size": 512,     # 4096 * 0.125
+    },
+    "large": {
+        "max_history_ratio": 0.7,
+        "max_output_tokens": 2048,         # 8192 * 0.25
+        "instruction_chunk_size": 0,       # No chunking
     },
 }
 
 
 class ContextWindow:
-    """Manage context window with model-size-aware budgeting."""
+    """Manage context window with model-size-aware budgeting.
+
+    Token budgets are computed dynamically from context_length * tier ratios,
+    scaling proportionally with the model's actual context window.
+    """
 
     def __init__(
         self,
@@ -75,11 +102,22 @@ class ContextWindow:
         size_tier: str = "medium",
     ) -> None:
         self.context_length = context_length
-        self.size_tier = size_tier if size_tier in _TIER_PROFILES else "medium"
+        self.size_tier = size_tier if size_tier in _TIER_RATIOS else "medium"
+
+        # Pre-compute absolute values from ratios
+        ratios = _TIER_RATIOS[self.size_tier]
+        self._max_history_ratio = ratios["max_history_ratio"]
+        self._max_output_tokens = int(context_length * ratios["output_ratio"])
+        self._instruction_chunk_size = int(context_length * ratios["chunk_ratio"])
 
     @property
     def profile(self) -> dict:
-        return _TIER_PROFILES[self.size_tier]
+        """Return profile dict for backward compatibility."""
+        return {
+            "max_history_ratio": self._max_history_ratio,
+            "max_output_tokens": self._max_output_tokens,
+            "instruction_chunk_size": self._instruction_chunk_size,
+        }
 
     def compute_budget(
         self,
@@ -89,11 +127,11 @@ class ContextWindow:
         """Compute token budget given current system prompt and history."""
         system_tokens = estimate_tokens(system_prompt)
         history_tokens = estimate_messages_tokens(messages)
-        max_output = self.profile["max_output_tokens"]
+        max_output = self._max_output_tokens
 
         # Reserve tokens for output
         available_context = self.context_length - system_tokens - max_output
-        max_history = int(available_context * self.profile["max_history_ratio"])
+        max_history = int(available_context * self._max_history_ratio)
 
         return ContextBudget(
             total=self.context_length,
@@ -102,6 +140,48 @@ class ContextWindow:
             available_for_input=max(0, available_context - min(history_tokens, max_history)),
             available_for_output=max_output,
         )
+
+    def compute_frame_budget(self, reserved_system_tokens: int = 200) -> dict:
+        """Compute the 'flicker fusion' frame budget for a single generation call.
+
+        Returns a dict with:
+            frame_total: total tokens available in the frame
+            system: tokens reserved for system prompt
+            history: max tokens for conversation history
+            input: tokens available for new input
+            output: tokens reserved for model output
+        """
+        frame_total = self.context_length
+        system = reserved_system_tokens
+        output = self._max_output_tokens
+        remaining = frame_total - system - output
+        history = int(remaining * self._max_history_ratio)
+        input_budget = max(0, remaining - history)
+
+        return {
+            "frame_total": frame_total,
+            "system": system,
+            "history": history,
+            "input": input_budget,
+            "output": output,
+        }
+
+    def compute_step_context(self) -> dict:
+        """Compute context budget for a planner step (no history, all context for input).
+
+        Returns a dict with:
+            step_input: tokens available for input (system prompt + step description)
+            step_output: tokens reserved for output
+            step_total: total context available
+        """
+        step_output = self._max_output_tokens
+        step_input = max(0, self.context_length - step_output)
+
+        return {
+            "step_input": step_input,
+            "step_output": step_output,
+            "step_total": self.context_length,
+        }
 
     def trim_messages(
         self,
@@ -130,7 +210,7 @@ class ContextWindow:
         Large models get the instruction as-is. Small models get it broken
         into digestible pieces to prevent context thrashing.
         """
-        chunk_size = self.profile["instruction_chunk_size"]
+        chunk_size = self._instruction_chunk_size
         if chunk_size == 0:
             return [instruction]
 

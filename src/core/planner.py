@@ -11,6 +11,7 @@ per-step execution use the LLM. Memory between steps is filesystem/git state, no
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass, field
 from enum import Enum
@@ -106,12 +107,59 @@ _STEP_TYPE_TOOLS: dict[StepType, list[str]] = {
 # Tier-aware planning profiles: scale complexity to model capacity
 # ---------------------------------------------------------------------------
 
+_PLANNING_TIER_FACTORS: dict[str, dict[str, float]] = {
+    "small": {
+        "step_base": 1.5,
+        "turn_base": 1.5,
+        "output_ratio": 0.0625,
+        "desc_ratio": 0.012,
+    },
+    "medium": {
+        "step_base": 2.5,
+        "turn_base": 2.5,
+        "output_ratio": 0.125,
+        "desc_ratio": 0.024,
+    },
+    "large": {
+        "step_base": 3.5,
+        "turn_base": 5.0,
+        "output_ratio": 0.5,
+        "desc_ratio": 0.0,
+    },
+}
+
+
+def _compute_planning_profile(caps: ModelCapabilities) -> dict[str, int]:
+    """Compute planning profile dynamically from model capabilities.
+
+    Scales with log2(context_length / 1024). At ctx=4096 (log_scale=2),
+    produces the same values as the original fixed profiles.
+    Hard caps: steps<=10, turns<=15.
+    """
+    tier = caps.size_tier if caps.size_tier in _PLANNING_TIER_FACTORS else "medium"
+    factors = _PLANNING_TIER_FACTORS[tier]
+    log_scale = max(1.0, math.log2(max(1, caps.context_length) / 1024))
+
+    steps = min(10, int(factors["step_base"] * log_scale))
+    turns = min(15, int(factors["turn_base"] * log_scale))
+    output = int(caps.context_length * factors["output_ratio"])
+    desc = int(caps.context_length * factors["desc_ratio"]) if factors["desc_ratio"] > 0 else 0
+
+    return {
+        "max_plan_steps": max(1, steps),
+        "max_step_turns": max(1, turns),
+        "max_output_tokens": max(64, output),
+        "max_step_desc_tokens": desc,
+    }
+
+
+# Deprecated: fixed alias for backward compatibility at ctx=4096.
 _PLANNING_PROFILES: dict[str, dict[str, int]] = {
     "small": {
-        "max_plan_steps": 3,        # 1B models: keep plans very short
-        "max_step_turns": 3,        # Few tool-call rounds per step
-        "max_output_tokens": 256,   # Cap output to stay in budget
-        "max_step_desc_tokens": 50, # Keep step descriptions short
+        "max_plan_steps": 3,
+        "max_step_turns": 3,
+        "max_output_tokens": 256,
+        "max_step_desc_tokens": 50,
     },
     "medium": {
         "max_plan_steps": 5,
@@ -123,14 +171,14 @@ _PLANNING_PROFILES: dict[str, dict[str, int]] = {
         "max_plan_steps": 7,
         "max_step_turns": 10,
         "max_output_tokens": 2048,
-        "max_step_desc_tokens": 0,  # No limit
+        "max_step_desc_tokens": 0,
     },
 }
 
 
 def _get_planning_profile(caps: ModelCapabilities) -> dict[str, int]:
     """Get planning profile for a model's capabilities."""
-    return _PLANNING_PROFILES.get(caps.size_tier, _PLANNING_PROFILES["medium"])
+    return _compute_planning_profile(caps)
 
 
 def _filter_tools(registry: ToolRegistry, step_type: StepType, step_description: str = "") -> ToolRegistry:

@@ -16,6 +16,7 @@ from src.core.planner import (
     StepStatus,
     StepType,
     TaskDecomposer,
+    _compute_planning_profile,
     _filter_tools,
     _infer_step_type,
     _is_simple_task,
@@ -744,3 +745,36 @@ class TestToolNarrowing:
         registry = _make_registry("read_file", "list_dir")
         filtered = _filter_tools(registry, StepType.READ, "")
         assert len(filtered.names()) >= 2
+
+
+# ---------------------------------------------------------------------------
+# Dynamic planning profile tests
+# ---------------------------------------------------------------------------
+
+
+class TestDynamicPlanningProfiles:
+    """Test that planning profiles scale dynamically with context_length."""
+
+    def test_more_context_allows_more_steps(self):
+        """Medium tier with larger context should allow more plan steps."""
+        caps_2k = ModelCapabilities(context_length=2048, size_tier="medium")
+        caps_8k = ModelCapabilities(context_length=8192, size_tier="medium")
+        profile_2k = _compute_planning_profile(caps_2k)
+        profile_8k = _compute_planning_profile(caps_8k)
+        assert profile_8k["max_plan_steps"] >= profile_2k["max_plan_steps"]
+
+    def test_output_scales_with_context(self):
+        """Output tokens should scale with context_length."""
+        caps_2k = ModelCapabilities(context_length=2048, size_tier="small")
+        caps_8k = ModelCapabilities(context_length=8192, size_tier="small")
+        profile_2k = _compute_planning_profile(caps_2k)
+        profile_8k = _compute_planning_profile(caps_8k)
+        assert profile_8k["max_output_tokens"] > profile_2k["max_output_tokens"]
+
+    def test_unknown_tier_falls_back_to_medium(self):
+        """Unknown size tier should fall back to medium profile."""
+        caps_unknown = ModelCapabilities(context_length=4096, size_tier="unknown_tier")
+        caps_medium = ModelCapabilities(context_length=4096, size_tier="medium")
+        profile_unknown = _compute_planning_profile(caps_unknown)
+        profile_medium = _compute_planning_profile(caps_medium)
+        assert profile_unknown == profile_medium
