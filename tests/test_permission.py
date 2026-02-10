@@ -1,0 +1,49 @@
+"""Tests for permission checking."""
+
+from __future__ import annotations
+
+import platform
+from pathlib import Path, PurePosixPath
+
+import pytest
+
+from src.core.permission import PermissionChecker
+
+
+class TestPermissionChecker:
+    def test_safe_path(self, tmp_path: Path):
+        checker = PermissionChecker()
+        assert checker.is_path_safe(tmp_path / "safe_file.txt") is True
+
+    @pytest.mark.skipif(platform.system() == "Windows", reason="Unix paths don't resolve on Windows")
+    def test_dangerous_directory_unix(self):
+        checker = PermissionChecker()
+        assert checker.is_path_safe(Path("/etc/config")) is False
+        assert checker.is_path_safe(Path("/boot/grub")) is False
+
+    @pytest.mark.skipif(platform.system() == "Windows", reason="Unix paths don't resolve on Windows")
+    def test_dangerous_file(self):
+        checker = PermissionChecker()
+        assert checker.is_path_safe(Path("/etc/shadow")) is False
+        assert checker.is_path_safe(Path("/home/user/.ssh/id_rsa")) is False
+
+    def test_dangerous_directory_windows(self):
+        checker = PermissionChecker()
+        assert checker.is_path_safe(Path("C:\\Windows\\System32\\config")) is False
+        assert checker.is_path_safe(Path("C:\\Program Files\\test")) is False
+
+    def test_blocked_command(self):
+        checker = PermissionChecker()
+        assert checker.is_command_blocked("rm -rf /") is not None
+        assert checker.is_command_blocked("echo hello") is None
+
+    def test_dangerous_command(self):
+        checker = PermissionChecker()
+        assert checker.is_command_dangerous("rm tempfile") is True
+        assert checker.is_command_dangerous("sudo apt install") is True
+        assert checker.is_command_dangerous("echo hello") is False
+
+    def test_fork_bomb_blocked(self):
+        checker = PermissionChecker()
+        result = checker.is_command_blocked(":(){ :|:& };:")
+        assert result is not None

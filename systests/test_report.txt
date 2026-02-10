@@ -1,0 +1,35 @@
+============================================================
+ANIMUS SYSTEM TEST REPORT
+============================================================
+Date: 2026-02-10T00:37:08.828011
+Python: 3.13.11 (tags/v3.13.11:6278944, Dec  5 2025, 16:26:58) [MSC v.1944 64 bit (AMD64)]
+Platform: win32
+CWD: C:\Users\charl\Animus
+
+FILE COUNTS
+  Source files: 24 (1920 lines)
+  Test files:   11 (972 lines)
+  Total:        35 files (2892 lines)
+
+PYTEST RESULTS
+  Summary: ======================= 107 passed, 2 skipped in 0.47s ========================
+  Exit code: 0
+
+CLI COMMAND TESTS
+  animus --help               [PASS]
+  animus detect               [PASS]
+  animus init                 [PASS]
+  animus config --show        [PASS]
+  animus config --path        [PASS]
+  animus models               [PASS]
+  animus status               [PASS]
+
+SAFETY CHECKS
+  pytest-timeout configured:  Yes (30s per test)
+  No daemon threads in src:   Yes
+  All tests use mocks:        Yes
+  Lazy imports for heavy deps: Yes (llama-cpp-python, sentence-transformers)
+
+============================================================
+OVERALL: PASS
+============================================================

@@ -1,0 +1,139 @@
+"""Filesystem tools: read_file, write_file, list_dir."""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+from typing import Any
+
+from src.core.permission import PermissionChecker
+from src.tools.base import Tool, ToolRegistry
+
+
+class ReadFileTool(Tool):
+    @property
+    def name(self) -> str:
+        return "read_file"
+
+    @property
+    def description(self) -> str:
+        return "Read the contents of a file at the given path."
+
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Absolute or relative file path"},
+                "max_lines": {"type": "integer", "description": "Maximum lines to read (default: all)"},
+            },
+            "required": ["path"],
+        }
+
+    def execute(self, args: dict[str, Any]) -> str:
+        path = Path(args["path"]).resolve()
+        checker = PermissionChecker()
+        if not checker.is_path_safe(path):
+            return f"Error: Access denied to {path}"
+        if not path.exists():
+            return f"Error: File not found: {path}"
+        if not path.is_file():
+            return f"Error: Not a file: {path}"
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+            max_lines = args.get("max_lines")
+            if max_lines:
+                lines = text.splitlines()[:max_lines]
+                return "\n".join(lines)
+            return text
+        except Exception as e:
+            return f"Error reading file: {e}"
+
+
+class WriteFileTool(Tool):
+    @property
+    def name(self) -> str:
+        return "write_file"
+
+    @property
+    def description(self) -> str:
+        return "Write content to a file at the given path. Creates parent directories if needed."
+
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Absolute or relative file path"},
+                "content": {"type": "string", "description": "Content to write"},
+            },
+            "required": ["path", "content"],
+        }
+
+    def execute(self, args: dict[str, Any]) -> str:
+        path = Path(args["path"]).resolve()
+        checker = PermissionChecker()
+        if not checker.is_path_safe(path):
+            return f"Error: Access denied to {path}"
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(args["content"], encoding="utf-8")
+            return f"Successfully wrote {len(args['content'])} characters to {path}"
+        except Exception as e:
+            return f"Error writing file: {e}"
+
+
+class ListDirTool(Tool):
+    @property
+    def name(self) -> str:
+        return "list_dir"
+
+    @property
+    def description(self) -> str:
+        return "List files and directories at the given path."
+
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Directory path (default: current directory)"},
+                "recursive": {"type": "boolean", "description": "List recursively (default: false)"},
+            },
+            "required": [],
+        }
+
+    def execute(self, args: dict[str, Any]) -> str:
+        path = Path(args.get("path", ".")).resolve()
+        checker = PermissionChecker()
+        if not checker.is_path_safe(path):
+            return f"Error: Access denied to {path}"
+        if not path.exists():
+            return f"Error: Path not found: {path}"
+        if not path.is_dir():
+            return f"Error: Not a directory: {path}"
+
+        try:
+            entries = []
+            if args.get("recursive", False):
+                for item in sorted(path.rglob("*")):
+                    rel = item.relative_to(path)
+                    prefix = "[DIR] " if item.is_dir() else "[FILE]"
+                    entries.append(f"{prefix} {rel}")
+                    if len(entries) >= 500:
+                        entries.append("... (truncated at 500 entries)")
+                        break
+            else:
+                for item in sorted(path.iterdir()):
+                    prefix = "[DIR] " if item.is_dir() else "[FILE]"
+                    entries.append(f"{prefix} {item.name}")
+            return "\n".join(entries) if entries else "(empty directory)"
+        except Exception as e:
+            return f"Error listing directory: {e}"
+
+
+def register_filesystem_tools(registry: ToolRegistry) -> None:
+    """Register all filesystem tools with the given registry."""
+    registry.register(ReadFileTool())
+    registry.register(WriteFileTool())
+    registry.register(ListDirTool())

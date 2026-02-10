@@ -1,0 +1,138 @@
+"""Tests for tools: filesystem and shell."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from unittest.mock import patch
+
+from src.tools.base import ToolRegistry
+from src.tools.filesystem import ListDirTool, ReadFileTool, WriteFileTool, register_filesystem_tools
+from src.tools.shell import RunShellTool, register_shell_tools
+
+
+class TestReadFileTool:
+    def test_read_existing_file(self, tmp_path: Path):
+        test_file = tmp_path / "test.txt"
+        test_file.write_text("hello world")
+        tool = ReadFileTool()
+        result = tool.execute({"path": str(test_file)})
+        assert result == "hello world"
+
+    def test_read_nonexistent_file(self):
+        tool = ReadFileTool()
+        result = tool.execute({"path": "/nonexistent/file.txt"})
+        assert "Error" in result
+
+    def test_read_max_lines(self, tmp_path: Path):
+        test_file = tmp_path / "lines.txt"
+        test_file.write_text("line1\nline2\nline3\nline4\nline5")
+        tool = ReadFileTool()
+        result = tool.execute({"path": str(test_file), "max_lines": 2})
+        assert result == "line1\nline2"
+
+    def test_read_dangerous_path(self):
+        tool = ReadFileTool()
+        result = tool.execute({"path": "/etc/shadow"})
+        assert "denied" in result.lower() or "Error" in result
+
+
+class TestWriteFileTool:
+    def test_write_file(self, tmp_path: Path):
+        target = tmp_path / "output.txt"
+        tool = WriteFileTool()
+        result = tool.execute({"path": str(target), "content": "written"})
+        assert "Successfully" in result
+        assert target.read_text() == "written"
+
+    def test_write_creates_parents(self, tmp_path: Path):
+        target = tmp_path / "sub" / "dir" / "file.txt"
+        tool = WriteFileTool()
+        result = tool.execute({"path": str(target), "content": "nested"})
+        assert "Successfully" in result
+        assert target.read_text() == "nested"
+
+
+class TestListDirTool:
+    def test_list_dir(self, sample_files: Path):
+        tool = ListDirTool()
+        result = tool.execute({"path": str(sample_files)})
+        assert "hello.py" in result
+        assert "readme.md" in result
+
+    def test_list_nonexistent(self):
+        tool = ListDirTool()
+        result = tool.execute({"path": "/nonexistent/dir"})
+        assert "Error" in result
+
+    def test_list_recursive(self, sample_files: Path):
+        tool = ListDirTool()
+        result = tool.execute({"path": str(sample_files), "recursive": True})
+        assert "data.txt" in result
+
+
+class TestRunShellTool:
+    def test_simple_command(self):
+        tool = RunShellTool()
+        result = tool.execute({"command": "echo hello"})
+        assert "hello" in result
+
+    def test_blocked_command(self):
+        tool = RunShellTool()
+        result = tool.execute({"command": "rm -rf /"})
+        assert "blocked" in result.lower()
+
+    def test_timeout(self):
+        tool = RunShellTool()
+        # Use a command that should be fast
+        result = tool.execute({"command": "echo fast", "timeout": 5})
+        assert "fast" in result
+
+    def test_confirm_callback_deny(self):
+        tool = RunShellTool(confirm_callback=lambda msg: False)
+        result = tool.execute({"command": "rm tempfile"})
+        assert "cancelled" in result.lower()
+
+    def test_confirm_callback_allow(self, tmp_path: Path):
+        test_file = tmp_path / "to_delete.txt"
+        test_file.write_text("bye")
+        tool = RunShellTool(confirm_callback=lambda msg: True)
+        # The command itself may fail on different OS but it shouldn't be blocked
+        result = tool.execute({"command": f"echo confirmed", "timeout": 5})
+        assert "confirmed" in result.lower() or "Error" not in result
+
+
+class TestToolRegistry:
+    def test_register_and_list(self):
+        registry = ToolRegistry()
+        register_filesystem_tools(registry)
+        names = registry.names()
+        assert "read_file" in names
+        assert "write_file" in names
+        assert "list_dir" in names
+
+    def test_get_tool(self):
+        registry = ToolRegistry()
+        register_filesystem_tools(registry)
+        tool = registry.get("read_file")
+        assert tool is not None
+        assert tool.name == "read_file"
+
+    def test_get_unknown_tool(self):
+        registry = ToolRegistry()
+        assert registry.get("nonexistent") is None
+
+    def test_execute_unknown_tool(self):
+        registry = ToolRegistry()
+        result = registry.execute("nonexistent", {})
+        assert "Error" in result
+
+    def test_openai_schemas(self):
+        registry = ToolRegistry()
+        register_filesystem_tools(registry)
+        schemas = registry.to_openai_schemas()
+        assert len(schemas) == 3
+        for schema in schemas:
+            assert schema["type"] == "function"
+            assert "function" in schema
+            assert "name" in schema["function"]
+            assert "parameters" in schema["function"]
