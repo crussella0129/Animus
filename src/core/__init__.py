@@ -126,6 +126,13 @@ from src.core.knowledge import (
     SolutionRecord,
     SearchHit,
 )
+from src.core.specialists import (
+    SpecialistType,
+    SpecialistConfig,
+    get_specialist,
+    spawn_specialist,
+    list_specialists,
+)
 from src.core.web_validator import (
     WebContentJudge,
     WebContentRuleEngine,
@@ -253,6 +260,12 @@ __all__ = [
     "KnowledgeStore",
     "SolutionRecord",
     "SearchHit",
+    # Specialist Sub-Agents
+    "SpecialistType",
+    "SpecialistConfig",
+    "get_specialist",
+    "spawn_specialist",
+    "list_specialists",
     # Web Content Validation (Ungabunga-Box)
     "WebContentJudge",
     "WebContentRuleEngine",

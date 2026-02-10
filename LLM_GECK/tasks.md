@@ -1,6 +1,6 @@
 # Tasks — ANIMUS
 
-**Last Updated:** 2026-02-09 (Entry #43: Knowledge compounding, 420 tests)
+**Last Updated:** 2026-02-09 (Entry #44: Specialist sub-agents, 447 tests)
 
 ## Design Philosophy Update
 
@@ -938,6 +938,11 @@ Audio features are completely optional:
 
 ## Completed (Recent)
 
+- **Specialist Sub-Agents** (Entry #44, Backlog High Priority) ✓
+  - 4 specialist types: Explore (read-only search), Plan (analysis), Debug (stacktrace), Test (write+run)
+  - Pre-configured role, scope, tool restrictions, and focused prompts per type
+  - `get_specialist()` factory and `spawn_specialist()` convenience function
+  - 27 new tests (2 type, 2 config, 9 factory, 8 prompt, 4 list, 2 spawn)
 - **Knowledge Compounding** (Entry #43, GECK Repor Recommendation #8) ✓
   - `KnowledgeStore` with JSONL persistence, keyword search, context formatting
   - `SolutionRecord` with task, approach, outcome, tags, files, scoring

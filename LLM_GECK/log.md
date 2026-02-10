@@ -4167,3 +4167,37 @@ Implement GECK Repor Recommendation #8 — after each successful task, store the
 - Files created: 2 (knowledge.py, test_knowledge.py)
 - Files modified: 2 (agent.py, __init__.py)
 - Tests added: 30 (420 total passing)
+
+---
+
+## Entry #44 — 2026-02-09
+
+### Summary
+Specialist Sub-Agents: Pre-configured sub-agent presets for 4 common tasks — explore, plan, debug, test — with appropriate tool restrictions, prompts, and scoping.
+
+### Understood Goals
+Define specialist sub-agent roles (from backlog) with pre-configured scope/prompt combos that enforce appropriate constraints (explore and plan are read-only, debug can run commands, test can write files and run commands).
+
+### Actions
+- Created `src/core/specialists.py` with `SpecialistType`, `SpecialistConfig`, 4 focused prompts
+- `get_specialist()` factory: produces ready-to-use configs with correct role, scope, tools
+- `spawn_specialist()` convenience function: wraps orchestrator.spawn_subagent()
+- `list_specialists()` for introspection
+- Each specialist has carefully constrained permissions:
+  - Explore: read_file, list_dir only — no writes, no shell
+  - Plan: read_file, list_dir only — no writes, no shell
+  - Debug: read_file, list_dir, run_shell — no writes, can run to reproduce
+  - Test: read_file, list_dir, write_file, run_shell — full write+execute for test generation
+
+### Files Changed
+- `src/core/specialists.py` — Created (SpecialistType, SpecialistConfig, 4 prompts, factory, convenience function)
+- `src/core/__init__.py` — Added exports
+- `tests/test_specialists.py` — Created (27 tests)
+
+### Checkpoint
+**Status:** CONTINUE — All 3 queued tasks complete. Remaining: backlog items (Lane-Based Queueing, Media Pipeline, Knowledge Graph, SKILL.md, GBNF grammar constraints).
+
+### Metrics
+- Files created: 2 (specialists.py, test_specialists.py)
+- Files modified: 1 (__init__.py)
+- Tests added: 27 (447 total passing)
