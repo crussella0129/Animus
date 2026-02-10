@@ -48,6 +48,7 @@ from src.core.planner import Planner, ExecutionPlan, PlanStep, StepStatus
 from src.core.fallback import ModelFallbackChain, FallbackModel
 from src.core.loop_detector import LoopDetector, LoopDetectorConfig, InterventionLevel
 from src.core.auth_rotation import AuthRotator, AuthProfile
+from src.core.knowledge import KnowledgeStore, SolutionRecord, SearchHit
 
 
 @dataclass
@@ -136,6 +137,10 @@ class AgentConfig:
     # Auth profile rotation: failover across multiple API credentials
     # List of (name, api_key) or (name, api_key, api_base) tuples
     auth_profiles: Optional[list[tuple]] = None
+
+    # Knowledge compounding: store and search past solutions
+    enable_knowledge: bool = True
+    knowledge_search_k: int = 3  # Max past solutions to inject as context
 
 
 @dataclass
@@ -352,6 +357,11 @@ class Agent:
                     ))
             if profiles:
                 self._auth_rotator = AuthRotator(profiles)
+
+        # Knowledge compounding
+        self._knowledge_store: Optional[KnowledgeStore] = None
+        if self.config.enable_knowledge:
+            self._knowledge_store = KnowledgeStore()
 
         # Session compaction
         self._compactor: Optional[SessionCompactor] = None
@@ -646,7 +656,7 @@ class Agent:
         return messages
 
     async def _retrieve_context(self, query: str) -> Optional[str]:
-        """Retrieve relevant context from memory.
+        """Retrieve relevant context from memory and knowledge store.
 
         When progressive disclosure is enabled (config.memory_progressive),
         returns a compact index (~snippet_length chars per result) and stores
@@ -654,26 +664,53 @@ class Agent:
         expand_context(). This reduces initial token usage by ~5-10x.
 
         When disabled, returns full results inline (legacy behavior).
+
+        Also searches the knowledge store for relevant past solutions.
         """
-        if not self.memory or not self.config.use_memory:
+        parts = []
+
+        # Knowledge compounding: search past solutions
+        if self._knowledge_store:
+            knowledge_ctx = self._search_knowledge(query)
+            if knowledge_ctx:
+                parts.append(knowledge_ctx)
+
+        # RAG memory search
+        if self.memory and self.config.use_memory:
+            try:
+                results = await self.memory.search(
+                    query,
+                    k=self.config.memory_search_k,
+                )
+
+                if results:
+                    if self.config.memory_progressive:
+                        parts.append(self._format_progressive_context(results))
+                    else:
+                        parts.append(self._format_full_context(results))
+
+            except Exception:
+                pass
+
+        if not parts:
+            return None
+        return "\n\n".join(parts)
+
+    def _search_knowledge(self, query: str) -> Optional[str]:
+        """Search the knowledge store for relevant past solutions."""
+        if not self._knowledge_store:
             return None
 
-        try:
-            results = await self.memory.search(
-                query,
-                k=self.config.memory_search_k,
-            )
+        hits = self._knowledge_store.search(
+            query,
+            k=self.config.knowledge_search_k,
+            outcome_filter="success",
+        )
 
-            if not results:
-                return None
-
-            if self.config.memory_progressive:
-                return self._format_progressive_context(results)
-            else:
-                return self._format_full_context(results)
-
-        except Exception:
+        if not hits:
             return None
+
+        return self._knowledge_store.format_context(hits)
 
     def _format_full_context(self, results: list[tuple[str, float, dict]]) -> str:
         """Format results with full content inline (legacy mode)."""
@@ -733,6 +770,36 @@ class Agent:
         content, score, metadata = entry
         source = metadata.get("source", "unknown")
         return f"[{source}] (relevance: {score:.2f})\n{content}"
+
+    def record_solution(
+        self,
+        task: str,
+        approach: str,
+        outcome: str = "success",
+        files_changed: Optional[list[str]] = None,
+        tags: Optional[list[str]] = None,
+    ) -> None:
+        """Record a successful solution for knowledge compounding.
+
+        Args:
+            task: What was the task/problem.
+            approach: How it was solved.
+            outcome: Result — "success", "partial", or "failed".
+            files_changed: Files that were modified.
+            tags: Searchable tags for the solution.
+        """
+        if not self._knowledge_store:
+            return
+
+        record = SolutionRecord(
+            task=task,
+            approach=approach,
+            outcome=outcome,
+            files_changed=files_changed or [],
+            tags=tags or [],
+            model_used=self.active_model,
+        )
+        self._knowledge_store.record(record)
 
     def _is_safe_shell_command(self, command: str) -> bool:
         """Check if a shell command is safe using hardcoded permission system.

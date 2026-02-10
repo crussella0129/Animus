@@ -1,6 +1,6 @@
 # Tasks — ANIMUS
 
-**Last Updated:** 2026-02-09 (Entry #42: Auth profile rotation, 390 tests)
+**Last Updated:** 2026-02-09 (Entry #43: Knowledge compounding, 420 tests)
 
 ## Design Philosophy Update
 
@@ -938,6 +938,12 @@ Audio features are completely optional:
 
 ## Completed (Recent)
 
+- **Knowledge Compounding** (Entry #43, GECK Repor Recommendation #8) ✓
+  - `KnowledgeStore` with JSONL persistence, keyword search, context formatting
+  - `SolutionRecord` with task, approach, outcome, tags, files, scoring
+  - Integrated into Agent: searches past solutions alongside RAG memory
+  - `record_solution()` method for documenting successful approaches
+  - 30 new tests (8 record, 15 store, 7 agent integration)
 - **Auth Profile Rotation** (Entry #42, Backlog High Priority) ✓
   - `AuthProfile` with cooldown tracking, per-profile usage metrics
   - `AuthRotator` with automatic failover on auth failures, preferred-profile recovery

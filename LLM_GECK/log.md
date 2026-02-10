@@ -4129,3 +4129,41 @@ Implement auth profile rotation from the high-priority backlog — allow configu
 - Files created: 2 (auth_rotation.py, test_auth_rotation.py)
 - Files modified: 2 (agent.py, __init__.py)
 - Tests added: 29 (390 total passing)
+
+---
+
+## Entry #43 — 2026-02-09
+
+### Summary
+Knowledge Compounding: JSONL-based solution store with keyword search. Past successful solutions are automatically searched and injected as context for new tasks.
+
+### Understood Goals
+Implement GECK Repor Recommendation #8 — after each successful task, store the solution with structured metadata. Future tasks search past solutions for relevant approaches (Build → Solve → Document → Search → Accelerate cycle).
+
+### Actions
+- Created `src/core/knowledge.py` with `SolutionRecord`, `SearchHit`, `KnowledgeStore`
+- JSONL append-only storage at `~/.animus/data/solutions.jsonl`
+- Keyword-based search with term matching, task bonus, and tag bonus scoring
+- `format_context()` produces LLM-injectable context from search hits
+- Integrated into Agent `_retrieve_context()`: searches knowledge store alongside RAG memory
+- Added `record_solution()` method to Agent for external callers
+- Added `enable_knowledge` and `knowledge_search_k` config fields
+
+### Files Changed
+- `src/core/knowledge.py` — Created (SolutionRecord, SearchHit, KnowledgeStore)
+- `src/core/agent.py` — Import, config, __init__ setup, _search_knowledge, record_solution, _retrieve_context refactored
+- `src/core/__init__.py` — Added KnowledgeStore, SolutionRecord, SearchHit exports
+- `tests/test_knowledge.py` — Created (30 tests)
+
+### Findings
+- Keyword search with field-weighted scoring is sufficient for small solution stores (hundreds of records); vector search can be added later for larger stores
+- Combining knowledge context with RAG memory context works naturally — past solutions appear before code context
+- Cache invalidation on record() is important — without it, newly recorded solutions aren't immediately searchable
+
+### Checkpoint
+**Status:** CONTINUE — Knowledge compounding complete. Next: Specialist Sub-Agents (#23).
+
+### Metrics
+- Files created: 2 (knowledge.py, test_knowledge.py)
+- Files modified: 2 (agent.py, __init__.py)
+- Tests added: 30 (420 total passing)

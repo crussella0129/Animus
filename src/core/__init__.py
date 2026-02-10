@@ -121,6 +121,11 @@ from src.core.auth_rotation import (
     AuthProfile,
     RotationEvent,
 )
+from src.core.knowledge import (
+    KnowledgeStore,
+    SolutionRecord,
+    SearchHit,
+)
 from src.core.web_validator import (
     WebContentJudge,
     WebContentRuleEngine,
@@ -244,6 +249,10 @@ __all__ = [
     "AuthRotator",
     "AuthProfile",
     "RotationEvent",
+    # Knowledge Compounding
+    "KnowledgeStore",
+    "SolutionRecord",
+    "SearchHit",
     # Web Content Validation (Ungabunga-Box)
     "WebContentJudge",
     "WebContentRuleEngine",
