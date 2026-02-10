@@ -46,3 +46,77 @@ def mock_sentence_transformers():
     sys.modules["sentence_transformers"] = mock
     yield mock
     sys.modules.pop("sentence_transformers", None)
+
+
+SAMPLE_PYTHON_SOURCE = '''\
+"""Sample module docstring."""
+
+import os
+from pathlib import Path
+
+
+class Animal:
+    """Base animal class."""
+
+    def __init__(self, name: str):
+        self.name = name
+
+    def speak(self) -> str:
+        return ""
+
+
+class Dog(Animal):
+    """A dog."""
+
+    def speak(self) -> str:
+        return f"{self.name} says woof"
+
+    def fetch(self, item: str) -> str:
+        print(f"Fetching {item}")
+        return item
+
+
+class Cat(Animal):
+    """A cat."""
+
+    def speak(self) -> str:
+        return f"{self.name} says meow"
+
+
+def make_animal(kind: str) -> Animal:
+    """Factory function."""
+    if kind == "dog":
+        return Dog(kind)
+    return Cat(kind)
+
+
+def main():
+    animal = make_animal("dog")
+    animal.speak()
+'''
+
+
+@pytest.fixture
+def sample_python_source() -> str:
+    """Return sample Python source code for parser testing."""
+    return SAMPLE_PYTHON_SOURCE
+
+
+@pytest.fixture
+def sample_python_file(tmp_path: Path, sample_python_source: str) -> Path:
+    """Write sample Python source to a temp file and return its path."""
+    # Put it in a src/ dir so the module name derivation works
+    src_dir = tmp_path / "src"
+    src_dir.mkdir()
+    f = src_dir / "animals.py"
+    f.write_text(sample_python_source)
+    return f
+
+
+@pytest.fixture
+def graph_db(tmp_path: Path):
+    """Create a temporary GraphDB instance."""
+    from src.knowledge.graph_db import GraphDB
+    db = GraphDB(tmp_path / "test_graph.db")
+    yield db
+    db.close()

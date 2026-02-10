@@ -246,6 +246,48 @@ def search(
 
 
 @app.command()
+def graph(
+    path: str = typer.Argument(..., help="Directory to index"),
+) -> None:
+    """Build or update the code knowledge graph for a directory."""
+    from src.knowledge.graph_db import GraphDB
+    from src.knowledge.indexer import Indexer
+
+    cfg = AnimusConfig.load()
+    cfg.graph_dir.mkdir(parents=True, exist_ok=True)
+    db_path = cfg.graph_dir / "code_graph.db"
+    db = GraphDB(db_path)
+
+    target = Path(path)
+    if not target.exists():
+        error(f"Path does not exist: {path}")
+        raise typer.Exit(1)
+
+    def _on_progress(file_path: str) -> None:
+        info(f"  Parsing: {file_path}")
+
+    info(f"Indexing {target.resolve()} ...")
+    indexer = Indexer(db)
+    result = indexer.index_directory(target, on_progress=_on_progress)
+
+    stats = db.get_stats()
+    db.close()
+
+    table = Table(title="Knowledge Graph Stats")
+    table.add_column("Metric", style="cyan")
+    table.add_column("Value", style="green")
+    table.add_row("Files scanned", str(result.files_scanned))
+    table.add_row("Files parsed", str(result.files_parsed))
+    table.add_row("Files skipped (unchanged)", str(result.files_skipped))
+    table.add_row("Files failed", str(result.files_failed))
+    table.add_row("Total nodes in graph", str(stats["nodes"]))
+    table.add_row("Total edges in graph", str(stats["edges"]))
+    table.add_row("Total files tracked", str(stats["files"]))
+    console.print(table)
+    success(f"Graph saved to {db_path}")
+
+
+@app.command()
 def sessions() -> None:
     """List saved conversation sessions."""
     from src.core.session import Session
@@ -394,6 +436,17 @@ def rise(
         register_git_tools(registry, confirm_callback=confirm_cb)
     except ImportError:
         pass
+
+    # Register graph tools if the knowledge graph exists
+    graph_db_path = cfg.graph_dir / "code_graph.db"
+    if graph_db_path.exists():
+        try:
+            from src.knowledge.graph_db import GraphDB
+            from src.tools.graph import register_graph_tools
+            graph_db = GraphDB(graph_db_path)
+            register_graph_tools(registry, graph_db)
+        except Exception:
+            pass
 
     agent = Agent(
         provider=provider,

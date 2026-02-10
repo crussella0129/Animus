@@ -73,6 +73,10 @@ class AnimusConfig(BaseSettings):
     def models_dir(self) -> Path:
         return self.config_dir / "models"
 
+    @property
+    def graph_dir(self) -> Path:
+        return self.config_dir / "graph"
+
     def save(self) -> None:
         """Save configuration to YAML file."""
         self.config_dir.mkdir(parents=True, exist_ok=True)
