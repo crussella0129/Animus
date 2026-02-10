@@ -296,6 +296,7 @@ def _handle_slash_command(command: str, agent, session, cfg: AnimusConfig) -> bo
         console.print("  /clear   — Reset conversation history")
         console.print("  /tools   — List available tools")
         console.print("  /tokens  — Show context usage estimate")
+        console.print("  /plan    — Force plan-then-execute mode for next message")
         console.print("  /help    — Show this help message")
         return True
 
@@ -335,7 +336,21 @@ def _handle_slash_command(command: str, agent, session, cfg: AnimusConfig) -> bo
             console.print(f"  Cumulative session tokens: ~{cumulative}")
         return True
 
+    if cmd == "/plan":
+        # Toggle plan mode — next message will use plan-then-execute
+        _plan_mode_state["active"] = not _plan_mode_state["active"]
+        state = "ON" if _plan_mode_state["active"] else "OFF"
+        style = "bold green" if _plan_mode_state["active"] else "bold red"
+        console.print(f"[{style}]Plan mode: {state}[/]")
+        if _plan_mode_state["active"]:
+            info("Next message will use plan-then-execute pipeline.")
+        return True
+
     return False
+
+
+# Mutable state for /plan toggle (module-level to avoid closure issues)
+_plan_mode_state: dict[str, bool] = {"active": False}
 
 
 @app.command()
@@ -448,25 +463,53 @@ def rise(
                     console.print()
                     continue
 
-            # Normal message: send to agent with streaming
-            session.add_message("user", stripped)
-            collected: list[str] = []
-            first_chunk = True
+            # Determine execution mode
+            from src.core.planner import should_use_planner
 
-            def _on_chunk(chunk: str) -> None:
-                nonlocal first_chunk
-                if first_chunk:
-                    console.print("[bold green]Animus>[/] ", end="")
-                    first_chunk = False
-                console.print(chunk, end="", highlight=False)
-                collected.append(chunk)
+            use_plan = _plan_mode_state["active"] or should_use_planner(provider)
 
-            response = agent.run_stream(stripped, on_chunk=_on_chunk)
-            if not collected:
-                # Fallback: stream didn't produce chunks (e.g. error path)
+            if use_plan:
+                # Plan-then-execute mode
+                session.add_message("user", stripped)
+
+                def _on_progress(step_num: int, total: int, desc: str) -> None:
+                    console.print(f"[bold cyan]  [{step_num}/{total}][/] {desc}")
+
+                def _on_step_output(text: str) -> None:
+                    console.print(f"[green]  > {text[:200]}[/]")
+
+                console.print("[bold yellow]Planning...[/]")
+                response = agent.run_planned(
+                    stripped,
+                    on_progress=_on_progress,
+                    on_step_output=_on_step_output,
+                    force=_plan_mode_state["active"],
+                )
                 console.print(f"[bold green]Animus>[/] {response}")
+
+                # Reset plan mode toggle after use
+                if _plan_mode_state["active"]:
+                    _plan_mode_state["active"] = False
             else:
-                console.print()  # newline after streamed output
+                # Direct streaming mode (large models)
+                session.add_message("user", stripped)
+                collected: list[str] = []
+                first_chunk = True
+
+                def _on_chunk(chunk: str) -> None:
+                    nonlocal first_chunk
+                    if first_chunk:
+                        console.print("[bold green]Animus>[/] ", end="")
+                        first_chunk = False
+                    console.print(chunk, end="", highlight=False)
+                    collected.append(chunk)
+
+                response = agent.run_stream(stripped, on_chunk=_on_chunk)
+                if not collected:
+                    console.print(f"[bold green]Animus>[/] {response}")
+                else:
+                    console.print()  # newline after streamed output
+
             session.add_message("assistant", response)
             console.print()
 

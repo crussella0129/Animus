@@ -22,6 +22,7 @@ class Agent:
         tool_registry: ToolRegistry,
         system_prompt: str = "You are a helpful assistant.",
         max_turns: int = 20,
+        planning_provider: Optional[ModelProvider] = None,
     ) -> None:
         self._provider = provider
         self._tools = tool_registry
@@ -29,6 +30,7 @@ class Agent:
         self._max_turns = max_turns
         self._messages: list[dict[str, str]] = []
         self._cumulative_tokens: int = 0
+        self._planning_provider = planning_provider
 
         # Set up context window based on model capabilities
         caps = provider.capabilities()
@@ -205,6 +207,45 @@ class Agent:
                 continue
 
         return calls
+
+    def run_planned(
+        self,
+        user_input: str,
+        on_progress: Optional[Callable[[int, int, str], None]] = None,
+        on_step_output: Optional[Callable[[str], None]] = None,
+        force: bool = False,
+    ) -> str:
+        """Run via plan-then-execute pipeline.
+
+        Auto-detects whether to use planner based on model size tier,
+        unless force=True which always uses it.
+        Falls back to direct run() for large models unless forced.
+        """
+        from src.core.planner import PlanExecutor, should_use_planner
+
+        if not force and not should_use_planner(self._provider):
+            return self.run(user_input)
+
+        executor = PlanExecutor(
+            provider=self._provider,
+            tool_registry=self._tools,
+            planning_provider=self._planning_provider,
+            max_step_turns=self._max_turns,
+            on_progress=on_progress,
+            on_step_output=on_step_output,
+        )
+
+        result = executor.run(user_input)
+
+        # Store the plan result for inspection
+        self._last_plan_result = result
+
+        # Build a summary response
+        if result.success:
+            final_outputs = [r.output for r in result.results if r.output]
+            return final_outputs[-1] if final_outputs else "Plan completed successfully."
+        else:
+            return f"Plan completed with issues:\n{result.summary}"
 
     def reset(self) -> None:
         """Clear conversation history."""

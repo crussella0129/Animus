@@ -67,7 +67,48 @@ Key design decisions:
 3. **Systest** — Manual test of `animus rise` with the planner on Llama-3.2-1B
 
 ### Checkpoint
-**Status:** WAIT — Awaiting human approval on plan-then-execute approach before implementation.
+**Status:** COMPLETE — Synopsis and plan-then-execute proposal written.
+
+---
+
+## Entry #1 — 2026-02-10
+
+### Summary
+Implemented Plan-Then-Execute architecture (`src/core/planner.py`). Three-phase pipeline: TaskDecomposer (LLM) → PlanParser (hardcoded regex) → ChunkedExecutor (fresh context per step). Wired into Agent with auto-detection by model size tier. Added `/plan` slash command for manual override.
+
+### Actions
+- Created `src/core/planner.py` with 5 classes: `TaskDecomposer`, `PlanParser`, `ChunkedExecutor`, `PlanExecutor`, `Step`/`StepResult`/`PlanResult` dataclasses
+- Hardcoded step type inference from keywords (6 types: read, write, shell, git, analyze, generate)
+- Hardcoded tool filtering: each step type maps to a subset of available tools
+- Added `Agent.run_planned()` method with auto-detection via `should_use_planner()`
+- Added `/plan` toggle slash command in REPL
+- REPL auto-routes through planner for small/medium models, direct streaming for large
+- Created `tests/test_planner.py` with 50 tests covering all components
+
+### Files Changed
+- `src/core/planner.py` — NEW: Plan-Then-Execute pipeline (TaskDecomposer, PlanParser, ChunkedExecutor, PlanExecutor)
+- `src/core/agent.py` — Added `run_planned()`, `planning_provider` parameter
+- `src/main.py` — Added `/plan` command, auto-detection routing in REPL
+- `tests/test_planner.py` — NEW: 50 tests
+- `LLM_GECK/tasks.md` — Updated: marked plan-then-execute complete
+- `LLM_GECK/log.md` — Added this entry
+
+### Findings
+- Step type keyword ordering matters: "write a new test file" was matching SHELL (keyword "test") before WRITE. Fixed by reordering WRITE above SHELL in priority list and narrowing SHELL keyword "run" to "run " (with trailing space).
+- The parser handles multiple numbered-list formats: `1.`, `1)`, `1-`, `Step 1:`.
+- Single-step fallback when parser can't extract steps prevents pipeline from failing on free-form LLM output.
+- Fresh context per step verified via test — no message leakage between steps.
+
+### Metrics
+- Files created: 2
+- Files modified: 3
+- Tests added: 50 (total suite: 212 passing, 0.72s)
+- Pipeline phases: 3 (decompose → parse → execute)
+- Step types: 6
+- Tool filter mappings: 6
+
+### Checkpoint
+**Status:** CONTINUE — Implementation complete. Next: systest with Llama-3.2-1B on a real multi-step task.
 
 ---
 
