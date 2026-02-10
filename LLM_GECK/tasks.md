@@ -68,7 +68,7 @@ Summary of completed work:
 - [x] **Phase 7: Logging & Token Tracking** — Rotating file handler, `log_llm_call()`, `log_tool_execution()`, `TokenUsage` dataclass, `_cumulative_tokens` (17 tests)
 - [x] **GGUF Pull Enhancement** — MODEL_CATALOG (6 models), `download_gguf()`, Rich progress bar, `--list` flag, auto-config after download
 
-**Lean rebuild tests:** 212 passing (0.72s)
+**Lean rebuild tests:** 232 passing (0.86s)
 
 ---
 
@@ -115,7 +115,7 @@ Summary of completed work:
 
 ### High Priority
 - [ ] **Knowledge Graph for Code** (from Potpie) — Neo4j/SQLite code graph, function/class relationships, blast radius analysis
-- [ ] Grammar-constrained decoding for llama-cpp-python (GBNF integration)
+- [x] Grammar-constrained decoding for llama-cpp-python (GBNF integration) — `src/core/grammar.py`, 15 tests
 
 ### Medium Priority
 - [ ] Real TTS Integration (replace MIDI phoneme synthesis)
@@ -139,7 +139,7 @@ Summary of completed work:
 | Issue | Severity | Status |
 |-------|----------|--------|
 | Small models thrash on complex tasks | High | Mitigated by Plan-Then-Execute (auto-detected) |
-| Model outputs text instead of JSON tool calls | High | Mitigated by parse-retry-correct + GBNF (partial) |
+| Model outputs text instead of JSON tool calls | High | Mitigated by parse-retry-correct + GBNF grammar constraints (Entry #3) |
 | Token estimation heuristic (~4 chars/token) inaccurate for code | Medium | Open |
 | Shell tool uses `shell=True` | Medium | Mitigated by permission checker |
 
@@ -152,4 +152,4 @@ Summary of completed work:
 - [x] Each step executes in isolated context without thrashing (verified by test_fresh_context_per_step)
 - [x] Hybrid mode works: API plans, local executes (verified by test_hybrid_mode_different_providers)
 - [x] Fallback to direct mode for large/API models (verified by test_large_model_skips_planner)
-- [x] Tests cover decomposer, parser, executor, and integration (50 tests passing)
+- [x] Tests cover decomposer, parser, executor, integration, and grammar (70 tests passing)

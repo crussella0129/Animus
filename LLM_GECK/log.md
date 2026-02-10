@@ -148,6 +148,40 @@ Systest and iterative prompt tuning for Plan-Then-Execute on Llama-3.2-1B. Four 
 
 ---
 
+## Entry #3 — 2026-02-10
+
+### Summary
+Implemented GBNF grammar constraints for tool call schemas. Small local models now produce structurally valid JSON tool calls via llama-cpp-python's constrained decoding. The grammar module builds a JSON Schema from available tools (name enum + argument constraints), converts it to a GBNF grammar via `LlamaGrammar.from_json_schema()`, and passes it to `create_chat_completion()`. Graceful degradation: returns None when llama-cpp-python is not installed (API providers unaffected).
+
+### Actions
+- Created `src/core/grammar.py` — two-level API:
+  - `build_tool_call_schema(tools)` → JSON Schema dict (pure, no dependencies)
+  - `build_grammar(tools)` → LlamaGrammar object or None (graceful fallback)
+- Modified `src/llm/native.py` — `NativeProvider.generate()` now accepts `grammar` kwarg, passes it to `create_chat_completion()`
+- Modified `src/core/planner.py` — `ChunkedExecutor._execute_step()` builds grammar from filtered tools and passes `grammar=` to `provider.generate()`
+- Created `tests/test_grammar.py` — 15 tests covering schema building, grammar construction, provider passthrough, and planner integration
+
+### Design Decisions
+- **Single-tool optimization:** When only one tool is available (common after filtering), the schema fully constrains argument structure (required keys, types). With multiple tools, arguments are generic `{"type": "object"}` since `oneOf` converts unreliably to GBNF.
+- **Always pass grammar:** Grammar is built and passed via `**kwargs` to all providers. API providers ignore it. NativeProvider uses it. No `isinstance()` checks or tight coupling.
+- **Graceful degradation:** `build_grammar()` catches `ImportError` (no llama_cpp) and any grammar conversion failures — returns None in both cases. Planner proceeds unconstrained.
+
+### Files Changed
+- `src/core/grammar.py` — NEW: GBNF grammar constraint building
+- `src/llm/native.py` — Modified: grammar kwarg passthrough
+- `src/core/planner.py` — Modified: grammar integration in executor
+- `tests/test_grammar.py` — NEW: 15 tests
+
+### Metrics
+- Files created: 2
+- Files modified: 2
+- Tests added: 15 (total suite: 232 passing, 0.86s)
+
+### Checkpoint
+**Status:** COMPLETE — GBNF grammar constraints implemented and tested. Next: systest with Llama-3.2-1B to verify JSON reliability improvement.
+
+---
+
 ## Appendix A — External Repository Reference
 
 *Carried forward from prior log entries #15, #16, #33. These repos contain patterns and features we want to bring into Animus over time. Ollama has been removed from the stack — Animus uses llama-cpp-python for local inference.*

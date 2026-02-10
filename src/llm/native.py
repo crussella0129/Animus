@@ -157,11 +157,18 @@ class NativeProvider(ModelProvider):
         **kwargs: Any,
     ) -> str:
         model = self._load_model()
-        response = model.create_chat_completion(
-            messages=messages,
-            max_tokens=kwargs.get("max_tokens", 2048),
-            temperature=kwargs.get("temperature", 0.7),
-        )
+        call_kwargs: dict[str, Any] = {
+            "messages": messages,
+            "max_tokens": kwargs.get("max_tokens", 2048),
+            "temperature": kwargs.get("temperature", 0.7),
+        }
+
+        # GBNF grammar constraint: forces structurally valid JSON output
+        grammar = kwargs.get("grammar")
+        if grammar is not None:
+            call_kwargs["grammar"] = grammar
+
+        response = model.create_chat_completion(**call_kwargs)
         choices = response.get("choices", [])
         if choices:
             return choices[0].get("message", {}).get("content", "")

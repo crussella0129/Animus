@@ -341,6 +341,11 @@ class ChunkedExecutor:
         # Filter tools for this step type
         filtered_registry = _filter_tools(self._full_registry, step.step_type)
 
+        # Build GBNF grammar constraint for native models (None for API providers)
+        from src.core.grammar import build_grammar
+
+        grammar = build_grammar(filtered_registry.list_tools())
+
         # Build concise tool schema descriptions for the system prompt
         tool_lines = []
         for tool in filtered_registry.list_tools():
@@ -378,7 +383,8 @@ class ChunkedExecutor:
 
             try:
                 response = self._provider.generate(
-                    full_messages, tools=tool_schemas, max_tokens=self._max_output_tokens
+                    full_messages, tools=tool_schemas,
+                    max_tokens=self._max_output_tokens, grammar=grammar,
                 )
             except Exception as e:
                 classified = classify_error(e)
