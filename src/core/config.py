@@ -67,6 +67,26 @@ class AudioConfig(BaseModel):
     tts_engine_path: Optional[str] = None    # Auto-detect from TTS-Soundboard location
 
 
+class IsolationConfig(BaseModel):
+    """Container isolation configuration (Ornstein & Smough)."""
+    model_config = {"extra": "ignore"}
+
+    # Default isolation level for all tools
+    default_level: str = "none"  # "none", "ornstein", "smough"
+
+    # Ornstein (lightweight sandbox) settings
+    ornstein_enabled: bool = False
+    ornstein_timeout: int = 30
+    ornstein_memory_mb: int = 512
+    ornstein_allow_write: bool = False
+
+    # Per-tool isolation overrides
+    tool_isolation: dict[str, str] = {}  # {"run_shell": "ornstein", ...}
+
+    # Auto-isolation for dangerous tools
+    auto_isolate_dangerous: bool = False
+
+
 class AnimusConfig(BaseSettings):
     """Main application configuration."""
 
@@ -75,6 +95,7 @@ class AnimusConfig(BaseSettings):
     rag: RAGConfig = Field(default_factory=RAGConfig)
     agent: AgentConfig = Field(default_factory=AgentConfig)
     audio: AudioConfig = Field(default_factory=AudioConfig)
+    isolation: IsolationConfig = Field(default_factory=IsolationConfig)
     log_level: str = "INFO"
 
     model_config = {"env_prefix": "ANIMUS_", "extra": "ignore"}

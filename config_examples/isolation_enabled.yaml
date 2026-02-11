@@ -1,0 +1,84 @@
+# Example Animus configuration with Ornstein isolation enabled
+# Copy to ~/.animus/config.yaml and customize
+
+model:
+  provider: native
+  model_name: qwen-2.5-coder-7b
+  model_path: ""
+  temperature: 0.7
+  max_tokens: 2048
+  context_length: 32768
+  gpu_layers: -1
+  size_tier: medium
+
+rag:
+  chunk_size: 512
+  chunk_overlap: 64
+  embedding_model: all-MiniLM-L6-v2
+  top_k: 5
+
+agent:
+  max_turns: 20
+  system_prompt: You are Animus, a helpful local AI assistant with tool use capabilities.
+  confirm_dangerous: true
+
+audio:
+  enabled: false
+  voice_profile: animus
+  title_text: father
+  title_mode: startup
+  play_mode: responses
+  blocking: false
+
+# Ornstein & Smough Isolation Configuration
+isolation:
+  # Default isolation level for all tools
+  # Options: "none" (no isolation), "ornstein" (lightweight), "smough" (heavy, not yet implemented)
+  default_level: none
+
+  # Enable Ornstein lightweight sandbox
+  ornstein_enabled: false
+
+  # Ornstein sandbox settings
+  ornstein_timeout: 30        # Max execution time (seconds)
+  ornstein_memory_mb: 512     # Max memory usage (MB)
+  ornstein_allow_write: false # Allow write operations in sandbox
+
+  # Per-tool isolation overrides
+  # Specify isolation level for specific tools
+  tool_isolation: {}
+    # Examples:
+    # run_shell: ornstein       # Always isolate shell commands
+    # web_search: ornstein      # Isolate web searches (when added)
+    # read_file: none           # Don't isolate read operations
+
+  # Auto-isolate dangerous operations
+  # Automatically apply Ornstein to tools marked as dangerous
+  auto_isolate_dangerous: false
+
+log_level: INFO
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# USAGE EXAMPLES
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# Example 1: Enable Ornstein by default
+# isolation:
+#   default_level: ornstein
+#   ornstein_enabled: true
+
+# Example 2: Selective tool isolation
+# isolation:
+#   default_level: none
+#   ornstein_enabled: true
+#   tool_isolation:
+#     run_shell: ornstein
+
+# Example 3: Cautious mode (via CLI flag)
+# animus rise --cautious
+# (Enables Ornstein automatically without config changes)
+
+# Example 4: Paranoid mode (not yet implemented)
+# animus rise --paranoid
+# (Will enable Smough container isolation in Phase 3)

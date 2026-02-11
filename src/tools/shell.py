@@ -6,13 +6,15 @@ import subprocess
 from typing import Any
 
 from src.core.permission import PermissionChecker
-from src.tools.base import Tool, ToolRegistry
+from src.tools.base import Tool, ToolRegistry, isolated
 
 
+@isolated(level="ornstein")  # Shell commands recommended for isolation
 class RunShellTool(Tool):
     """Execute shell commands with safety checks."""
 
     def __init__(self, confirm_callback: Any = None) -> None:
+        super().__init__()  # Initialize Tool base class
         self._confirm = confirm_callback
 
     @property

@@ -499,8 +499,18 @@ def _handle_slash_command(command: str, agent, session, cfg: AnimusConfig) -> bo
             table = Table(title="Available Tools")
             table.add_column("Name", style="cyan")
             table.add_column("Description", style="green")
+            table.add_column("Isolation", style="yellow")
+
             for tool in tools:
-                table.add_row(tool.name, tool.description)
+                isolation = tool.isolation_level
+                isolation_display = {
+                    'none': '[dim]none[/]',
+                    'ornstein': '[yellow]ornstein[/]',
+                    'smough': '[red]smough[/]',
+                }.get(isolation, isolation)
+
+                table.add_row(tool.name, tool.description, isolation_display)
+
             console.print(table)
         return True
 
@@ -537,6 +547,8 @@ _plan_mode_state: dict[str, bool] = {"active": False}
 def rise(
     resume: bool = typer.Option(False, "--resume", help="Resume the most recent session"),
     session_id: Optional[str] = typer.Option(None, "--session", help="Resume a specific session by ID"),
+    cautious: bool = typer.Option(False, "--cautious", help="Enable Ornstein sandbox for tool execution"),
+    paranoid: bool = typer.Option(False, "--paranoid", help="Enable Smough container isolation (not yet implemented)"),
 ) -> None:
     """Awaken Animus. Start an interactive agent session."""
     from src.core.agent import Agent
@@ -547,6 +559,17 @@ def rise(
     from src.tools.shell import register_shell_tools
 
     cfg = AnimusConfig.load()
+
+    # Apply isolation level from CLI flags
+    if paranoid:
+        error("Smough layer (--paranoid) not yet implemented.")
+        info("Use --cautious for Ornstein lightweight sandbox.")
+        raise typer.Exit(1)
+    elif cautious:
+        cfg.isolation.default_level = "ornstein"
+        cfg.isolation.ornstein_enabled = True
+        info("[Isolation] Ornstein sandbox enabled (--cautious mode)")
+
     factory = ProviderFactory()
     provider = factory.create(
         cfg.model.provider,

@@ -11,6 +11,13 @@ from src.tools.base import Tool, ToolRegistry
 
 
 class ReadFileTool(Tool):
+    """Read files (no isolation needed - read-only operation)."""
+
+    def __init__(self):
+        super().__init__()
+        # ReadFileTool doesn't need isolation (read-only, low risk)
+        self._isolation_level = "none"
+
     @property
     def name(self) -> str:
         return "read_file"
@@ -51,6 +58,14 @@ class ReadFileTool(Tool):
 
 
 class WriteFileTool(Tool):
+    """Write files (optional isolation for untrusted content)."""
+
+    def __init__(self):
+        super().__init__()
+        # WriteFileTool could be isolated for untrusted content
+        # But default to none for performance
+        self._isolation_level = "none"
+
     @property
     def name(self) -> str:
         return "write_file"
@@ -84,6 +99,13 @@ class WriteFileTool(Tool):
 
 
 class ListDirTool(Tool):
+    """List directory contents (no isolation needed - read-only)."""
+
+    def __init__(self):
+        super().__init__()
+        # ListDirTool doesn't need isolation (read-only operation)
+        self._isolation_level = "none"
+
     @property
     def name(self) -> str:
         return "list_dir"

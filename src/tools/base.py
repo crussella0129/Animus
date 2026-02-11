@@ -9,6 +9,10 @@ from typing import Any
 class Tool(ABC):
     """Abstract base class for agent tools."""
 
+    def __init__(self):
+        """Initialize tool with default isolation level."""
+        self._isolation_level: str = "none"
+
     @property
     @abstractmethod
     def name(self) -> str:
@@ -30,6 +34,18 @@ class Tool(ABC):
         """Execute the tool and return a string result."""
         ...
 
+    @property
+    def isolation_level(self) -> str:
+        """Get recommended isolation level for this tool."""
+        return getattr(self, '_isolation_level', 'none')
+
+    @isolation_level.setter
+    def isolation_level(self, level: str):
+        """Set isolation level for this tool."""
+        if level not in ("none", "ornstein", "smough"):
+            raise ValueError(f"Invalid isolation level: {level}")
+        self._isolation_level = level
+
     def to_openai_schema(self) -> dict[str, Any]:
         """Generate OpenAI function-calling compatible schema."""
         return {
@@ -40,6 +56,39 @@ class Tool(ABC):
                 "parameters": self.parameters,
             },
         }
+
+
+def isolated(level: str = "ornstein"):
+    """
+    Decorator to mark a tool class as requiring isolation.
+
+    Usage:
+        @isolated(level="ornstein")
+        class MyDangerousTool(Tool):
+            def __init__(self):
+                super().__init__()
+            ...
+
+    Args:
+        level: Isolation level ("none", "ornstein", "smough")
+    """
+    def decorator(cls):
+        original_init = cls.__init__
+
+        def new_init(self, *args, **kwargs):
+            # Call original init
+            if original_init != Tool.__init__:
+                original_init(self, *args, **kwargs)
+            else:
+                Tool.__init__(self)
+
+            # Set isolation level
+            self._isolation_level = level
+
+        cls.__init__ = new_init
+        return cls
+
+    return decorator
 
 
 def _coerce_args(args: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]:
