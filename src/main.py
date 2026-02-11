@@ -454,6 +454,9 @@ def _make_confirm_callback(cfg: AnimusConfig):
         if not cfg.agent.confirm_dangerous:
             return True
         try:
+            # IMPORTANT: No timeout on user input!
+            # Users need time to research commands, read docs, or make informed decisions.
+            # See docs/DESIGN_PRINCIPLES.md - Rule #1: Never Timeout User Input
             response = console.input(f"[bold yellow]\\[!][/] {message} [dim]\\[y/N][/] ")
             return response.strip().lower() in ("y", "yes")
         except (EOFError, KeyboardInterrupt):
@@ -673,6 +676,9 @@ def rise(
     try:
         while True:
             try:
+                # IMPORTANT: No timeout on user input!
+                # Users need unlimited time to think, research, and compose messages.
+                # See docs/DESIGN_PRINCIPLES.md - Rule #1: Never Timeout User Input
                 user_input = console.input("[bold cyan]You>[/] ")
             except (EOFError, KeyboardInterrupt):
                 console.print()
