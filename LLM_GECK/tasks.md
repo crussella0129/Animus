@@ -196,9 +196,12 @@ Summary of completed work:
 - [x] Grammar-constrained decoding for llama-cpp-python (GBNF integration) — `src/core/grammar.py`, 15 tests
 
 ### Medium Priority
-- [ ] Real TTS Integration (replace MIDI phoneme synthesis with TTS Soundboard custom voice)
+- [x] **TTS Integration** — `src/audio/`, TTS-Soundboard backend, DSP processing (pitch shift + bitcrush), persistent subprocess, audio cache, cross-platform playback, 525 LOC, comprehensive docs — COMPLETE (Entry #6: 2026-02-10)
 - [x] **SQLite-vec persistent vector store** — `src/memory/vectorstore.py`, native SIMD-accelerated vector search, 16 tests
-- [ ] Container isolation with `--paranoid` flag (Ungabunga-Box Phase 3)
+- [~] **Ornstein & Smough Container Isolation** — Dual-layer security system — IN PROGRESS
+  - [x] Phase 1: Ornstein Layer (lightweight sandbox) — `src/isolation/ornstein.py`, process isolation, timeout enforcement, read-only filesystem, 23/26 tests passing (88%), 880 LOC — COMPLETE
+  - [ ] Phase 2: CLI Integration — `--cautious` flag, tool decorator, config UI
+  - [ ] Phase 3: Smough Layer (heavy container) — Docker/Podman, network policies, seccomp profiles
 - [ ] API key authentication for MCP HTTP transport
 
 ### Lower Priority
