@@ -1,0 +1,63 @@
+# Example Animus configuration with TTS enabled
+# Copy to ~/.animus/config.yaml and customize
+
+# Model configuration
+model:
+  provider: "native"
+  model_name: ""
+  model_path: ""
+  temperature: 0.7
+  max_tokens: 2048
+  context_length: 4096
+  gpu_layers: -1
+  size_tier: "auto"
+
+# RAG configuration
+rag:
+  chunk_size: 512
+  chunk_overlap: 64
+  embedding_model: "all-MiniLM-L6-v2"
+  top_k: 5
+
+# Agent configuration
+agent:
+  max_turns: 20
+  system_prompt: "You are Animus, a helpful local AI assistant with tool use capabilities."
+  confirm_dangerous: true
+
+# Audio/TTS configuration
+audio:
+  # Master toggle - set to true to enable voice synthesis
+  enabled: true
+
+  # Voice profile name (looks for ~/.animus/voices/{name}.json)
+  voice_profile: "animus"
+
+  # Title configuration
+  # title_text: Text to use in greetings ("father", "mother", or "" for none)
+  # title_mode: How to use the title
+  #   - "startup": Say "Yes, [title]" once at launch (default)
+  #   - "first": Prepend "Yes [title]," to first response only
+  #   - "always": Prepend "Yes [title]," to every response
+  #   - "never": No title acknowledgment
+  title_text: "father"
+  title_mode: "startup"
+
+  # Playback configuration
+  # play_mode: When to play audio
+  #   - "responses": Speak all agent responses (default)
+  #   - "greeting_only": Only play startup greeting, silent responses
+  #   - "never": Disable TTS entirely
+  play_mode: "responses"
+
+  # Blocking mode
+  # false (default): Non-blocking - you can type while Animus speaks
+  # true: Wait for audio to finish before returning to prompt
+  blocking: false
+
+  # Advanced settings (usually auto-configured)
+  cache_dir: null              # Default: ~/.animus/audio_cache
+  tts_engine_path: null        # Auto-detect from TTS-Soundboard
+
+# Logging
+log_level: "INFO"

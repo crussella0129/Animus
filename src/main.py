@@ -12,6 +12,7 @@ from rich.table import Table
 from src.core.config import AnimusConfig
 from src.core.detection import detect_system
 from src.ui import console, error, info, print_logo, success, warn
+from src import audio
 
 
 def _startup_callback(ctx: typer.Context) -> None:
@@ -54,7 +55,10 @@ def init() -> None:
     """Initialize Animus configuration directory."""
     config = AnimusConfig()
     config.save()
+    # Initialize voices directory
+    config.voices_dir.mkdir(parents=True, exist_ok=True)
     success(f"Configuration initialized at {config.config_dir}")
+    info(f"Voices directory: {config.voices_dir}")
 
 
 @app.command()
@@ -629,6 +633,37 @@ def rise(
             model=cfg.model.model_name,
         )
 
+    # Initialize audio if enabled
+    if cfg.audio.enabled:
+        # Auto-detect TTS engine path if not configured
+        from src.audio.engine import find_tts_engine
+
+        engine_path = (
+            Path(cfg.audio.tts_engine_path) if cfg.audio.tts_engine_path
+            else find_tts_engine()
+        )
+
+        if engine_path is None:
+            warn("TTS engine not found. Disabling audio features.")
+            cfg.audio.enabled = False
+        else:
+            # Load voice profile
+            voice_file = cfg.voices_dir / f"{cfg.audio.voice_profile}.json"
+            if not voice_file.exists():
+                warn(f"Voice profile not found: {voice_file}. Disabling audio.")
+                cfg.audio.enabled = False
+            else:
+                # Initialize TTS subsystem
+                if audio.initialize(engine_path, voice_file, cfg.audio_cache_dir):
+                    info("[Audio] TTS enabled")
+
+                    # Play startup greeting if configured
+                    if cfg.audio.title_mode == "startup" and cfg.audio.title_text:
+                        audio.speak_title_greeting(cfg.audio.title_text)
+                else:
+                    warn("Audio initialization failed. Disabling audio.")
+                    cfg.audio.enabled = False
+
     # Show session info
     info(f"Provider: [bold]{cfg.model.provider}[/]  Model: [bold]{cfg.model.model_name}[/]")
     info(f"Session: {session.id}")
@@ -684,6 +719,18 @@ def rise(
                 )
                 console.print(f"[bold green]Animus>[/] {response}")
 
+                # TTS playback (if enabled)
+                if cfg.audio.enabled and cfg.audio.play_mode == "responses":
+                    # Check if title should be prepended
+                    is_first = len(session.messages) <= 2  # User message + assistant response
+                    title_prefix = audio.should_prepend_title(
+                        cfg.audio.title_mode,
+                        cfg.audio.title_text,
+                        is_first,
+                    )
+
+                    audio.speak(response, blocking=cfg.audio.blocking, prepend_title=title_prefix)
+
                 # Reset plan mode toggle after use
                 if _plan_mode_state["active"]:
                     _plan_mode_state["active"] = False
@@ -707,10 +754,26 @@ def rise(
                 else:
                     console.print()  # newline after streamed output
 
+                # TTS playback (if enabled and not greeting-only)
+                if cfg.audio.enabled and cfg.audio.play_mode == "responses":
+                    # Check if title should be prepended
+                    is_first = len(session.messages) <= 2
+                    title_prefix = audio.should_prepend_title(
+                        cfg.audio.title_mode,
+                        cfg.audio.title_text,
+                        is_first,
+                    )
+
+                    audio.speak(response, blocking=cfg.audio.blocking, prepend_title=title_prefix)
+
             session.add_message("assistant", response)
             console.print()
 
     finally:
+        # Cleanup: shutdown audio
+        if cfg.audio.enabled:
+            audio.shutdown()
+
         # Auto-save on exit
         session.messages = list(agent.messages)
         session.save()

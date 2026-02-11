@@ -1,0 +1,83 @@
+{
+  "version": "1.0",
+  "name": "Untitled",
+  "createdAt": "2026-02-10T23:20:37.198Z",
+  "updatedAt": "2026-02-10T23:24:42.036Z",
+  "voiceProfiles": [
+    {
+      "id": "mlh85k6jt8u97h",
+      "name": "Animus",
+      "pitch": 0,
+      "rate": 150,
+      "volume": 1,
+      "accent": "american",
+      "graph": {
+        "nodes": [
+          {
+            "id": "input",
+            "type": "input",
+            "position": {
+              "x": 50,
+              "y": 200
+            },
+            "params": {}
+          },
+          {
+            "id": "output",
+            "type": "output",
+            "position": {
+              "x": 869.9827981651376,
+              "y": 194.17201834862385
+            },
+            "params": {}
+          },
+          {
+            "id": "dsp_mlh88hn4",
+            "type": "bitcrush",
+            "position": {
+              "x": 424.31536697247697,
+              "y": 167.0625000000001
+            },
+            "params": {
+              "bits": 16,
+              "downsample": 4
+            }
+          },
+          {
+            "id": "dsp_mlh88s83",
+            "type": "pitch_shift",
+            "position": {
+              "x": 199.9380733944954,
+              "y": 169.0051605504588
+            },
+            "params": {
+              "semitones": -5.76
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "reactflow__edge-dsp_mlh88hn4-output",
+            "source": "dsp_mlh88hn4",
+            "target": "output"
+          },
+          {
+            "id": "reactflow__edge-input-dsp_mlh88s83",
+            "source": "input",
+            "target": "dsp_mlh88s83"
+          },
+          {
+            "id": "reactflow__edge-dsp_mlh88s83-dsp_mlh88hn4",
+            "source": "dsp_mlh88s83",
+            "target": "dsp_mlh88hn4"
+          }
+        ]
+      },
+      "createdAt": "2026-02-10T23:21:00.523Z",
+      "updatedAt": "2026-02-10T23:24:42.036Z",
+      "systemVoiceId": "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Speech\\Voices\\Tokens\\TTS_MS_EN-US_DAVID_11.0"
+    }
+  ],
+  "actors": [],
+  "dialogueAssets": []
+}

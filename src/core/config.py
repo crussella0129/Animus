@@ -46,6 +46,27 @@ class AgentConfig(BaseModel):
     confirm_dangerous: bool = True
 
 
+class AudioConfig(BaseModel):
+    """Audio/TTS configuration."""
+    model_config = {"extra": "ignore"}
+
+    # Core settings
+    enabled: bool = False                    # Master toggle
+    voice_profile: str = "animus"            # Profile name (looks for ~/.animus/voices/{name}.json)
+
+    # Title configuration
+    title_text: str = ""                     # "father", "mother", or "" (blank/disabled)
+    title_mode: str = "startup"              # "startup", "first", "always", "never"
+
+    # Playback configuration
+    play_mode: str = "responses"             # "responses", "greeting_only", "never"
+    blocking: bool = False                   # Wait for audio before returning to prompt
+
+    # Paths (auto-configured)
+    cache_dir: Optional[str] = None          # Default: ~/.animus/audio_cache
+    tts_engine_path: Optional[str] = None    # Auto-detect from TTS-Soundboard location
+
+
 class AnimusConfig(BaseSettings):
     """Main application configuration."""
 
@@ -53,6 +74,7 @@ class AnimusConfig(BaseSettings):
     model: ModelConfig = Field(default_factory=ModelConfig)
     rag: RAGConfig = Field(default_factory=RAGConfig)
     agent: AgentConfig = Field(default_factory=AgentConfig)
+    audio: AudioConfig = Field(default_factory=AudioConfig)
     log_level: str = "INFO"
 
     model_config = {"env_prefix": "ANIMUS_", "extra": "ignore"}
@@ -80,6 +102,16 @@ class AnimusConfig(BaseSettings):
     @property
     def vector_dir(self) -> Path:
         return self.config_dir / "vectorstore"
+
+    @property
+    def audio_cache_dir(self) -> Path:
+        if self.audio.cache_dir:
+            return Path(self.audio.cache_dir)
+        return self.config_dir / "audio_cache"
+
+    @property
+    def voices_dir(self) -> Path:
+        return self.config_dir / "voices"
 
     def save(self) -> None:
         """Save configuration to YAML file."""

@@ -196,8 +196,7 @@ Summary of completed work:
 - [x] Grammar-constrained decoding for llama-cpp-python (GBNF integration) — `src/core/grammar.py`, 15 tests
 
 ### Medium Priority
-- [ ] Real TTS Integration (replace MIDI phoneme synthesis with TTS Soundboard "david" voice)
-- [ ] Moto Perpetuo background music (proper MIDI files)
+- [ ] Real TTS Integration (replace MIDI phoneme synthesis with TTS Soundboard custom voice)
 - [x] **SQLite-vec persistent vector store** — `src/memory/vectorstore.py`, native SIMD-accelerated vector search, 16 tests
 - [ ] Container isolation with `--paranoid` flag (Ungabunga-Box Phase 3)
 - [ ] API key authentication for MCP HTTP transport
