@@ -89,7 +89,14 @@ class PermissionChecker:
         """Check if command requires confirmation."""
         cmd_lower = command.strip().lower()
         first_word = cmd_lower.split()[0] if cmd_lower.split() else ""
+
         for dangerous in DANGEROUS_COMMANDS:
-            if first_word == dangerous.lower() or dangerous.lower() in cmd_lower:
+            # Check if first word matches exactly
+            if first_word == dangerous.lower():
                 return True
+
+            # For multi-word patterns (like "cmd /c"), check if command starts with it
+            if " " in dangerous and cmd_lower.startswith(dangerous.lower()):
+                return True
+
         return False
