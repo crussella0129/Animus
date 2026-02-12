@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from collections.abc import Generator
 from typing import Any, Callable, Optional
 
 from src.core.context import ContextWindow, estimate_tokens
 from src.core.errors import RecoveryStrategy, classify_error
+from src.core.tool_parsing import parse_tool_calls
 from src.llm.base import ModelProvider
 from src.tools.base import ToolRegistry
 
@@ -124,7 +126,7 @@ class Agent:
             if i == 1:
                 content = f"[Part {i}/{total}] {chunk}"
             else:
-                summary = last_response[:200].strip()
+                summary = self._summarize_for_carry(last_response, max_tokens=100)
                 content = f"[Part {i}/{total}] (Previous context: {summary})\n\n{chunk}"
 
             self._messages.append({"role": "user", "content": content})
@@ -150,7 +152,7 @@ class Agent:
             if i == 1:
                 content = f"[Part {i}/{total}] {chunk}"
             else:
-                summary = last_response[:200].strip()
+                summary = self._summarize_for_carry(last_response, max_tokens=100)
                 content = f"[Part {i}/{total}] (Previous context: {summary})\n\n{chunk}"
 
             self._messages.append({"role": "user", "content": content})
@@ -164,6 +166,114 @@ class Agent:
                 self._messages.append({"role": "assistant", "content": last_response})
 
         return last_response
+
+    def _summarize_for_carry(self, response: str, max_tokens: int = 100) -> str:
+        """Extract key outcomes from a response for inter-chunk context.
+
+        Prioritizes:
+        1. Tool results (most recent ones)
+        2. Final statements
+        3. First meaningful sentences
+
+        Args:
+            response: The response to summarize
+            max_tokens: Maximum tokens for the summary
+
+        Returns:
+            Condensed summary preserving key context
+        """
+        if not response.strip():
+            return "(no output)"
+
+        lines = response.strip().split("\n")
+
+        # Priority 1: Extract tool results
+        tool_results = []
+        for line in lines:
+            if line.startswith("[Tool ") or "Tool result" in line:
+                tool_results.append(line)
+
+        if tool_results:
+            # Take the last 3 tool results
+            summary = " | ".join(tool_results[-3:])
+            if estimate_tokens(summary) <= max_tokens:
+                return summary
+            # If tool results are too long, truncate
+            return summary[:max_tokens * 4]
+
+        # Priority 2: If response has clear conclusion markers
+        conclusion_markers = ["In summary", "Therefore", "Finally", "Result:", "Output:"]
+        for i, line in enumerate(lines):
+            if any(marker.lower() in line.lower() for marker in conclusion_markers):
+                # Take from this point to the end
+                conclusion = " ".join(lines[i:])
+                if estimate_tokens(conclusion) <= max_tokens:
+                    return conclusion
+                break
+
+        # Priority 3: First meaningful sentences (skip empty lines)
+        meaningful_lines = [l for l in lines if l.strip()]
+        if not meaningful_lines:
+            return response[:max_tokens * 4]
+
+        # Take first few sentences up to token budget
+        summary = ""
+        for line in meaningful_lines[:3]:
+            candidate = f"{summary} {line}".strip()
+            if estimate_tokens(candidate) > max_tokens:
+                break
+            summary = candidate
+
+        return summary if summary else response[:max_tokens * 4]
+
+    def _evaluate_tool_result(self, tool_name: str, result: str) -> str:
+        """Evaluate tool result and inject reflection/guidance for the agent.
+
+        This implements the observation-reflection pattern: instead of just
+        feeding raw tool results back, we classify outcomes and provide
+        contextual guidance to help the agent reason about what happened.
+
+        Args:
+            tool_name: Name of the tool that was executed
+            result: Raw result string from tool execution
+
+        Returns:
+            Enhanced result string with reflection metadata
+        """
+        # Detect errors and suggest alternative approaches
+        if result.startswith("Error:") or "permission denied" in result.lower() or "failed" in result.lower():
+            return (
+                f"[Tool {tool_name} FAILED]\n"
+                f"Result: {result}\n"
+                f"Reflection: The tool encountered an error. Consider:\n"
+                f"  - Trying a different approach or tool\n"
+                f"  - Checking if required inputs were correct\n"
+                f"  - Verifying permissions or prerequisites"
+            )
+
+        # Detect empty or null results
+        if not result.strip() or result.strip() in ("None", "null", ""):
+            return (
+                f"[Tool {tool_name} returned empty result]\n"
+                f"Reflection: The operation may have completed without output, "
+                f"or there may be nothing to report. Verify the operation succeeded."
+            )
+
+        # Summarize very long outputs to preserve context budget
+        MAX_RESULT_LENGTH = 2000
+        if len(result) > MAX_RESULT_LENGTH:
+            truncated = result[:500]
+            preview_lines = truncated.count('\n')
+            total_lines = result.count('\n')
+            return (
+                f"[Tool {tool_name} returned large output: {len(result)} chars, {total_lines} lines]\n"
+                f"Preview (first 500 chars):\n{truncated}\n...\n"
+                f"Reflection: Large output received. The full result is available but truncated here "
+                f"to preserve context. Focus on the preview or request specific sections if needed."
+            )
+
+        # Success case: return result with minimal framing
+        return f"[Tool result for {tool_name}]: {result}"
 
     def _run_agentic_loop(self) -> str:
         """Core agentic loop: generate, check for tool calls, execute, repeat.
@@ -203,15 +313,15 @@ class Agent:
             )
             if call_key == prev_call_key:
                 repeat_count += 1
-                if repeat_count >= 2:
+                if repeat_count >= 1:  # Break after first repeat (2 identical calls total)
                     self._messages.append({"role": "assistant", "content": response_text})
                     self._messages.append({
                         "role": "user",
-                        "content": "[System]: That tool call was repeated and failed. Try a different approach or skip this action.",
+                        "content": "[System]: That tool call was repeated and failed. Try a completely different approach or return your current result.",
                     })
                     if last_tool_result:
                         return last_tool_result
-                    continue
+                    return "Stopped due to repeated tool call with no progress."
             else:
                 repeat_count = 0
             prev_call_key = call_key
@@ -220,10 +330,18 @@ class Agent:
             for call in tool_calls:
                 result = self._tools.execute(call["name"], call["arguments"])
                 last_tool_result = result
+                # Apply reflection/evaluation to tool result
+                evaluated_result = self._evaluate_tool_result(call["name"], result)
                 self._messages.append({
                     "role": "user",
-                    "content": f"[Tool result for {call['name']}]: {result}",
+                    "content": evaluated_result,
                 })
+
+            # Rate limiting: progressive slowdown for rapid tool calls
+            # Prevents overwhelming systems with too many rapid operations
+            if turn > 0:
+                delay = min(0.5, turn * 0.1)
+                time.sleep(delay)
 
         # Exhausted turns but have a tool result — return it directly
         if last_tool_result:
@@ -257,15 +375,15 @@ class Agent:
             )
             if call_key == prev_call_key:
                 repeat_count += 1
-                if repeat_count >= 2:
+                if repeat_count >= 1:  # Break after first repeat (2 identical calls total)
                     self._messages.append({"role": "assistant", "content": response_text})
                     self._messages.append({
                         "role": "user",
-                        "content": "[System]: That tool call was repeated and failed. Try a different approach or skip this action.",
+                        "content": "[System]: That tool call was repeated and failed. Try a completely different approach or return your current result.",
                     })
                     if last_tool_result:
                         return last_tool_result
-                    continue
+                    return "Stopped due to repeated tool call with no progress."
             else:
                 repeat_count = 0
             prev_call_key = call_key
@@ -274,10 +392,17 @@ class Agent:
             for call in tool_calls:
                 result = self._tools.execute(call["name"], call["arguments"])
                 last_tool_result = result
+                # Apply reflection/evaluation to tool result
+                evaluated_result = self._evaluate_tool_result(call["name"], result)
                 self._messages.append({
                     "role": "user",
-                    "content": f"[Tool result for {call['name']}]: {result}",
+                    "content": evaluated_result,
                 })
+
+            # Rate limiting: progressive slowdown for rapid tool calls
+            if turn > 0:
+                delay = min(0.5, turn * 0.1)
+                time.sleep(delay)
 
         if last_tool_result:
             return last_tool_result
@@ -360,49 +485,8 @@ class Agent:
             return None
 
     def _parse_tool_calls(self, text: str) -> list[dict[str, Any]]:
-        """Parse tool calls from LLM response. Tries multiple strategies."""
-        calls = []
-
-        # Strategy 0: Raw JSON (GBNF grammar output — no wrapping)
-        stripped = text.strip()
-        try:
-            data = json.loads(stripped)
-            if isinstance(data, dict) and "name" in data and "arguments" in data:
-                calls.append({
-                    "name": data["name"],
-                    "arguments": data["arguments"] if isinstance(data["arguments"], dict) else {},
-                })
-                return calls
-        except (json.JSONDecodeError, TypeError):
-            pass
-
-        # Strategy 1: JSON code blocks with tool_call structure
-        json_blocks = re.findall(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
-        for block in json_blocks:
-            try:
-                data = json.loads(block)
-                if "name" in data and "arguments" in data:
-                    calls.append({
-                        "name": data["name"],
-                        "arguments": data["arguments"] if isinstance(data["arguments"], dict) else {},
-                    })
-            except json.JSONDecodeError:
-                continue
-
-        if calls:
-            return calls
-
-        # Strategy 2: Inline JSON tool calls
-        inline_pattern = r'\{"name"\s*:\s*"([^"]+)"\s*,\s*"arguments"\s*:\s*(\{[^}]*\})\}'
-        for match in re.finditer(inline_pattern, text):
-            try:
-                name = match.group(1)
-                args = json.loads(match.group(2))
-                calls.append({"name": name, "arguments": args})
-            except json.JSONDecodeError:
-                continue
-
-        return calls
+        """Parse tool calls from LLM response (delegates to shared utility)."""
+        return parse_tool_calls(text)
 
     def run_planned(
         self,

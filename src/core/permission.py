@@ -64,7 +64,19 @@ DANGEROUS_COMMANDS: frozenset[str] = frozenset({
 
 
 class PermissionChecker:
-    """Check paths and commands against deny lists."""
+    """Check paths and commands against deny lists (singleton).
+
+    This class uses the singleton pattern to avoid creating multiple
+    instances that all do the same checks against the same deny lists.
+    """
+
+    _instance: PermissionChecker | None = None
+
+    def __new__(cls) -> PermissionChecker:
+        """Ensure only one instance exists (singleton pattern)."""
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
 
     def is_path_safe(self, path: Path) -> bool:
         """Check if a path is safe to access."""

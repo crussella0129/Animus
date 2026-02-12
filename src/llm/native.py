@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Generator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -118,9 +119,63 @@ def _estimate_params_from_filename(path: str) -> float:
     return 0.0
 
 
-def list_available_models() -> list[str]:
-    """Return list of known model short names."""
-    return sorted(MODEL_CATALOG.keys())
+def discover_local_models(models_dir: Path) -> dict[str, ModelInfo]:
+    """Scan models directory for GGUF files and build catalog entries.
+
+    Args:
+        models_dir: Directory containing .gguf model files
+
+    Returns:
+        Dict mapping model name to ModelInfo for discovered models
+    """
+    if not models_dir.exists():
+        return {}
+
+    discovered = {}
+    for path in models_dir.glob("*.gguf"):
+        # Skip partial downloads
+        if path.name.endswith(".part"):
+            continue
+
+        # Generate a model name from filename (lowercase, replace special chars)
+        name = path.stem.lower().replace("-", "_").replace(".", "_")
+
+        # Estimate parameters from filename
+        params_b = _estimate_params_from_filename(str(path))
+
+        # Conservative defaults
+        context_length = 4096
+        vram_q4_gb = params_b * 0.6 + 0.5 if params_b > 0 else 2.0
+
+        discovered[name] = ModelInfo(
+            repo="local",
+            filename=path.name,
+            params_b=params_b,
+            context_length=context_length,
+            vram_q4_gb=vram_q4_gb,
+            roles=["executor"] if params_b < 4 else ["executor", "planner"],
+            notes=f"Auto-discovered from {path.name}",
+        )
+
+    return discovered
+
+
+def list_available_models(models_dir: Path | None = None) -> list[str]:
+    """Return list of known and discovered model names.
+
+    Args:
+        models_dir: Optional directory to scan for local GGUF files
+
+    Returns:
+        Sorted list of model names (catalog + discovered)
+    """
+    models = set(MODEL_CATALOG.keys())
+
+    if models_dir:
+        discovered = discover_local_models(models_dir)
+        models.update(discovered.keys())
+
+    return sorted(models)
 
 
 def download_gguf(
@@ -160,13 +215,36 @@ def download_gguf(
     models_dir.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(".gguf.part")
 
-    with httpx.Client(timeout=None, follow_redirects=True) as client:
-        with client.stream("GET", url) as response:
-            response.raise_for_status()
-            total = int(response.headers.get("content-length", 0))
-            downloaded = 0
+    # Check for existing partial download and resume if possible
+    existing_size = tmp.stat().st_size if tmp.exists() else 0
+    headers = {}
+    mode = "wb"  # Default: overwrite
 
-            with open(tmp, "wb") as f:
+    if existing_size > 0:
+        # Try to resume from existing partial download
+        headers["Range"] = f"bytes={existing_size}-"
+        mode = "ab"  # Append mode
+
+    with httpx.Client(timeout=None, follow_redirects=True) as client:
+        with client.stream("GET", url, headers=headers) as response:
+            # Check if server supports resume (HTTP 206) or if we need to restart (HTTP 200)
+            if response.status_code == 206:
+                # Partial content - resume successful
+                total = existing_size + int(response.headers.get("content-length", 0))
+                downloaded = existing_size
+            elif response.status_code == 200:
+                # Server doesn't support resume or file changed - restart download
+                mode = "wb"
+                existing_size = 0
+                response.raise_for_status()
+                total = int(response.headers.get("content-length", 0))
+                downloaded = 0
+            else:
+                response.raise_for_status()
+                total = int(response.headers.get("content-length", 0))
+                downloaded = 0
+
+            with open(tmp, mode) as f:
                 for chunk in response.iter_bytes(chunk_size=1024 * 1024):
                     f.write(chunk)
                     downloaded += len(chunk)
@@ -239,6 +317,38 @@ class NativeProvider(ModelProvider):
         if choices:
             return choices[0].get("message", {}).get("content", "")
         return ""
+
+    def generate_stream(
+        self,
+        messages: list[dict[str, str]],
+        tools: list[dict] | None = None,
+        **kwargs: Any,
+    ) -> Generator[str, None, None]:
+        """Stream response chunks from llama-cpp model.
+
+        Yields individual text chunks as they're generated, enabling
+        real-time streaming output.
+        """
+        model = self._load_model()
+        call_kwargs: dict[str, Any] = {
+            "messages": messages,
+            "max_tokens": kwargs.get("max_tokens", 2048),
+            "temperature": kwargs.get("temperature", 0.7),
+            "stream": True,  # Enable streaming
+        }
+
+        # Note: Grammar constraints are not supported with streaming in llama-cpp-python
+        # Streaming will work without grammar enforcement
+
+        try:
+            for chunk in model.create_chat_completion(**call_kwargs):
+                delta = chunk.get("choices", [{}])[0].get("delta", {})
+                content = delta.get("content")
+                if content:
+                    yield content
+        except Exception as e:
+            # If streaming fails, fall back to non-streaming
+            yield self.generate(messages, tools=tools, **kwargs)
 
     def available(self) -> bool:
         try:

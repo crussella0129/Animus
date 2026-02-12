@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import heapq
 import json
 import math
 import sqlite3
@@ -197,25 +198,57 @@ class SQLiteVectorStore:
         )
         self._conn.commit()
 
-    def search(self, query_embedding: list[float], top_k: int = 5) -> list[SearchResult]:
-        """Search for most similar texts by cosine similarity (brute-force)."""
-        rows = self._conn.execute(
-            "SELECT text, embedding, metadata FROM chunks"
-        ).fetchall()
-        if not rows:
+    def search(
+        self,
+        query_embedding: list[float],
+        top_k: int = 5,
+        batch_size: int = 1000
+    ) -> list[SearchResult]:
+        """Search for most similar texts by cosine similarity (optimized brute-force).
+
+        Uses paginated queries with a min-heap to maintain constant memory usage
+        instead of loading all embeddings at once.
+
+        Args:
+            query_embedding: The query vector
+            top_k: Number of results to return
+            batch_size: Number of rows to process per batch (for memory efficiency)
+
+        Returns:
+            List of SearchResult objects sorted by similarity (highest first)
+        """
+        # Get total count
+        total = len(self)
+        if total == 0:
             return []
 
-        scored: list[tuple[str, float, dict[str, Any]]] = []
-        for text, blob, meta_json in rows:
-            emb = _unpack_embedding(blob)
-            score = _cosine_similarity(query_embedding, emb)
-            scored.append((text, score, json.loads(meta_json)))
+        # Min-heap: stores (negative_score, text, metadata) so highest scores bubble up
+        # We use negative scores because heapq is a min-heap
+        best: list[tuple[float, str, str]] = []
 
-        scored.sort(key=lambda x: x[1], reverse=True)
+        # Process in batches to avoid loading all embeddings into memory
+        for offset in range(0, total, batch_size):
+            rows = self._conn.execute(
+                "SELECT text, embedding, metadata FROM chunks LIMIT ? OFFSET ?",
+                (batch_size, offset)
+            ).fetchall()
+
+            for text, blob, meta_json in rows:
+                emb = _unpack_embedding(blob)
+                score = _cosine_similarity(query_embedding, emb)
+
+                # Use min-heap to keep only top_k results
+                if len(best) < top_k:
+                    heapq.heappush(best, (score, text, meta_json))
+                elif score > best[0][0]:  # best[0][0] is the smallest score
+                    heapq.heapreplace(best, (score, text, meta_json))
+
+        # Convert heap to sorted results (highest score first)
+        best.sort(reverse=True)
 
         return [
-            SearchResult(text=text, score=score, metadata=meta)
-            for text, score, meta in scored[:top_k]
+            SearchResult(text=text, score=score, metadata=json.loads(meta_json))
+            for score, text, meta_json in best
         ]
 
     def clear(self) -> None:

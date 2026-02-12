@@ -22,6 +22,7 @@ class IndexResult:
     files_failed: int = 0
     total_nodes: int = 0
     total_edges: int = 0
+    failed_files: list[tuple[str, str]] = field(default_factory=list)  # (path, error)
 
 
 def _file_hash(path: Path) -> str:
@@ -85,8 +86,12 @@ class Indexer:
                 result.files_parsed += 1
                 result.total_nodes += len(parse_result.nodes)
                 result.total_edges += len(parse_result.edges)
-            except Exception:
+            except Exception as e:
                 result.files_failed += 1
+                error_msg = f"{type(e).__name__}: {str(e)}"
+                result.failed_files.append((path_str, error_msg))
+                if on_progress:
+                    on_progress(f"FAILED: {path_str}: {error_msg}")
 
         # Remove stale files (tracked but no longer on disk)
         tracked = self._db.get_tracked_files()
@@ -115,7 +120,9 @@ class Indexer:
             result.files_parsed = 1
             result.total_nodes = len(parse_result.nodes)
             result.total_edges = len(parse_result.edges)
-        except Exception:
+        except Exception as e:
             result.files_failed = 1
+            error_msg = f"{type(e).__name__}: {str(e)}"
+            result.failed_files.append((path_str, error_msg))
 
         return result

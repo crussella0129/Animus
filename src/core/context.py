@@ -4,10 +4,31 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+try:
+    import tiktoken
+    _enc = tiktoken.get_encoding("cl100k_base")  # GPT-4/Claude-compatible tokenizer
+    _TIKTOKEN_AVAILABLE = True
+except ImportError:
+    _TIKTOKEN_AVAILABLE = False
+    _enc = None
+
 
 def estimate_tokens(text: str) -> int:
-    """Rough token estimate: ~4 chars per token for English text."""
-    return max(1, len(text) // 4)
+    """Accurate token count using tiktoken (cl100k_base encoding).
+
+    Falls back to improved heuristic if tiktoken is unavailable:
+    - Code: ~3.1 chars/token
+    - Prose: ~4.0 chars/token
+    """
+    if _TIKTOKEN_AVAILABLE and _enc is not None:
+        return len(_enc.encode(text))
+
+    # Fallback: content-aware estimation
+    # Simple heuristic: if text has common code indicators, use code ratio
+    code_indicators = ["def ", "class ", "import ", "function ", "const ", "=>", "{", "}", ";"]
+    looks_like_code = any(ind in text[:200] for ind in code_indicators)
+    ratio = 3.1 if looks_like_code else 4.0
+    return max(1, int(len(text) / ratio))
 
 
 def estimate_messages_tokens(messages: list[dict[str, str]]) -> int:
@@ -187,8 +208,18 @@ class ContextWindow:
         self,
         messages: list[dict[str, str]],
         system_prompt: str,
+        add_summary: bool = True,
     ) -> list[dict[str, str]]:
-        """Trim message history to fit within context budget for this model tier."""
+        """Trim message history to fit within context budget, with optional summary.
+
+        Args:
+            messages: The conversation history to trim
+            system_prompt: The system prompt (for budget calculation)
+            add_summary: If True, prepend a summary marker indicating dropped messages
+
+        Returns:
+            Trimmed message list that fits within the budget
+        """
         budget = self.compute_budget(system_prompt, messages)
         if estimate_messages_tokens(messages) <= budget.history_tokens:
             return messages
@@ -196,13 +227,82 @@ class ContextWindow:
         # Keep most recent messages that fit
         trimmed = []
         running_tokens = 0
-        for msg in reversed(messages):
+        split_point = 0
+
+        for i, msg in enumerate(reversed(messages)):
             msg_tokens = estimate_tokens(msg.get("content", "")) + 4
             if running_tokens + msg_tokens > budget.history_tokens:
+                split_point = len(messages) - i
                 break
             trimmed.insert(0, msg)
             running_tokens += msg_tokens
+
+        # If we dropped messages and summary is enabled, prepend a marker
+        if split_point > 0 and add_summary:
+            dropped_count = split_point
+            # Extract key information from dropped messages for context
+            dropped_info = self._summarize_dropped_messages(messages[:split_point])
+
+            summary_content = (
+                f"[Context Summary: {dropped_count} earlier messages trimmed due to context limit]\n"
+                f"{dropped_info}"
+            )
+
+            # Reserve space for the summary
+            summary_tokens = estimate_tokens(summary_content) + 4
+            if summary_tokens < budget.history_tokens:
+                summary_msg = {
+                    "role": "system",
+                    "content": summary_content
+                }
+                return [summary_msg] + trimmed
+
         return trimmed
+
+    def _summarize_dropped_messages(self, dropped: list[dict[str, str]], max_length: int = 200) -> str:
+        """Create a brief summary of dropped messages.
+
+        Args:
+            dropped: The messages that were dropped
+            max_length: Maximum character length for the summary
+
+        Returns:
+            A brief summary of what was discussed in dropped messages
+        """
+        if not dropped:
+            return ""
+
+        # Count message types
+        user_msgs = sum(1 for m in dropped if m.get("role") == "user")
+        assistant_msgs = sum(1 for m in dropped if m.get("role") == "assistant")
+
+        # Try to extract key topics (look for tool results, questions, commands)
+        key_points = []
+        for msg in dropped[-3:]:  # Last 3 dropped messages
+            content = msg.get("content", "")
+            # Look for tool results
+            if "[Tool result" in content or "[Tool " in content:
+                key_points.append("tool execution")
+            # Look for questions
+            elif "?" in content[:100]:
+                key_points.append("inquiry")
+            # Look for file operations
+            elif any(word in content.lower() for word in ["read", "write", "edit", "file"]):
+                key_points.append("file operations")
+
+        summary_parts = [
+            f"Conversation: {user_msgs} user messages, {assistant_msgs} assistant messages"
+        ]
+
+        if key_points:
+            topics = ", ".join(set(key_points))
+            summary_parts.append(f"Topics: {topics}")
+
+        summary = ". ".join(summary_parts)
+        if len(summary) > max_length:
+            summary = summary[:max_length] + "..."
+
+        return summary
 
     def chunk_instruction(self, instruction: str) -> list[str]:
         """Break a large instruction into smaller chunks for small models.

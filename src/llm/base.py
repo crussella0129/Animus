@@ -17,6 +17,7 @@ class ModelCapabilities:
     size_tier: str = "unknown"  # small (<4B), medium (4-13B), large (13B+)
     supports_tools: bool = False
     supports_json_mode: bool = False
+    supports_embeddings: bool = False  # Can generate embeddings
 
     @classmethod
     def from_parameter_count(cls, params_b: float, context_length: int = 4096) -> "ModelCapabilities":

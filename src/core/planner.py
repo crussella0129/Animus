@@ -19,6 +19,7 @@ from typing import Any, Callable, Optional
 
 from src.core.context import ContextWindow, estimate_tokens
 from src.core.errors import classify_error, RecoveryStrategy
+from src.core.tool_parsing import parse_tool_calls
 from src.llm.base import ModelCapabilities, ModelProvider
 from src.tools.base import Tool, ToolRegistry
 
@@ -220,11 +221,32 @@ _TYPE_KEYWORDS: list[tuple[StepType, list[str]]] = [
 
 
 def _infer_step_type(description: str) -> StepType:
-    """Infer step type from description using keyword matching. 100% hardcoded."""
+    """Infer step type from description using file pattern + keyword matching.
+
+    File operation patterns take priority over keyword matching to avoid
+    misclassification (e.g., "edit test_auth.py" should be WRITE, not SHELL).
+    """
     lower = description.lower()
+
+    # Priority 1: Check for file path patterns (e.g., "something.py", "file.txt")
+    # This prevents "test_auth.py" from triggering SHELL due to the "test" keyword
+    has_file_pattern = re.search(r'\b\w+\.\w{1,5}\b', description)
+
+    if has_file_pattern:
+        # If description mentions a file, check for file operation verbs first
+        write_verbs = ["edit", "modify", "update", "change", "fix", "add to", "append", "write", "create"]
+        read_verbs = ["read", "view", "check", "look at", "examine", "inspect", "show", "cat", "display"]
+
+        if any(verb in lower for verb in write_verbs):
+            return StepType.WRITE
+        if any(verb in lower for verb in read_verbs):
+            return StepType.READ
+
+    # Priority 2: Keyword matching (original behavior)
     for stype, keywords in _TYPE_KEYWORDS:
         if any(kw in lower for kw in keywords):
             return stype
+
     return StepType.ANALYZE
 
 
@@ -329,13 +351,21 @@ class PlanParser:
 # 3. ChunkedExecutor — fresh context per step, tool filtering
 # ---------------------------------------------------------------------------
 
-_EXECUTION_PROMPT = """You are an AI agent. Call a tool to complete this step.
+_EXECUTION_PROMPT = """You are an AI agent executing a single step. Be DIRECT and EFFICIENT.
+
+CRITICAL RULES:
+1. Make ONE tool call to complete this step, then STOP
+2. If a tool fails, do NOT retry with minor variations - return the error
+3. Do NOT read files you just wrote - trust that the write succeeded
+4. Use absolute paths (e.g., C:\\Users\\...) not relative paths
+5. If you've made 3+ tool calls, STOP and return what you have
+
 Working directory: {cwd}
 
 {tool_schemas}
 
 Respond with ONLY a JSON tool call. Example:
-{{"name": "read_file", "arguments": {{"path": "/example/file.txt"}}}}
+{{"name": "write_file", "arguments": {{"path": "C:\\\\Users\\\\example\\\\file.txt", "content": "..."}}}}
 
 Step {step_num}/{total_steps}: {step_description}"""
 
@@ -394,6 +424,44 @@ class ChunkedExecutor:
 
         return results
 
+    def _evaluate_tool_result(self, tool_name: str, result: str) -> str:
+        """Evaluate tool result and inject reflection with forceful guidance."""
+        # Detect errors - be VERY forceful about stopping
+        if result.startswith("Error:") or "permission denied" in result.lower() or "failed" in result.lower():
+            return (
+                f"[Tool {tool_name} FAILED]\n"
+                f"Result: {result}\n"
+                f"ACTION REQUIRED: This tool failed. Do NOT retry it. Either use a completely different tool "
+                f"or consider this step complete and return the error. Do NOT make another tool call for the same operation."
+            )
+
+        # Detect empty results
+        if not result.strip() or result.strip() in ("None", "null", "", "(no output)"):
+            return (
+                f"[Tool {tool_name} returned empty/null result]\n"
+                f"This usually means the operation succeeded with no output. "
+                f"Consider this step COMPLETE. Do NOT retry or verify with another tool call."
+            )
+
+        # Detect success messages - treat as completion
+        if "successfully" in result.lower() or "created" in result.lower() or "wrote" in result.lower():
+            return (
+                f"[Tool {tool_name} SUCCESS]: {result}\n"
+                f"The operation succeeded. This step is COMPLETE. Do NOT make additional tool calls to verify."
+            )
+
+        # Summarize long outputs
+        if len(result) > 1000:
+            preview = result[:300]
+            return (
+                f"[Tool {tool_name} returned large output: {len(result)} chars]\n"
+                f"Preview: {preview}...\n"
+                f"The tool provided extensive output. Consider this step COMPLETE."
+            )
+
+        # Success case
+        return f"[Tool result for {tool_name}]: {result}"
+
     def _execute_step(self, step: Step, total: int, original_request: str) -> StepResult:
         """Execute a single step with fresh context and filtered tools."""
         import os
@@ -440,6 +508,11 @@ class ChunkedExecutor:
         prev_call_key: str | None = None
         repeat_count = 0
         last_tool_result = ""
+        # Track tool names to detect thrashing (same tool, different args)
+        tool_name_history: list[str] = []
+        total_tool_calls = 0
+        MAX_TOOLS_PER_STEP = 6  # Hard limit to prevent runaway execution
+
         for turn in range(self._max_step_turns):
             full_messages = [{"role": "system", "content": system_prompt}] + messages
             # Trim if needed
@@ -472,7 +545,7 @@ class ChunkedExecutor:
                 self._on_step_output(response)
 
             # Check for tool calls (reuse Agent's parsing logic)
-            tool_calls = _parse_tool_calls(response)
+            tool_calls = parse_tool_calls(response)
 
             if not tool_calls:
                 # No tool calls — step is complete
@@ -484,27 +557,79 @@ class ChunkedExecutor:
             )
             if call_key == prev_call_key:
                 repeat_count += 1
-                if repeat_count >= 2:
+                if repeat_count >= 1:  # Break after first repeat (2 identical calls total)
                     messages.append({"role": "assistant", "content": response})
                     messages.append({
                         "role": "user",
-                        "content": "[System]: That tool call was repeated and failed. Move on to a different action.",
+                        "content": "[System]: That tool call was repeated and failed. Move on to a different action or return current result.",
                     })
                     if last_tool_result:
                         return StepResult(step=step, status=StepStatus.COMPLETED, output=last_tool_result)
-                    continue
+                    # Force early exit if we have no result
+                    return StepResult(
+                        step=step,
+                        status=StepStatus.COMPLETED,
+                        output="Stopped due to repeated tool call."
+                    )
             else:
                 repeat_count = 0
             prev_call_key = call_key
 
+            # Detect tool thrashing (same tool name repeatedly with different args)
+            current_tool_names = [c["name"] for c in tool_calls]
+            tool_name_history.extend(current_tool_names)
+
+            # Check if we're stuck in a loop with the same tool
+            if len(tool_name_history) >= 6:
+                recent_tools = tool_name_history[-6:]
+                # If the same tool appears 4+ times in last 6 calls, we're thrashing
+                from collections import Counter
+                tool_counts = Counter(recent_tools)
+                max_count = max(tool_counts.values()) if tool_counts else 0
+
+                if max_count >= 4:
+                    most_common_tool = tool_counts.most_common(1)[0][0]
+                    messages.append({"role": "assistant", "content": response})
+                    messages.append({
+                        "role": "user",
+                        "content": f"[System]: Tool '{most_common_tool}' has been called {max_count} times without success. "
+                                   f"This approach is not working. Try a completely different strategy or return what you have.",
+                    })
+                    if last_tool_result:
+                        return StepResult(step=step, status=StepStatus.COMPLETED, output=last_tool_result)
+                    # Force return with current state
+                    return StepResult(
+                        step=step,
+                        status=StepStatus.COMPLETED,
+                        output=last_tool_result or "Stopped due to repeated unsuccessful attempts."
+                    )
+
             # Execute tools and continue the loop
             messages.append({"role": "assistant", "content": response})
             for call in tool_calls:
+                total_tool_calls += 1
+
+                # Hard limit: prevent runaway tool execution
+                if total_tool_calls >= MAX_TOOLS_PER_STEP:
+                    messages.append({
+                        "role": "user",
+                        "content": f"[System]: Hard limit reached - {MAX_TOOLS_PER_STEP} tool calls executed in this step. "
+                                   f"Returning current result to prevent runaway execution.",
+                    })
+                    return StepResult(
+                        step=step,
+                        status=StepStatus.COMPLETED,
+                        output=last_tool_result or f"Stopped after {MAX_TOOLS_PER_STEP} tool calls."
+                    )
+
                 result = filtered_registry.execute(call["name"], call["arguments"])
                 last_tool_result = result
+
+                # Apply reflection/evaluation (same pattern as agent.py)
+                evaluated_result = self._evaluate_tool_result(call["name"], result)
                 messages.append({
                     "role": "user",
-                    "content": f"[Tool result for {call['name']}]: {result}",
+                    "content": evaluated_result,
                 })
 
         # Exhausted turns — consider the step complete with what we have
@@ -516,59 +641,7 @@ class ChunkedExecutor:
 # Tool call parser (standalone, same logic as Agent._parse_tool_calls)
 # ---------------------------------------------------------------------------
 
-def _parse_tool_calls(text: str) -> list[dict[str, Any]]:
-    """Parse tool calls from LLM response. Hardcoded regex, no LLM involvement.
-
-    Handles three formats:
-    1. JSON code blocks: ```json {"name": ..., "arguments": ...} ```
-    2. Inline JSON: {"name": ..., "arguments": ...}
-    3. Raw JSON (from GBNF-constrained output): the entire text is valid JSON
-    """
-    import json
-
-    text = text.strip()
-    calls: list[dict[str, Any]] = []
-
-    # Strategy 0: Raw JSON (GBNF grammar output — entire response is JSON)
-    if text.startswith("{"):
-        try:
-            data = json.loads(text)
-            if "name" in data and "arguments" in data:
-                calls.append({
-                    "name": data["name"],
-                    "arguments": data["arguments"] if isinstance(data["arguments"], dict) else {},
-                })
-                return calls
-        except json.JSONDecodeError:
-            pass
-
-    # Strategy 1: JSON code blocks
-    json_blocks = re.findall(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
-    for block in json_blocks:
-        try:
-            data = json.loads(block)
-            if "name" in data and "arguments" in data:
-                calls.append({
-                    "name": data["name"],
-                    "arguments": data["arguments"] if isinstance(data["arguments"], dict) else {},
-                })
-        except json.JSONDecodeError:
-            continue
-
-    if calls:
-        return calls
-
-    # Strategy 2: Inline JSON
-    inline_pattern = r'\{"name"\s*:\s*"([^"]+)"\s*,\s*"arguments"\s*:\s*(\{[^}]*\})\}'
-    for match in re.finditer(inline_pattern, text):
-        try:
-            name = match.group(1)
-            args = json.loads(match.group(2))
-            calls.append({"name": name, "arguments": args})
-        except json.JSONDecodeError:
-            continue
-
-    return calls
+# Tool call parsing is now handled by shared utility in src.core.tool_parsing
 
 
 # ---------------------------------------------------------------------------
@@ -707,18 +780,47 @@ def _is_simple_task(task: str) -> bool:
 def _heuristic_decompose(task: str) -> list[Step]:
     """Split a multi-step task into steps using conjunction splitting.
 
-    Handles "then", "and then", ". Then,", period-separated sentences.
+    Handles multiple patterns:
+    - Temporal: "then", "and then", ". Then,"
+    - Conjunctions: ", and verb", ", verb" (for action verbs)
+    - Sentences: period-separated with capitalization
+
     Used as a fallback when the LLM planner fails to produce enough steps
-    for a clearly multi-part task. Each part becomes its own step with
-    inferred type and tools.
+    for a clearly multi-part task.
     """
     # Normalize separators into a common delimiter
     text = task
+
+    # Strategy 1: Temporal indicators (highest confidence)
     # ". Then" / ", then" / "; then" → split point
     text = re.sub(r'[.;,]\s*[Tt]hen\s*,?\s*', '\n---SPLIT---\n', text)
     # " and then " / " then "
     text = re.sub(r'\s+and\s+then\s+', '\n---SPLIT---\n', text, flags=re.IGNORECASE)
     text = re.sub(r'\s+then\s+', '\n---SPLIT---\n', text, flags=re.IGNORECASE)
+
+    # Strategy 2: Conjunction with action verbs
+    # ", and <verb>" where verb is a common action word
+    action_verbs = r'(?:read|write|edit|update|fix|create|delete|run|execute|test|check|verify|add|remove|modify|analyze|search|find|list|show|get|set)'
+    text = re.sub(
+        rf',\s+and\s+({action_verbs})\b',
+        r'\n---SPLIT---\n\1',
+        text,
+        flags=re.IGNORECASE
+    )
+
+    # Strategy 3: Comma-separated actions (lower confidence)
+    # Only split on ", <verb>" if we haven't already found splits
+    if '---SPLIT---' not in text:
+        # ", <verb>" where verb starts the clause
+        text = re.sub(
+            rf',\s+({action_verbs})\b',
+            r'\n---SPLIT---\n\1',
+            text,
+            flags=re.IGNORECASE
+        )
+
+    # Strategy 4: Sentence boundaries (period + capital letter)
+    text = re.sub(r'\.\s+([A-Z])', r'\n---SPLIT---\n\1', text)
 
     parts = [p.strip() for p in text.split('---SPLIT---') if p.strip()]
 

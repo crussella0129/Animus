@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
+import time
 from pathlib import Path
 from typing import Any
 
@@ -58,13 +60,33 @@ class ReadFileTool(Tool):
 
 
 class WriteFileTool(Tool):
-    """Write files (optional isolation for untrusted content)."""
+    """Write files with audit trail tracking.
+
+    Maintains a log of all write operations for debugging and undo capability.
+    """
+
+    # Class-level audit log (shared across all instances)
+    _write_log: list[dict[str, Any]] = []
 
     def __init__(self):
         super().__init__()
         # WriteFileTool could be isolated for untrusted content
         # But default to none for performance
         self._isolation_level = "none"
+
+    @classmethod
+    def get_write_log(cls) -> list[dict[str, Any]]:
+        """Get the complete write audit log.
+
+        Returns:
+            List of write operations with path, size, hash, and timestamp
+        """
+        return cls._write_log.copy()
+
+    @classmethod
+    def clear_write_log(cls) -> None:
+        """Clear the write audit log."""
+        cls._write_log.clear()
 
     @property
     def name(self) -> str:
@@ -92,8 +114,20 @@ class WriteFileTool(Tool):
             return f"Error: Access denied to {path}"
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(args["content"], encoding="utf-8")
-            return f"Successfully wrote {len(args['content'])} characters to {path}"
+            content = args["content"]
+            path.write_text(content, encoding="utf-8")
+
+            # Record write operation in audit log
+            content_hash = hashlib.md5(content.encode()).hexdigest()
+            self._write_log.append({
+                "path": str(path),
+                "size": len(content),
+                "timestamp": time.time(),
+                "hash": content_hash,
+                "lines": content.count('\n') + 1,
+            })
+
+            return f"Successfully wrote {len(content)} characters to {path}"
         except Exception as e:
             return f"Error writing file: {e}"
 

@@ -278,18 +278,21 @@ class GraphDB:
 
     def get_blast_radius(
         self, qname: str, max_depth: int = 5
-    ) -> dict[int, list[NodeRow]]:
+    ) -> tuple[dict[int, list[NodeRow]], bool]:
         """BFS along incoming CALLS/INHERITS/IMPORTS edges.
 
-        Returns a dict mapping depth → list of affected nodes.
+        Returns a tuple of (depth_map, cycles_detected):
+        - depth_map: dict mapping depth → list of affected nodes
+        - cycles_detected: bool indicating if any cycles were found during traversal
         """
         start_id = self._get_node_id(qname)
         if start_id is None:
-            return {}
+            return {}, False
 
         visited: set[int] = {start_id}
         queue: deque[tuple[int, int]] = deque([(start_id, 0)])
         result: dict[int, list[NodeRow]] = {}
+        cycles_detected = False
 
         while queue:
             current_id, depth = queue.popleft()
@@ -312,8 +315,11 @@ class GraphDB:
                     next_depth = depth + 1
                     result.setdefault(next_depth, []).append(node)
                     queue.append((node.id, next_depth))
+                else:
+                    # Found a cycle (node already visited)
+                    cycles_detected = True
 
-        return result
+        return result, cycles_detected
 
     def get_stats(self) -> dict[str, int]:
         """Return counts for display."""

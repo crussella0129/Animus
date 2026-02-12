@@ -40,14 +40,34 @@ class Scanner:
         self._ignore_patterns = _DEFAULT_IGNORE | (extra_ignore or set())
 
     def scan(self, root: Path, glob_pattern: str = "**/*") -> Iterator[Path]:
-        """Yield paths of text files under root."""
+        """Yield paths of text files under root, with symlink loop detection.
+
+        Tracks visited inodes to detect and skip symlink loops that would
+        cause infinite recursion.
+        """
         root = root.resolve()
         gitignore_patterns = self._load_gitignore(root)
         all_patterns = self._ignore_patterns | gitignore_patterns
 
+        # Track visited inodes to detect symlink loops
+        seen_inodes: set[tuple[int, int]] = set()
+
         for path in root.glob(glob_pattern):
             if not path.is_file():
                 continue
+
+            # Symlink loop detection: check if we've seen this inode before
+            try:
+                stat = path.stat()
+                inode_key = (stat.st_dev, stat.st_ino)
+                if inode_key in seen_inodes:
+                    # Skip this file - it's a symlink loop
+                    continue
+                seen_inodes.add(inode_key)
+            except OSError:
+                # stat() failed - skip this file
+                continue
+
             if path.suffix.lower() in _BINARY_EXTENSIONS:
                 continue
             if self._is_ignored(path, root, all_patterns):

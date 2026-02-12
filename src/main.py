@@ -298,7 +298,7 @@ def ingest(
 
         try:
             text = fp.read_text(encoding="utf-8", errors="ignore")
-            chunks = chunker.chunk(text, metadata={"source": path_str})
+            chunks = chunker.chunk(text, metadata={"source": path_str}, filepath=path_str)
             if chunks:
                 # Remove old chunks for this file before adding new ones
                 store.remove_file_chunks(path_str)

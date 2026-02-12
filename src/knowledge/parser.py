@@ -1,8 +1,13 @@
-"""AST-based Python code parser for knowledge graph extraction."""
+"""Language-agnostic code parser framework with Python implementation.
+
+Provides an abstract LanguageParser base class that can be extended
+to support multiple programming languages.
+"""
 
 from __future__ import annotations
 
 import ast
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -42,8 +47,52 @@ class FileParseResult:
     edges: list[EdgeInfo] = field(default_factory=list)
 
 
-class PythonParser:
+class LanguageParser(ABC):
+    """Abstract base class for language-specific code parsers.
+
+    Implement this interface to add support for new programming languages
+    to the knowledge graph system.
+    """
+
+    @abstractmethod
+    def parse_file(self, path: Path) -> FileParseResult:
+        """Parse a source file and extract code structure.
+
+        Args:
+            path: Path to the source file
+
+        Returns:
+            FileParseResult containing nodes (symbols) and edges (relationships)
+        """
+        pass
+
+    @abstractmethod
+    def supported_extensions(self) -> set[str]:
+        """Return the set of file extensions this parser supports.
+
+        Returns:
+            Set of extensions including the dot (e.g., {".py", ".pyi"})
+        """
+        pass
+
+    def can_parse(self, path: Path) -> bool:
+        """Check if this parser can handle the given file.
+
+        Args:
+            path: Path to check
+
+        Returns:
+            True if the file extension is supported
+        """
+        return path.suffix.lower() in self.supported_extensions()
+
+
+class PythonParser(LanguageParser):
     """Extract code structure from Python files using the ast module."""
+
+    def supported_extensions(self) -> set[str]:
+        """Return supported Python file extensions."""
+        return {".py", ".pyi"}
 
     def parse_file(self, path: Path) -> FileParseResult:
         """Parse a Python file, returning nodes and edges. Syntax errors → empty result."""
@@ -244,3 +293,117 @@ class PythonParser:
         if isinstance(node, ast.Call):
             return self._name_from_node(node.func)
         return ""
+
+
+# ---------------------------------------------------------------------------
+# Multi-language parser registry
+# ---------------------------------------------------------------------------
+
+class ParserRegistry:
+    """Registry for managing multiple language parsers.
+
+    Allows automatic parser selection based on file extension.
+    """
+
+    def __init__(self) -> None:
+        self._parsers: list[LanguageParser] = []
+
+    def register(self, parser: LanguageParser) -> None:
+        """Register a new parser."""
+        self._parsers.append(parser)
+
+    def get_parser(self, path: Path) -> LanguageParser | None:
+        """Get the appropriate parser for a file path.
+
+        Args:
+            path: File path to parse
+
+        Returns:
+            LanguageParser instance if supported, None otherwise
+        """
+        for parser in self._parsers:
+            if parser.can_parse(path):
+                return parser
+        return None
+
+    def supported_extensions(self) -> set[str]:
+        """Get all supported file extensions across all parsers."""
+        extensions = set()
+        for parser in self._parsers:
+            extensions.update(parser.supported_extensions())
+        return extensions
+
+
+# Default registry with Python support
+_default_registry = ParserRegistry()
+_default_registry.register(PythonParser())
+
+
+def get_parser(path: Path) -> LanguageParser | None:
+    """Get a parser for the given file path using the default registry.
+
+    Args:
+        path: File path to parse
+
+    Returns:
+        LanguageParser instance if supported, None otherwise
+    """
+    return _default_registry.get_parser(path)
+
+
+# ---------------------------------------------------------------------------
+# Stub parsers for future language support
+# ---------------------------------------------------------------------------
+# These are placeholders demonstrating the pluggable architecture.
+# To implement, replace with actual parsing logic (tree-sitter, language AST, etc.)
+
+
+class GoParser(LanguageParser):
+    """Parser for Go source files (stub implementation).
+
+    To implement: Use 'go doc -json' or tree-sitter-go for AST parsing.
+    """
+
+    def supported_extensions(self) -> set[str]:
+        return {".go"}
+
+    def parse_file(self, path: Path) -> FileParseResult:
+        """Parse a Go file (not yet implemented)."""
+        # TODO: Implement using tree-sitter or go/ast via subprocess
+        return FileParseResult(file_path=str(path))
+
+
+class RustParser(LanguageParser):
+    """Parser for Rust source files (stub implementation).
+
+    To implement: Use tree-sitter-rust or syn crate via PyO3 bindings.
+    """
+
+    def supported_extensions(self) -> set[str]:
+        return {".rs"}
+
+    def parse_file(self, path: Path) -> FileParseResult:
+        """Parse a Rust file (not yet implemented)."""
+        # TODO: Implement using tree-sitter-rust
+        return FileParseResult(file_path=str(path))
+
+
+class TypeScriptParser(LanguageParser):
+    """Parser for TypeScript/JavaScript files (stub implementation).
+
+    To implement: Use tree-sitter-typescript or TypeScript compiler API.
+    """
+
+    def supported_extensions(self) -> set[str]:
+        return {".ts", ".tsx", ".js", ".jsx"}
+
+    def parse_file(self, path: Path) -> FileParseResult:
+        """Parse a TypeScript/JavaScript file (not yet implemented)."""
+        # TODO: Implement using tree-sitter-typescript
+        return FileParseResult(file_path=str(path))
+
+
+# To enable additional language support, instantiate and register parsers:
+# _default_registry.register(GoParser())
+# _default_registry.register(RustParser())
+# _default_registry.register(TypeScriptParser())
