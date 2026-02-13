@@ -6,7 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from src.memory.chunker import Chunker, _estimate_tokens
+from src.memory.chunker import Chunker
+from src.core.context import estimate_tokens as _estimate_tokens
 from src.memory.embedder import MockEmbedder
 from src.memory.scanner import Scanner
 from src.memory.vectorstore import (
