@@ -21,9 +21,9 @@ from src.core.planner import (
     _heuristic_decompose,
     _infer_step_type,
     _is_simple_task,
-    _parse_tool_calls,
     should_use_planner,
 )
+from src.core.tool_parsing import parse_tool_calls
 from src.llm.base import ModelCapabilities
 from src.tools.base import Tool, ToolRegistry
 
@@ -637,28 +637,28 @@ class TestTierAwarePlanning:
 class TestParseToolCalls:
     def test_json_code_block(self):
         text = '```json\n{"name": "read_file", "arguments": {"path": "/tmp/x"}}\n```'
-        calls = _parse_tool_calls(text)
+        calls = parse_tool_calls(text)
         assert len(calls) == 1
         assert calls[0]["name"] == "read_file"
         assert calls[0]["arguments"]["path"] == "/tmp/x"
 
     def test_inline_json(self):
         text = 'I will call {"name": "list_dir", "arguments": {"path": "/tmp"}} now'
-        calls = _parse_tool_calls(text)
+        calls = parse_tool_calls(text)
         assert len(calls) == 1
         assert calls[0]["name"] == "list_dir"
 
     def test_no_tool_calls(self):
-        assert _parse_tool_calls("Just a regular response.") == []
+        assert parse_tool_calls("Just a regular response.") == []
 
     def test_invalid_json_ignored(self):
         text = '```json\n{not valid json}\n```'
-        assert _parse_tool_calls(text) == []
+        assert parse_tool_calls(text) == []
 
     def test_raw_json_from_gbnf(self):
         """GBNF-constrained output is raw JSON (no code blocks)."""
         text = '{"name": "read_file", "arguments": {"path": "/tmp/test.py"}}'
-        calls = _parse_tool_calls(text)
+        calls = parse_tool_calls(text)
         assert len(calls) == 1
         assert calls[0]["name"] == "read_file"
         assert calls[0]["arguments"]["path"] == "/tmp/test.py"
@@ -666,7 +666,7 @@ class TestParseToolCalls:
     def test_raw_json_with_whitespace(self):
         """GBNF output may have leading/trailing whitespace."""
         text = '  {"name": "list_dir", "arguments": {"path": "."}}  '
-        calls = _parse_tool_calls(text)
+        calls = parse_tool_calls(text)
         assert len(calls) == 1
         assert calls[0]["name"] == "list_dir"
 
