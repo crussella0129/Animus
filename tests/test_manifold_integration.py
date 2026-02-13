@@ -250,7 +250,7 @@ class TestContextualization:
         assert contextualized == chunk["text"]
 
 
-class TestReciprocal RankFusion:
+class TestReciprocalRankFusion:
     """Test the RRF algorithm for result fusion."""
 
     def test_rrf_combines_two_lists(self):
