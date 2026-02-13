@@ -68,23 +68,38 @@ class RoutingDecision:
 
 # Patterns that indicate a specific symbol is being referenced
 _SYMBOL_PATTERNS = [
+    r'`[^`]+`',                      # `backtick-quoted` (highest confidence)
     r'\b\w+\(\)',                     # function_name()
     r'\b\w+\.\w+',                   # module.attribute
-    r'`[^`]+`',                      # `backtick-quoted`
     r'\b(?:class|def|func)\s+\w+',   # "class Foo", "def bar"
-    r'\b\w+(?:Tool|Provider|Store|Handler|Manager|Factory|Registry|Parser|Executor|Router)\b',  # CamelCase component names
+    r'\b[A-Z][a-z]+[A-Z]\w+',        # CamelCase (ToolRegistry, ChunkContextualizer)
+    r'\b\w+(?:Tool|Provider|Store|Handler|Manager|Factory|Registry|Parser|Executor|Router|Contextualizer)\b',  # Component suffix
+    r'\b\w+_\w+_\w+\b',              # snake_case with multiple underscores
 ]
 
 # Patterns that indicate structural/relationship queries
 _RELATIONSHIP_PATTERNS = [
-    (r'\b(?:call[s|ed|ing]*|invoke[s|d]*|use[s|d]*)\s+(?:to|by)?\b', "callers"),
-    (r'\b(?:caller[s]?|called\s+by|who\s+calls|what\s+calls)\b', "callers"),
-    (r'\b(?:callee[s]?|calls\s+to|what\s+does\s+\w+\s+call)\b', "callees"),
-    (r'\b(?:inherit[s]?|subclass|extends|derived|child\s+class)\b', "inheritance"),
-    (r'\b(?:parent\s+class|base\s+class|superclass)\b', "inheritance"),
-    (r'\b(?:import[s|ed]*|depend[s]?|dependenc)', "imports"),
-    (r'\b(?:blast\s+radius|impact|affect[s|ed]*|ripple|downstream)\b', "blast_radius"),
-    (r'\b(?:contain[s]?|inside|within|member[s]?\s+of)\b', "search"),
+    (r'\b(?:who|what)\s+calls?\b', "callers"),  # "who calls X", "what calls X"
+    (r'\bcaller[s]?\s+of\b', "callers"),  # "callers of X"
+    (r'\bcalled\s+by\b', "callers"),  # "called by X"
+    (r'\bcallee[s]?\s+of\b', "callees"),  # "callees of X"
+    (r'\bwhat\s+does\s+.+?\s+call\b', "callees"),  # "what does X call" (flexible)
+    (r'\bcalls?\s+to\b', "callees"),  # "calls to X"
+    (r'\bsubclass(?:es)?\s+of\b', "inheritance"),  # "subclasses of X"
+    (r'\bwhat\s+inherits?\s+from\b', "inheritance"),  # "what inherits from X"
+    (r'\binherit[s]?\s+from\b', "inheritance"),  # "inherits from X"
+    (r'\bbase\s+class(?:es)?\s+of\b', "inheritance"),  # "base class of X"
+    (r'\bparent\s+class(?:es)?\b', "inheritance"),  # "parent class"
+    (r'\bextends\b', "inheritance"),  # "extends X"
+    (r'\bderived\s+from\b', "inheritance"),  # "derived from X"
+    (r'\bimport[s|ed]?\s+(?:in|by|from)\b', "imports"),  # "imports in X"
+    (r'\bwhat\s+does\s+.+?\s+import\b', "imports"),  # "what does X import"
+    (r'\bdepend(?:s|encies)?\s+(?:on|of)\b', "imports"),  # "dependencies of X"
+    (r'\bblast\s+radius\b', "blast_radius"),  # "blast radius"
+    (r'\bimpact\s+of\b', "blast_radius"),  # "impact of changing X"
+    (r'\baffect[s|ed]?\s+by\b', "blast_radius"),  # "affected by X"
+    (r'\bdownstream\s+(?:of|from|effects)\b', "blast_radius"),  # "downstream of X"
+    (r'\bripple\s+effect', "blast_radius"),  # "ripple effect"
 ]
 
 # Patterns that indicate semantic/conceptual queries
@@ -124,13 +139,13 @@ _HYBRID_INDICATORS = [
 def classify_query(query: str) -> RoutingDecision:
     """Classify a query into a retrieval strategy using hardcoded patterns.
 
-    Decision Procedure:
-        1. Check for hybrid indicators (highest priority — catches compound queries)
-        2. Check for keyword signals (exact match requests)
-        3. Check for symbol references + relationship words → STRUCTURAL
-        4. Check for symbol references without relationship → STRUCTURAL (search mode)
+    Decision Procedure (revised for accuracy):
+        1. Check for keyword signals (highest specificity)
+        2. Check for structural relationship patterns (callers, callees, etc.)
+        3. Check for symbol references without relationships → STRUCTURAL search
+        4. Check for hybrid indicators (compound queries)
         5. Check for semantic/conceptual language → SEMANTIC
-        6. Default → HYBRID (safest fallback for ambiguous queries)
+        6. Default → HYBRID (safest fallback)
 
     Args:
         query: Natural language or code query
@@ -140,16 +155,7 @@ def classify_query(query: str) -> RoutingDecision:
     """
     query_lower = query.lower().strip()
 
-    # --- Step 1: Check for hybrid indicators ---
-    for pattern in _HYBRID_INDICATORS:
-        if re.search(pattern, query_lower):
-            return _build_hybrid_decision(
-                query, query_lower,
-                confidence=0.8,
-                reasoning="Query combines conceptual and structural elements"
-            )
-
-    # --- Step 2: Check for keyword signals ---
+    # --- Step 1: Check for keyword signals (highest specificity) ---
     keyword_score = sum(1 for p in _KEYWORD_PATTERNS if re.search(p, query, re.IGNORECASE))
     if keyword_score >= 1:
         keyword_term = _extract_keyword_term(query)
@@ -161,11 +167,21 @@ def classify_query(query: str) -> RoutingDecision:
                 keyword_query=keyword_term,
             )
 
-    # --- Step 3: Check for symbol references ---
-    has_symbol = any(re.search(p, query) for p in _SYMBOL_PATTERNS)
+    # --- Step 2: Check for compound queries (structural + semantic) ---
+    # Detect queries like "find X and what calls it" before pure structural
+    has_relationship = any(re.search(p, query_lower) for p, _ in _RELATIONSHIP_PATTERNS)
+    has_hybrid_indicator = any(re.search(p, query_lower) for p in _HYBRID_INDICATORS)
 
-    if has_symbol:
-        # Check for relationship words
+    if has_relationship and has_hybrid_indicator:
+        # Has both structural relationship AND hybrid connector → HYBRID
+        return _build_hybrid_decision(
+            query, query_lower,
+            confidence=0.85,
+            reasoning="Query combines semantic search with structural relationships"
+        )
+
+    # --- Step 3: Check for structural relationships (pure structural queries) ---
+    if has_relationship:
         for pattern, operation in _RELATIONSHIP_PATTERNS:
             if re.search(pattern, query_lower):
                 symbol = _extract_symbol(query)
@@ -177,7 +193,9 @@ def classify_query(query: str) -> RoutingDecision:
                     structural_operation=operation,
                 )
 
-        # Symbol reference without relationship → structural search
+    # --- Step 4: Check for symbol references (structural search mode) ---
+    has_symbol = any(re.search(p, query) for p in _SYMBOL_PATTERNS)
+    if has_symbol:
         symbol = _extract_symbol(query)
         return RoutingDecision(
             strategy=RetrievalStrategy.STRUCTURAL,
@@ -187,7 +205,16 @@ def classify_query(query: str) -> RoutingDecision:
             structural_operation="search",
         )
 
-    # --- Step 4: Check for semantic/conceptual language ---
+    # --- Step 5: Check for hybrid indicators (no symbol/relationship detected) ---
+    for pattern in _HYBRID_INDICATORS:
+        if re.search(pattern, query_lower):
+            return _build_hybrid_decision(
+                query, query_lower,
+                confidence=0.8,
+                reasoning="Query combines conceptual and structural elements"
+            )
+
+    # --- Step 6: Check for semantic/conceptual language ---
     semantic_score = sum(1 for p in _SEMANTIC_PATTERNS if re.search(p, query_lower))
     if semantic_score >= 1:
         return RoutingDecision(
@@ -197,7 +224,7 @@ def classify_query(query: str) -> RoutingDecision:
             semantic_query=query,
         )
 
-    # --- Step 5: Default to HYBRID (safest for ambiguous queries) ---
+    # --- Step 7: Default to HYBRID (safest for ambiguous queries) ---
     return _build_hybrid_decision(
         query, query_lower,
         confidence=0.5,
