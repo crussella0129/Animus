@@ -849,5 +849,81 @@ def rise(
         info("Session ended.")
 
 
+@app.command()
+def routing_stats() -> None:
+    """Show Animus: Manifold routing performance statistics.
+
+    Displays aggregated statistics about query routing decisions:
+    - Which strategies are used most frequently
+    - Average confidence scores per strategy
+    - Result utilization rates (what percentage of results are actually used)
+
+    Helps identify misclassified queries and tune classification patterns.
+    """
+    from src.retrieval.feedback import FeedbackStore
+
+    cfg = AnimusConfig.load()
+    db_path = cfg.vector_dir / "routing_feedback.db"
+
+    if not db_path.exists():
+        info("No routing feedback data yet.")
+        info("Feedback is collected automatically when using the Manifold search tool.")
+        info("Run 'animus rise' and use search queries to generate data.")
+        return
+
+    store = FeedbackStore(db_path)
+    stats = store.get_strategy_stats()
+    recent = store.get_recent_queries(limit=5)
+    misclassified = store.get_misclassified_queries(threshold=0.3)
+    store.close()
+
+    if not stats:
+        info("Feedback database exists but contains no records.")
+        return
+
+    # Display strategy statistics
+    table = Table(title="[bold cyan]Manifold Routing Statistics[/]")
+    table.add_column("Strategy", style="cyan", justify="left")
+    table.add_column("Queries", style="green", justify="right")
+    table.add_column("Avg Confidence", style="yellow", justify="right")
+    table.add_column("Utilization", style="magenta", justify="right")
+    table.add_column("Results Returned", style="blue", justify="right")
+    table.add_column("Results Used", style="blue", justify="right")
+
+    for strategy, data in sorted(stats.items()):
+        table.add_row(
+            strategy.upper(),
+            str(data["total_queries"]),
+            f"{data['avg_confidence']:.1%}",
+            f"{data['utilization_rate']:.1%}",
+            str(data["total_results"]),
+            str(data["total_used"]),
+        )
+
+    console.print(table)
+    console.print()
+
+    # Display recent queries
+    if recent:
+        info(f"Recent queries (last {len(recent)}):")
+        for i, q in enumerate(recent, 1):
+            strategy = q["strategy"].upper()
+            conf = f"{q['confidence']:.0%}"
+            util = f"{q['results_used']}/{q['result_count']}" if q["result_count"] > 0 else "0/0"
+            console.print(f"  {i}. [{strategy}] (conf={conf}, used={util}) \"{q['query'][:60]}...\"")
+        console.print()
+
+    # Display potentially misclassified queries
+    if misclassified:
+        warn(f"Potentially misclassified queries ({len(misclassified)} with <30% utilization):")
+        for i, q in enumerate(misclassified[:5], 1):  # Show top 5
+            console.print(
+                f"  {i}. [{q['strategy'].upper()}] (util={q['utilization']:.0%}) "
+                f"\"{q['query'][:50]}...\""
+            )
+        console.print()
+        info("These queries may benefit from classification pattern tuning.")
+
+
 if __name__ == "__main__":
     app()
