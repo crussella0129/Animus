@@ -551,6 +551,27 @@ class ChunkedExecutor:
                 # No tool calls — step is complete
                 return StepResult(step=step, status=StepStatus.COMPLETED, output=response)
 
+            # Deduplicate tool calls within the same response
+            # If model returns [{call}, {call}], only execute once
+            seen_in_response = set()
+            unique_calls = []
+            for call in tool_calls:
+                call_signature = _json.dumps((call["name"], call["arguments"]), sort_keys=True)
+                if call_signature not in seen_in_response:
+                    seen_in_response.add(call_signature)
+                    unique_calls.append(call)
+
+            if len(unique_calls) < len(tool_calls):
+                # Duplicates were found and removed
+                messages.append({"role": "assistant", "content": response})
+                messages.append({
+                    "role": "user",
+                    "content": f"[System]: Removed {len(tool_calls) - len(unique_calls)} duplicate tool calls from your response. "
+                               f"Only executing unique calls."
+                })
+
+            tool_calls = unique_calls
+
             # Detect repeated identical tool calls to prevent infinite loops
             call_key = _json.dumps(
                 [(c["name"], c["arguments"]) for c in tool_calls], sort_keys=True

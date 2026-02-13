@@ -307,6 +307,19 @@ class Agent:
             if not tool_calls:
                 return response_text
 
+            # Deduplicate tool calls within the same response
+            seen_in_response = set()
+            unique_calls = []
+            for call in tool_calls:
+                call_signature = json.dumps((call["name"], call["arguments"]), sort_keys=True)
+                if call_signature not in seen_in_response:
+                    seen_in_response.add(call_signature)
+                    unique_calls.append(call)
+
+            if len(unique_calls) < len(tool_calls):
+                # Duplicates found in single response - use unique calls only
+                tool_calls = unique_calls
+
             # Detect repeated identical tool calls
             call_key = json.dumps(
                 [(c["name"], c["arguments"]) for c in tool_calls], sort_keys=True
@@ -368,6 +381,19 @@ class Agent:
             tool_calls = self._parse_tool_calls(response_text)
             if not tool_calls:
                 return response_text
+
+            # Deduplicate tool calls within the same response
+            seen_in_response = set()
+            unique_calls = []
+            for call in tool_calls:
+                call_signature = json.dumps((call["name"], call["arguments"]), sort_keys=True)
+                if call_signature not in seen_in_response:
+                    seen_in_response.add(call_signature)
+                    unique_calls.append(call)
+
+            if len(unique_calls) < len(tool_calls):
+                # Duplicates found in single response - use unique calls only
+                tool_calls = unique_calls
 
             # Detect repeated identical tool calls
             call_key = json.dumps(
