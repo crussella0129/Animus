@@ -209,7 +209,7 @@ class TestGraphDB:
         make_nodes = graph_db.search_nodes("make_animal", kind="function")
         qname = make_nodes[0].qualified_name
 
-        radius = graph_db.get_blast_radius(qname, max_depth=3)
+        radius, cycles_detected = graph_db.get_blast_radius(qname, max_depth=3)
         all_affected = [n for nodes in radius.values() for n in nodes]
         affected_names = {n.name for n in all_affected}
         assert "main" in affected_names

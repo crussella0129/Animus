@@ -8,10 +8,15 @@ from src.core.context import ContextWindow, estimate_messages_tokens, estimate_t
 class TestEstimateTokens:
     def test_basic_estimate(self):
         assert estimate_tokens("hello") >= 1
-        assert estimate_tokens("a" * 400) == 100
+        # With tiktoken, "a" * 400 is ~50 tokens (more accurate than old 100)
+        tokens = estimate_tokens("a" * 400)
+        assert 40 <= tokens <= 150, f"Expected reasonable token count, got {tokens}"
 
     def test_empty_string(self):
-        assert estimate_tokens("") == 1  # minimum 1
+        # With tiktoken, empty string returns 0 (accurate)
+        # With fallback, returns 1 (minimum)
+        tokens = estimate_tokens("")
+        assert tokens in (0, 1), f"Empty string should be 0 or 1 token, got {tokens}"
 
     def test_messages_tokens(self):
         messages = [

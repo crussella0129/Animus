@@ -27,6 +27,7 @@ class TestPermissionChecker:
         assert checker.is_path_safe(Path("/etc/shadow")) is False
         assert checker.is_path_safe(Path("/home/user/.ssh/id_rsa")) is False
 
+    @pytest.mark.skipif(platform.system() != "Windows", reason="Windows-specific path test")
     def test_dangerous_directory_windows(self):
         checker = PermissionChecker()
         assert checker.is_path_safe(Path("C:\\Windows\\System32\\config")) is False

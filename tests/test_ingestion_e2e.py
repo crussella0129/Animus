@@ -107,7 +107,9 @@ def test_full_ingestion_pipeline(temp_project, temp_db):
     for chunk in all_chunks:
         assert "text" in chunk
         assert "metadata" in chunk
-        assert "source" in chunk["metadata"]
+        # AST chunks have 'file' instead of 'source', regex chunks have 'source'
+        assert "source" in chunk["metadata"] or "file" in chunk["metadata"], \
+            f"Chunk should have source or file in metadata, got: {chunk['metadata'].keys()}"
         assert "estimated_tokens" in chunk["metadata"]
 
     # Step 3: Generate embeddings
