@@ -351,7 +351,7 @@ class PlanParser:
 # 3. ChunkedExecutor — fresh context per step, tool filtering
 # ---------------------------------------------------------------------------
 
-_EXECUTION_PROMPT = """You are an AI agent executing a single step. Be DIRECT and EFFICIENT.
+_EXECUTION_PROMPT = """You are an AI agent executing a single step. Be DIRECT, EFFICIENT, and COMPLETE.
 
 CRITICAL RULES:
 1. Make ONE tool call to complete this step, then STOP
@@ -359,6 +359,12 @@ CRITICAL RULES:
 3. Do NOT read files you just wrote - trust that the write succeeded
 4. Use absolute paths (e.g., C:\\Users\\...) not relative paths
 5. If you've made 3+ tool calls, STOP and return what you have
+
+QUALITY RULES:
+- When writing code files: Include proper if __name__ == "__main__" blocks
+- When writing scripts: Make them runnable with user input/output
+- When writing plans: Be specific with package names and code examples
+- Write COMPLETE, PRODUCTION-READY content - not minimal stubs
 
 Working directory: {cwd}
 
