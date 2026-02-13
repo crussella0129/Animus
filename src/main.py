@@ -247,6 +247,7 @@ def ingest(
     import hashlib
 
     from src.memory.chunker import Chunker
+    from src.memory.contextualizer import ChunkContextualizer
     from src.memory.embedder import MockEmbedder
     from src.memory.scanner import Scanner
     from src.memory.vectorstore import SQLiteVectorStore
@@ -259,6 +260,16 @@ def ingest(
     chunker = Chunker(chunk_size=cfg.rag.chunk_size, overlap=cfg.rag.chunk_overlap)
     embedder = MockEmbedder()
     store = SQLiteVectorStore(db_path)
+
+    # Load knowledge graph for contextual embedding (Manifold Phase 2)
+    graph_db = None
+    graph_db_path = cfg.graph_dir / "code_graph.db"
+    if graph_db_path.exists():
+        from src.knowledge.graph_db import GraphDB
+        graph_db = GraphDB(graph_db_path)
+        info("[Manifold] Using knowledge graph for contextual embeddings")
+
+    contextualizer = ChunkContextualizer(graph_db=graph_db)
 
     target = Path(path)
     if not target.exists():
@@ -303,8 +314,14 @@ def ingest(
                 # Remove old chunks for this file before adding new ones
                 store.remove_file_chunks(path_str)
 
+                # Manifold Phase 2: Contextualize chunks before embedding
+                # Embed WITH context (for semantic richness)
+                # Store WITHOUT context (for clean display)
+                contextualized_texts = contextualizer.contextualize_batch(chunks)
+                embeddings = embedder.embed(contextualized_texts)
+
+                # Store original texts (not contextualized)
                 texts = [c["text"] for c in chunks]
-                embeddings = embedder.embed(texts)
                 current_hash = hashlib.md5(fp.read_bytes()).hexdigest()
                 mtime = fp.stat().st_mtime
                 store.add(
@@ -600,6 +617,7 @@ def rise(
 
     # Register graph tools if the knowledge graph exists
     graph_db_path = cfg.graph_dir / "code_graph.db"
+    graph_db = None
     if graph_db_path.exists():
         try:
             from src.knowledge.graph_db import GraphDB
@@ -611,6 +629,8 @@ def rise(
 
     # Register search tools if the vector store exists
     vector_db_path = cfg.vector_dir / "vectors.db"
+    vector_store = None
+    search_embedder = None
     if vector_db_path.exists():
         try:
             from src.memory.embedder import MockEmbedder
@@ -620,6 +640,25 @@ def rise(
             search_embedder = MockEmbedder()
             register_search_tools(registry, vector_store, search_embedder)
         except Exception:
+            pass
+
+    # Register Manifold unified search (if any backend is available)
+    if vector_store or graph_db:
+        try:
+            from pathlib import Path as PathLib
+            from src.retrieval.executor import RetrievalExecutor
+            from src.tools.manifold_search import register_manifold_search
+
+            executor = RetrievalExecutor(
+                vector_store=vector_store,
+                embedder=search_embedder,
+                graph_db=graph_db,
+                project_root=PathLib.cwd(),  # Use current working directory
+            )
+            register_manifold_search(registry, executor)
+            info("[Manifold] Unified search tool registered")
+        except Exception as e:
+            # Manifold optional - degrade gracefully
             pass
 
     agent = Agent(

@@ -10,11 +10,6 @@ from typing import Any, Optional
 from src.core.context import estimate_tokens
 
 
-def _estimate_tokens(text: str) -> int:
-    """Token estimation (delegates to context.estimate_tokens for consistency)."""
-    return estimate_tokens(text)
-
-
 # Language-specific boundary patterns for code chunking
 _LANGUAGE_BOUNDARIES = {
     "python": r"^(?=(?:def |class |async def ))",
@@ -90,7 +85,7 @@ class Chunker:
                 "metadata": {
                     **(metadata or {}),
                     "chunk_index": i,
-                    "estimated_tokens": _estimate_tokens(chunk_text),
+                    "estimated_tokens": estimate_tokens(chunk_text),
                 },
             }
             result.append(entry)
@@ -141,7 +136,7 @@ class Chunker:
         chunks = []
         current = ""
         for part in parts:
-            if _estimate_tokens(current + "\n" + part) > self.chunk_size and current:
+            if estimate_tokens(current + "\n" + part) > self.chunk_size and current:
                 chunks.append(current.strip())
                 current = part
             else:
@@ -245,7 +240,7 @@ class Chunker:
                     continue
 
                 # Check if chunk exceeds chunk_size and needs splitting
-                chunk_tokens = _estimate_tokens(chunk_text)
+                chunk_tokens = estimate_tokens(chunk_text)
                 if chunk_tokens > self.chunk_size:
                     # Large node: fall back to token-based splitting for this node
                     sub_chunks = self._chunk_by_tokens(chunk_text)
@@ -260,7 +255,7 @@ class Chunker:
                                 "lines": f"{node.line_start}-{node.line_end}",
                                 "docstring": node.docstring[:200] if node.docstring else "",
                                 "chunk_index": i,
-                                "estimated_tokens": _estimate_tokens(sub_chunk),
+                                "estimated_tokens": estimate_tokens(sub_chunk),
                                 "chunking_method": "ast_split",
                             }
                         })
