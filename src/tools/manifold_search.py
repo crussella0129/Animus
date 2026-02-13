@@ -102,14 +102,14 @@ class ManifoldSearchTool(Tool):
                 f"(run 'animus graph' and 'animus ingest' first)."
             )
 
-        # Format results with strategy info
+        # Format results with strategy info (ASCII for Windows compatibility)
         lines = [
-            f"╔═ Manifold Search Results ═╗",
-            f"│ Strategy: {decision.strategy.value.upper()}",
-            f"│ Confidence: {decision.confidence:.0%}",
-            f"│ Reasoning: {decision.reasoning}",
-            f"│ Results: {len(results)}",
-            f"╚═{'═' * 25}╝",
+            f"=== Manifold Search Results ===",
+            f"Strategy: {decision.strategy.value.upper()}",
+            f"Confidence: {decision.confidence:.0%}",
+            f"Reasoning: {decision.reasoning}",
+            f"Results: {len(results)}",
+            f"=" * 32,
             "",
         ]
 
@@ -143,18 +143,18 @@ class ManifoldSearchTool(Tool):
             # Indent preview for readability
             preview_lines = preview.split("\n")
             for pline in preview_lines[:5]:  # Max 5 lines of preview
-                lines.append(f"    │ {pline}")
+                lines.append(f"    | {pline}")
 
             # Show docstring if available and not in preview
             docstring = r.metadata.get("docstring", "")
             if docstring and docstring not in preview:
                 doc_preview = docstring[:100].strip()
-                lines.append(f"    ╰─ {doc_preview}")
+                lines.append(f"    --> {doc_preview}")
 
             lines.append("")
 
         # Footer with helpful info
-        lines.append(f"Tip: ★ indicates results found by multiple strategies (high confidence)")
+        lines.append(f"Tip: [MULTI] indicates results found by multiple strategies (high confidence)")
 
         return "\n".join(lines)
 
