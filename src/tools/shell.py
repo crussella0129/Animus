@@ -204,7 +204,7 @@ class RunShellTool(Tool):
                     f"({command})& echo __ANIMUS_CWD_BEGIN__& cd& echo __ANIMUS_CWD_END__"
                 )
             else:
-                actual_command = f"({command}); echo __ANIMUS_CWD__$(pwd)__ANIMUS_CWD__"
+                actual_command = f"{command}; echo __ANIMUS_CWD__$(pwd)__ANIMUS_CWD__"
 
         # Resolve CWD for the subprocess
         cwd = str(self._session_cwd.path) if self._session_cwd else None
