@@ -248,7 +248,7 @@ def ingest(
 
     from src.memory.chunker import Chunker
     from src.memory.contextualizer import ChunkContextualizer
-    from src.memory.embedder import MockEmbedder
+    from src.memory.embedder import NativeEmbedder
     from src.memory.scanner import Scanner
     from src.memory.vectorstore import SQLiteVectorStore
 
@@ -258,7 +258,7 @@ def ingest(
 
     scanner = Scanner()
     chunker = Chunker(chunk_size=cfg.rag.chunk_size, overlap=cfg.rag.chunk_overlap)
-    embedder = MockEmbedder()
+    embedder = NativeEmbedder()  # Real semantic embeddings (all-MiniLM-L6-v2)
     store = SQLiteVectorStore(db_path)
 
     # Load knowledge graph for contextual embedding (Manifold Phase 2)
@@ -371,7 +371,8 @@ def search(
         error("No vector store found. Run 'animus ingest <path>' first.")
         raise typer.Exit(1)
 
-    embedder = MockEmbedder()
+    from src.memory.embedder import NativeEmbedder
+    embedder = NativeEmbedder()  # Real semantic embeddings for search
     store = SQLiteVectorStore(db_path)
 
     query_embedding = embedder.embed([query])[0]
@@ -633,11 +634,11 @@ def rise(
     search_embedder = None
     if vector_db_path.exists():
         try:
-            from src.memory.embedder import MockEmbedder
+            from src.memory.embedder import NativeEmbedder
             from src.memory.vectorstore import SQLiteVectorStore
             from src.tools.search import register_search_tools
             vector_store = SQLiteVectorStore(vector_db_path)
-            search_embedder = MockEmbedder()
+            search_embedder = NativeEmbedder()  # Real embeddings for semantic search
             register_search_tools(registry, vector_store, search_embedder)
         except Exception:
             pass
