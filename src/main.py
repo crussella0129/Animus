@@ -567,6 +567,7 @@ def rise(
     session_id: Optional[str] = typer.Option(None, "--session", help="Resume a specific session by ID"),
     cautious: bool = typer.Option(False, "--cautious", help="Enable Ornstein sandbox for tool execution"),
     paranoid: bool = typer.Option(False, "--paranoid", help="Enable Smough container isolation (not yet implemented)"),
+    transcript: Optional[str] = typer.Option(None, "--transcript", help="Save execution transcript to this .md path"),
 ) -> None:
     """Awaken Animus. Start an interactive agent session."""
     from src.core.agent import Agent
@@ -666,12 +667,19 @@ def rise(
             # Manifold optional - degrade gracefully
             pass
 
+    # Set up transcript logger if requested
+    transcript_logger = None
+    if transcript:
+        from src.core.transcript import TranscriptLogger
+        transcript_logger = TranscriptLogger()
+
     agent = Agent(
         provider=provider,
         tool_registry=registry,
         system_prompt=cfg.agent.system_prompt,
         max_turns=cfg.agent.max_turns,
         session_cwd=session_cwd,
+        transcript=transcript_logger,
     )
 
     # Session handling: resume or create new
@@ -776,6 +784,8 @@ def rise(
 
             if use_plan:
                 # Plan-then-execute mode
+                if transcript_logger:
+                    transcript_logger.log_task_start(stripped)
                 session.add_message("user", stripped)
 
                 def _on_progress(step_num: int, total: int, desc: str) -> None:
@@ -792,6 +802,12 @@ def rise(
                     force=_plan_mode_state["active"],
                 )
                 console.print(f"[bold green]Animus>[/] {response}")
+
+                if transcript_logger:
+                    plan_result = getattr(agent, '_last_plan_result', None)
+                    transcript_logger.log_task_complete(
+                        success=plan_result.success if plan_result else True,
+                    )
 
                 # TTS playback (if enabled)
                 if cfg.audio.enabled and cfg.audio.play_mode == "responses":
@@ -844,6 +860,11 @@ def rise(
             console.print()
 
     finally:
+        # Save transcript if requested
+        if transcript_logger and transcript:
+            saved_path = transcript_logger.save(transcript)
+            info(f"Transcript saved: {saved_path}")
+
         # Cleanup: shutdown audio
         if cfg.audio.enabled:
             audio.shutdown()

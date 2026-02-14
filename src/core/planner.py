@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import math
 import re
+import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Optional
@@ -23,6 +24,10 @@ from src.core.errors import classify_error, RecoveryStrategy
 from src.core.tool_parsing import parse_tool_calls
 from src.llm.base import ModelCapabilities, ModelProvider
 from src.tools.base import Tool, ToolRegistry
+
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from src.core.transcript import TranscriptLogger
 
 
 # ---------------------------------------------------------------------------
@@ -281,11 +286,13 @@ class TaskDecomposer:
         planning_provider: Optional[ModelProvider] = None,
         tool_names: Optional[list[str]] = None,
         session_cwd: SessionCwd | None = None,
+        transcript: TranscriptLogger | None = None,
     ) -> None:
         self._provider = planning_provider or provider
         self._prompt_template = _PLANNING_PROMPT
         self._tool_names = tool_names or []
         self._session_cwd = session_cwd
+        self._transcript = transcript
 
     def decompose(self, task: str) -> str:
         """Send the task to the LLM and return raw plan text."""
@@ -298,8 +305,13 @@ class TaskDecomposer:
             {"role": "system", "content": "You are a task planner. Output ONLY a numbered list of 1-5 steps. No explanations, no preamble, no conversational text."},
             {"role": "user", "content": prompt},
         ]
+        if self._transcript:
+            self._transcript.log_plan_request(prompt)
         # No tools, no history — minimal context
-        return self._provider.generate(messages, tools=None, max_tokens=512, temperature=0.3)
+        result = self._provider.generate(messages, tools=None, max_tokens=512, temperature=0.3)
+        if self._transcript:
+            self._transcript.log_plan_response(result)
+        return result
 
 
 # ---------------------------------------------------------------------------
@@ -401,12 +413,14 @@ class ChunkedExecutor:
         on_progress: Optional[Callable[[int, int, str], None]] = None,
         on_step_output: Optional[Callable[[str], None]] = None,
         session_cwd: SessionCwd | None = None,
+        transcript: TranscriptLogger | None = None,
     ) -> None:
         self._provider = provider
         self._full_registry = tool_registry
         self._on_progress = on_progress
         self._on_step_output = on_step_output
         self._session_cwd = session_cwd
+        self._transcript = transcript
 
         caps = provider.capabilities()
         self._context_window = ContextWindow(
@@ -440,6 +454,11 @@ class ChunkedExecutor:
 
             result = self._execute_step(step, total, original_request, step_context)
             results.append(result)
+
+            if self._transcript:
+                self._transcript.log_step_complete(
+                    step.number, result.status.value, output=result.output, error=result.error,
+                )
 
             # Update inter-step context based on result
             if result.status == StepStatus.FAILED and result.error:
@@ -525,6 +544,9 @@ class ChunkedExecutor:
 
         step_context = step_context or {}
         cwd = str(self._session_cwd.path) if self._session_cwd else os.getcwd()
+
+        if self._transcript:
+            self._transcript.log_step_start(step.number, total, step.description)
 
         # Filter tools for this step type (narrows to single tool if description mentions one)
         filtered_registry = _filter_tools(self._full_registry, step.step_type, step.description)
@@ -718,7 +740,12 @@ class ChunkedExecutor:
                         output=last_tool_result or f"Stopped after {MAX_TOOLS_PER_STEP} tool calls."
                     )
 
+                if self._transcript:
+                    self._transcript.log_tool_call(call["name"], call["arguments"], step_num=step.number)
+                _tool_t0 = time.time()
                 result = filtered_registry.execute(call["name"], call["arguments"])
+                if self._transcript:
+                    self._transcript.log_tool_result(call["name"], result, duration=time.time() - _tool_t0, step_num=step.number)
                 last_tool_result = result
 
                 # Apply reflection/evaluation (same pattern as agent.py)
@@ -761,14 +788,17 @@ class PlanExecutor:
         on_progress: Optional[Callable[[int, int, str], None]] = None,
         on_step_output: Optional[Callable[[str], None]] = None,
         session_cwd: SessionCwd | None = None,
+        transcript: TranscriptLogger | None = None,
     ) -> None:
+        self._transcript = transcript
+
         # Scale to model capacity
         caps = provider.capabilities()
         profile = _get_planning_profile(caps)
 
         self._decomposer = TaskDecomposer(
             provider, planning_provider, tool_names=tool_registry.names(),
-            session_cwd=session_cwd,
+            session_cwd=session_cwd, transcript=transcript,
         )
         self._parser = PlanParser(max_steps=profile["max_plan_steps"])
         self._executor = ChunkedExecutor(
@@ -778,6 +808,7 @@ class PlanExecutor:
             on_progress=on_progress,
             on_step_output=on_step_output,
             session_cwd=session_cwd,
+            transcript=transcript,
         )
 
     def run(self, task: str) -> PlanResult:
@@ -805,6 +836,12 @@ class PlanExecutor:
 
             # Phase 2: Parse
             steps = self._parser.parse(raw_plan)
+
+            if self._transcript and steps:
+                self._transcript.log_plan_parsed([
+                    {"number": s.number, "description": s.description, "type": s.step_type.value}
+                    for s in steps
+                ])
 
             # Fallback: if LLM produced <=1 step for a multi-conjunction task,
             # use heuristic splitting instead. Small models often collapse
