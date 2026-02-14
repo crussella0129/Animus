@@ -9,6 +9,7 @@ from collections.abc import Generator
 from typing import Any, Callable, Optional
 
 from src.core.context import ContextWindow, estimate_tokens
+from src.core.cwd import SessionCwd
 from src.core.errors import RecoveryStrategy, classify_error
 from src.core.tool_parsing import parse_tool_calls
 from src.llm.base import ModelProvider
@@ -55,6 +56,7 @@ class Agent:
         system_prompt: str = "You are a helpful assistant.",
         max_turns: int = 20,
         planning_provider: Optional[ModelProvider] = None,
+        session_cwd: SessionCwd | None = None,
     ) -> None:
         self._provider = provider
         self._tools = tool_registry
@@ -63,6 +65,7 @@ class Agent:
         self._messages: list[dict[str, str]] = []
         self._cumulative_tokens: int = 0
         self._planning_provider = planning_provider
+        self._session_cwd = session_cwd
 
         # Set up context window based on model capabilities
         caps = provider.capabilities()
@@ -548,6 +551,7 @@ class Agent:
             max_step_turns=self._max_turns,
             on_progress=on_progress,
             on_step_output=on_step_output,
+            session_cwd=self._session_cwd,
         )
 
         result = executor.run(user_input)

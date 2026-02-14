@@ -570,6 +570,7 @@ def rise(
 ) -> None:
     """Awaken Animus. Start an interactive agent session."""
     from src.core.agent import Agent
+    from src.core.cwd import SessionCwd
     from src.core.session import Session
     from src.llm.factory import ProviderFactory
     from src.tools.base import ToolRegistry
@@ -603,16 +604,19 @@ def rise(
         error(f"Provider '{cfg.model.provider}' is not available. Run 'animus status' to check.")
         raise typer.Exit(1)
 
+    # Set up session-level working directory tracker
+    session_cwd = SessionCwd()
+
     # Set up tool registry with confirmation callback
     registry = ToolRegistry()
-    register_filesystem_tools(registry)
+    register_filesystem_tools(registry, session_cwd=session_cwd)
     confirm_cb = _make_confirm_callback(cfg)
-    register_shell_tools(registry, confirm_callback=confirm_cb)
+    register_shell_tools(registry, confirm_callback=confirm_cb, session_cwd=session_cwd)
 
     # Register git tools if available
     try:
         from src.tools.git import register_git_tools
-        register_git_tools(registry, confirm_callback=confirm_cb)
+        register_git_tools(registry, confirm_callback=confirm_cb, session_cwd=session_cwd)
     except ImportError:
         pass
 
@@ -667,6 +671,7 @@ def rise(
         tool_registry=registry,
         system_prompt=cfg.agent.system_prompt,
         max_turns=cfg.agent.max_turns,
+        session_cwd=session_cwd,
     )
 
     # Session handling: resume or create new

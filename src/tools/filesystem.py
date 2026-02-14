@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from src.core.cwd import SessionCwd
 from src.core.permission import PermissionChecker
 from src.tools.base import Tool, ToolRegistry
 
@@ -15,10 +16,11 @@ from src.tools.base import Tool, ToolRegistry
 class ReadFileTool(Tool):
     """Read files (no isolation needed - read-only operation)."""
 
-    def __init__(self):
+    def __init__(self, session_cwd: SessionCwd | None = None):
         super().__init__()
         # ReadFileTool doesn't need isolation (read-only, low risk)
         self._isolation_level = "none"
+        self._session_cwd = session_cwd
 
     @property
     def name(self) -> str:
@@ -40,7 +42,10 @@ class ReadFileTool(Tool):
         }
 
     def execute(self, args: dict[str, Any]) -> str:
-        path = Path(args["path"]).resolve()
+        if self._session_cwd is not None:
+            path = self._session_cwd.resolve(args["path"])
+        else:
+            path = Path(args["path"]).resolve()
         checker = PermissionChecker()
         if not checker.is_path_safe(path):
             return f"Error: Access denied to {path}"
@@ -68,11 +73,12 @@ class WriteFileTool(Tool):
     # Class-level audit log (shared across all instances)
     _write_log: list[dict[str, Any]] = []
 
-    def __init__(self):
+    def __init__(self, session_cwd: SessionCwd | None = None):
         super().__init__()
         # WriteFileTool could be isolated for untrusted content
         # But default to none for performance
         self._isolation_level = "none"
+        self._session_cwd = session_cwd
 
     @classmethod
     def get_write_log(cls) -> list[dict[str, Any]]:
@@ -108,7 +114,10 @@ class WriteFileTool(Tool):
         }
 
     def execute(self, args: dict[str, Any]) -> str:
-        path = Path(args["path"]).resolve()
+        if self._session_cwd is not None:
+            path = self._session_cwd.resolve(args["path"])
+        else:
+            path = Path(args["path"]).resolve()
         checker = PermissionChecker()
         if not checker.is_path_safe(path):
             return f"Error: Access denied to {path}"
@@ -135,10 +144,11 @@ class WriteFileTool(Tool):
 class ListDirTool(Tool):
     """List directory contents (no isolation needed - read-only)."""
 
-    def __init__(self):
+    def __init__(self, session_cwd: SessionCwd | None = None):
         super().__init__()
         # ListDirTool doesn't need isolation (read-only operation)
         self._isolation_level = "none"
+        self._session_cwd = session_cwd
 
     @property
     def name(self) -> str:
@@ -160,7 +170,11 @@ class ListDirTool(Tool):
         }
 
     def execute(self, args: dict[str, Any]) -> str:
-        path = Path(args.get("path", ".")).resolve()
+        raw_path = args.get("path", ".")
+        if self._session_cwd is not None:
+            path = self._session_cwd.resolve(raw_path)
+        else:
+            path = Path(raw_path).resolve()
         checker = PermissionChecker()
         if not checker.is_path_safe(path):
             return f"Error: Access denied to {path}"
@@ -188,8 +202,8 @@ class ListDirTool(Tool):
             return f"Error listing directory: {e}"
 
 
-def register_filesystem_tools(registry: ToolRegistry) -> None:
+def register_filesystem_tools(registry: ToolRegistry, session_cwd: SessionCwd | None = None) -> None:
     """Register all filesystem tools with the given registry."""
-    registry.register(ReadFileTool())
-    registry.register(WriteFileTool())
-    registry.register(ListDirTool())
+    registry.register(ReadFileTool(session_cwd=session_cwd))
+    registry.register(WriteFileTool(session_cwd=session_cwd))
+    registry.register(ListDirTool(session_cwd=session_cwd))

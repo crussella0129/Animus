@@ -18,6 +18,7 @@ from enum import Enum
 from typing import Any, Callable, Optional
 
 from src.core.context import ContextWindow, estimate_tokens
+from src.core.cwd import SessionCwd
 from src.core.errors import classify_error, RecoveryStrategy
 from src.core.tool_parsing import parse_tool_calls
 from src.llm.base import ModelCapabilities, ModelProvider
@@ -278,17 +279,20 @@ class TaskDecomposer:
         provider: ModelProvider,
         planning_provider: Optional[ModelProvider] = None,
         tool_names: Optional[list[str]] = None,
+        session_cwd: SessionCwd | None = None,
     ) -> None:
         self._provider = planning_provider or provider
         self._prompt_template = _PLANNING_PROMPT
         self._tool_names = tool_names or []
+        self._session_cwd = session_cwd
 
     def decompose(self, task: str) -> str:
         """Send the task to the LLM and return raw plan text."""
         import os
 
+        cwd = str(self._session_cwd.path) if self._session_cwd else os.getcwd()
         tool_str = ", ".join(self._tool_names) if self._tool_names else "read_file, write_file, list_dir, run_shell"
-        prompt = self._prompt_template.format(task=task, tool_names=tool_str, cwd=os.getcwd())
+        prompt = self._prompt_template.format(task=task, tool_names=tool_str, cwd=cwd)
         messages = [
             {"role": "system", "content": "You are a task planner. Output ONLY a numbered list of 1-5 steps. No explanations, no preamble, no conversational text."},
             {"role": "user", "content": prompt},
@@ -394,11 +398,13 @@ class ChunkedExecutor:
         max_step_turns: int = 10,
         on_progress: Optional[Callable[[int, int, str], None]] = None,
         on_step_output: Optional[Callable[[str], None]] = None,
+        session_cwd: SessionCwd | None = None,
     ) -> None:
         self._provider = provider
         self._full_registry = tool_registry
         self._on_progress = on_progress
         self._on_step_output = on_step_output
+        self._session_cwd = session_cwd
 
         caps = provider.capabilities()
         self._context_window = ContextWindow(
@@ -516,6 +522,7 @@ class ChunkedExecutor:
         import os
 
         step_context = step_context or {}
+        cwd = str(self._session_cwd.path) if self._session_cwd else os.getcwd()
 
         # Filter tools for this step type (narrows to single tool if description mentions one)
         filtered_registry = _filter_tools(self._full_registry, step.step_type, step.description)
@@ -558,7 +565,7 @@ class ChunkedExecutor:
             total_steps=total,
             step_description=step.description,
             tool_schemas=tool_schemas_str,
-            cwd=os.getcwd(),
+            cwd=cwd,
         ) + context_info
 
         # Fresh message history — no carryover from previous steps except learned context
@@ -751,13 +758,15 @@ class PlanExecutor:
         max_step_turns: int = 10,
         on_progress: Optional[Callable[[int, int, str], None]] = None,
         on_step_output: Optional[Callable[[str], None]] = None,
+        session_cwd: SessionCwd | None = None,
     ) -> None:
         # Scale to model capacity
         caps = provider.capabilities()
         profile = _get_planning_profile(caps)
 
         self._decomposer = TaskDecomposer(
-            provider, planning_provider, tool_names=tool_registry.names()
+            provider, planning_provider, tool_names=tool_registry.names(),
+            session_cwd=session_cwd,
         )
         self._parser = PlanParser(max_steps=profile["max_plan_steps"])
         self._executor = ChunkedExecutor(
@@ -766,6 +775,7 @@ class PlanExecutor:
             max_step_turns=max_step_turns,
             on_progress=on_progress,
             on_step_output=on_step_output,
+            session_cwd=session_cwd,
         )
 
     def run(self, task: str) -> PlanResult:

@@ -2,12 +2,40 @@
 
 from __future__ import annotations
 
+import os
+import re
 import subprocess
 import time
 from typing import Any
 
+from src.core.cwd import SessionCwd
 from src.core.permission import PermissionChecker
 from src.tools.base import Tool, ToolRegistry, isolated
+
+# Regex to detect a cd command anywhere in a chained expression
+_CD_RE = re.compile(r'(?:^|&&|\|\||;)\s*cd\s')
+
+# Match single-quoted strings that should be double-quoted on Windows.
+# Captures: 'some text' but NOT contractions like don't or it's
+# (contractions have a word-char immediately before the opening quote).
+_SINGLE_QUOTE_RE = re.compile(r"(?<!\w)'([^']*)'")
+
+
+def _normalize_quotes_for_windows(command: str) -> str:
+    r"""Convert Unix-style single-quoted arguments to double quotes for cmd.exe.
+
+    LLMs frequently generate commands like:
+        mkdir 'test 1' && cd 'test 1'
+    which on cmd.exe creates directories named  'test  and  1'  (single
+    quotes are literal characters, not delimiters).
+
+    This converts them to:
+        mkdir "test 1" && cd "test 1"
+
+    Only applied on Windows. Skips strings that look like contractions
+    (e.g. "don't") by requiring no word-character before the opening quote.
+    """
+    return _SINGLE_QUOTE_RE.sub(r'"\1"', command)
 
 
 class ExecutionBudget:
@@ -77,10 +105,16 @@ class ExecutionBudget:
 class RunShellTool(Tool):
     """Execute shell commands with safety checks and execution budget tracking."""
 
-    def __init__(self, confirm_callback: Any = None, execution_budget: ExecutionBudget | None = None) -> None:
+    def __init__(
+        self,
+        confirm_callback: Any = None,
+        execution_budget: ExecutionBudget | None = None,
+        session_cwd: SessionCwd | None = None,
+    ) -> None:
         super().__init__()  # Initialize Tool base class
         self._confirm = confirm_callback
         self._budget = execution_budget or ExecutionBudget(max_total_seconds=300)
+        self._session_cwd = session_cwd
 
     @property
     def name(self) -> str:
@@ -105,6 +139,11 @@ class RunShellTool(Tool):
         command = args["command"]
         timeout = args.get("timeout", 30)
 
+        # On Windows, convert single-quoted args to double quotes so cmd.exe
+        # treats them as proper delimiters instead of literal characters.
+        if os.name == "nt":
+            command = _normalize_quotes_for_windows(command)
+
         # Check execution budget before running
         budget_ok, budget_msg = self._budget.check_available(timeout)
         if not budget_ok:
@@ -124,15 +163,32 @@ class RunShellTool(Tool):
             if not self._confirm(f"Allow dangerous command: {command}?"):
                 return "Command cancelled by user."
 
+        # Determine if we need to capture the final CWD after the command
+        has_cd = bool(_CD_RE.search(command))
+        actual_command = command
+        if has_cd and self._session_cwd is not None:
+            if os.name == "nt":
+                # On Windows, %CD% is expanded at parse time (before cd runs).
+                # Instead, append a bare `cd` (prints CWD) between markers.
+                actual_command = (
+                    f"({command})& echo __ANIMUS_CWD_BEGIN__& cd& echo __ANIMUS_CWD_END__"
+                )
+            else:
+                actual_command = f"({command}); echo __ANIMUS_CWD__$(pwd)__ANIMUS_CWD__"
+
+        # Resolve CWD for the subprocess
+        cwd = str(self._session_cwd.path) if self._session_cwd else None
+
         # Track actual execution time
         start_time = time.time()
         try:
             result = subprocess.run(
-                command,
+                actual_command,
                 shell=True,
                 capture_output=True,
                 text=True,
                 timeout=timeout,
+                cwd=cwd,
             )
             elapsed = time.time() - start_time
             self._budget.consume(elapsed)
@@ -142,6 +198,11 @@ class RunShellTool(Tool):
                 output += f"\n[stderr]: {result.stderr}"
             if result.returncode != 0:
                 output += f"\n[exit code: {result.returncode}]"
+
+            # Extract and update session CWD from marker
+            if has_cd and self._session_cwd is not None:
+                output = self._extract_and_update_cwd(output)
+
             return output.strip() or "(no output)"
         except subprocess.TimeoutExpired:
             elapsed = time.time() - start_time
@@ -152,11 +213,38 @@ class RunShellTool(Tool):
             self._budget.consume(elapsed)
             return f"Error executing command: {e}"
 
+    def _extract_and_update_cwd(self, output: str) -> str:
+        """Parse CWD marker from output, update SessionCwd, and strip marker lines."""
+        if os.name == "nt":
+            # Windows: CWD is on a line between BEGIN and END markers
+            begin_tag = "__ANIMUS_CWD_BEGIN__"
+            end_tag = "__ANIMUS_CWD_END__"
+            begin_idx = output.find(begin_tag)
+            end_idx = output.find(end_tag)
+            if begin_idx != -1 and end_idx != -1:
+                between = output[begin_idx + len(begin_tag):end_idx].strip()
+                if between and self._session_cwd is not None:
+                    self._session_cwd.set(between)
+                # Strip everything from begin marker through end marker + trailing newline
+                after_end = end_idx + len(end_tag)
+                if after_end < len(output) and output[after_end] == '\n':
+                    after_end += 1
+                output = output[:begin_idx] + output[after_end:]
+        else:
+            # Unix: CWD is inline between __ANIMUS_CWD__ delimiters
+            marker_re = re.compile(r'__ANIMUS_CWD__(.+?)__ANIMUS_CWD__')
+            match = marker_re.search(output)
+            if match and self._session_cwd is not None:
+                self._session_cwd.set(match.group(1).strip())
+                output = marker_re.sub('', output)
+        return output
+
 
 def register_shell_tools(
     registry: ToolRegistry,
     confirm_callback: Any = None,
-    execution_budget: ExecutionBudget | None = None
+    execution_budget: ExecutionBudget | None = None,
+    session_cwd: SessionCwd | None = None,
 ) -> None:
     """Register shell tools with the given registry.
 
@@ -164,8 +252,10 @@ def register_shell_tools(
         registry: The tool registry to register with
         confirm_callback: Optional callback for confirming dangerous commands
         execution_budget: Optional shared execution budget for tracking cumulative time
+        session_cwd: Optional session-level CWD tracker for persisting cd across calls
     """
     registry.register(RunShellTool(
         confirm_callback=confirm_callback,
-        execution_budget=execution_budget
+        execution_budget=execution_budget,
+        session_cwd=session_cwd,
     ))
