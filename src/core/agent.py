@@ -115,36 +115,20 @@ class Agent:
     def _run_chunked(self, chunks: list[str]) -> str:
         """Process multiple instruction chunks sequentially.
 
-        Each chunk is sent as a separate user message with part numbering.
-        After each chunk's response, a condensed summary carries context
-        to the next chunk. The final chunk's response is the overall response.
+        Non-streaming version - delegates to streaming with null callback.
         """
-        total = len(chunks)
-        last_response = ""
-
-        for i, chunk in enumerate(chunks, 1):
-            if i == 1:
-                content = f"[Part {i}/{total}] {chunk}"
-            else:
-                summary = self._summarize_for_carry(last_response, max_tokens=100)
-                content = f"[Part {i}/{total}] (Previous context: {summary})\n\n{chunk}"
-
-            self._messages.append({"role": "user", "content": content})
-            self._cumulative_tokens += estimate_tokens(content)
-            last_response = self._run_agentic_loop()
-
-            if i < total:
-                # Store assistant response for context continuity
-                self._messages.append({"role": "assistant", "content": last_response})
-
-        return last_response
+        return self._run_chunked_stream(chunks, on_chunk=None)
 
     def _run_chunked_stream(
         self,
         chunks: list[str],
         on_chunk: Optional[Callable[[str], None]] = None,
     ) -> str:
-        """Process multiple instruction chunks with streaming output."""
+        """Process multiple instruction chunks with optional streaming.
+
+        Unified implementation for both streaming and non-streaming chunked execution.
+        Streams only the final chunk to avoid confusing partial output.
+        """
         total = len(chunks)
         last_response = ""
 
@@ -159,10 +143,13 @@ class Agent:
             self._cumulative_tokens += estimate_tokens(content)
 
             # Only stream the final chunk's output to avoid confusing partial output
-            if i == total:
+            if i == total and on_chunk is not None:
                 last_response = self._run_agentic_loop_stream(on_chunk)
             else:
-                last_response = self._run_agentic_loop()
+                last_response = self._run_agentic_loop_stream(on_chunk=None)
+
+            if i < total:
+                # Store assistant response for context continuity
                 self._messages.append({"role": "assistant", "content": last_response})
 
         return last_response
@@ -278,6 +265,16 @@ class Agent:
     def _run_agentic_loop(self) -> str:
         """Core agentic loop: generate, check for tool calls, execute, repeat.
 
+        Non-streaming version - delegates to streaming with a null callback.
+        """
+        return self._run_agentic_loop_stream(on_chunk=None)
+
+    def _run_agentic_loop_stream(
+        self,
+        on_chunk: Optional[Callable[[str], None]] = None,
+    ) -> str:
+        """Core agentic loop with streaming support.
+
         Grammar is used on the first turn to get a valid tool call. After
         executing a tool, the result is fed back for the model to summarize
         (without grammar). If the model keeps producing tool calls, each is
@@ -286,6 +283,9 @@ class Agent:
 
         Repeated identical tool calls are detected and broken to prevent
         infinite loops (e.g. model retrying a denied command).
+
+        Args:
+            on_chunk: Optional callback for streaming chunks (None for non-streaming)
         """
         last_tool_result = ""
         prev_call_key: str | None = None
@@ -365,12 +365,21 @@ class Agent:
         self,
         on_chunk: Optional[Callable[[str], None]] = None,
     ) -> str:
-        """Core agentic loop with streaming support."""
+        """Core agentic loop with optional streaming support.
+
+        Unified implementation for both streaming and non-streaming execution.
+        When on_chunk is None, operates in non-streaming mode.
+        """
         last_tool_result = ""
         prev_call_key: str | None = None
         repeat_count = 0
         for turn in range(self._max_turns):
-            response_text = self._step_stream(on_chunk)
+            # Use streaming or non-streaming based on callback
+            use_grammar = (turn == 0)
+            if on_chunk is not None:
+                response_text = self._step_stream(on_chunk)
+            else:
+                response_text = self._step(use_grammar=use_grammar)
             if response_text is None:
                 if last_tool_result:
                     return last_tool_result
