@@ -584,6 +584,19 @@ Agent (with 7B model):
 
 **Result:** <400ms hybrid queries on edge hardware. No cloud, no large models needed for code navigation. LLM used only for actual reasoning/generation, not for "finding the right code."
 
+### Discovery 5: The Model Viability Threshold (February 2026)
+
+**The experiment:** Built an automated gauntlet test — identical multi-step task (create directory, write Python file, git init/add/commit) executed across three model sizes on the same hardware (RTX 2080 Ti).
+
+**Results:**
+- **1B (Llama-3.2-1B):** 0/8 checks passed. Cannot produce structured tool calls at all — outputs shell scripts instead of JSON tool invocations. No amount of scaffolding (GBNF grammar, plan-then-execute, filtered tools) compensates for insufficient model capacity.
+- **7B (Qwen2.5-Coder-7B):** 8/8 checks passed, 238.9s. Clean plan, correct tool calls, some scope bleed (hallucinated a GitHub URL and attempted push). Minimum viable model for agentic use.
+- **14B (Qwen2.5-Coder-14B):** 8/8 checks passed, 373.9s. 56% slower than 7B, 58% more tool calls (19 vs 12), identical outcome. Extra parameters manifest as over-verification and unnecessary branch creation, not better task completion.
+
+**Key insight:** Below ~3B parameters, models cannot follow the tool-call contract regardless of scaffolding. Above the threshold, returns diminish rapidly — 7B with good scaffolding (plan-then-execute, GBNF grammar, tool filtering) outperforms 14B with the same scaffolding in wall-clock efficiency. *Infrastructure matters more than model size once you cross the viability threshold.*
+
+See [LLM_GECK/Phase_2_assessment.md](LLM_GECK/Phase_2_assessment.md) for full empirical analysis and security audit.
+
 ### Key Insight: Hardcoded Beats LLM for Navigation
 
 **Traditional RAG:** LLM decides what to search for, LLM interprets results, LLM navigates codebase
@@ -643,7 +656,7 @@ pytest --cov=src --cov-report=html
 pytest tests/test_router.py -v
 ```
 
-**Test coverage:** 396 tests across 15 modules
+**Test coverage:** 546 tests across 15 modules
 **CI/CD:** Automated testing on Python 3.11, 3.12, 3.13 via GitHub Actions
 
 ---
@@ -686,7 +699,7 @@ animus/
 │   └── audio/             # TTS system
 │       ├── engine.py      # Piper TTS integration
 │       └── voice_profile.py # Voice profiles + DSP
-├── tests/                 # Test suite (396 tests)
+├── tests/                 # Test suite (546 tests)
 ├── docs/                  # Documentation
 └── LLM_GECK/             # Development audits & blueprints
 ```
@@ -751,7 +764,7 @@ See [LLM_GECK/README.md](LLM_GECK/README.md) for development framework and [LLM_
 
 ![CI](https://github.com/yourusername/animus/workflows/CI/badge.svg)
 
-**Test coverage:** 396/399 tests passing (99.2%)
+**Test coverage:** 546 tests passing (100%)
 **Supported:** Python 3.11, 3.12, 3.13
 **Platforms:** Windows, Linux, macOS
 
