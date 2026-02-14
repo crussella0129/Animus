@@ -1,7 +1,7 @@
 """Automated end-to-end gauntlet test for Animus agent.
 
-Feeds the agent a real multi-step task (create a program in Downloads),
-verifies each outcome, and saves the full transcript to GECK/tests/.
+Feeds the agent a real multi-step task (create a program in a temp dir),
+verifies each outcome, and saves the full transcript alongside the tests.
 
 Requires a real LLM provider to be available (skipped otherwise).
 """
@@ -10,13 +10,19 @@ from __future__ import annotations
 
 import os
 import shutil
+import tempfile
 import time
 from pathlib import Path
 
 import pytest
 
-GECK_TESTS_DIR = Path(r"C:\Users\charl\GECK\tests")
-DOWNLOADS_DIR = Path(os.path.expanduser("~/Downloads"))
+# Transcript output: project-root/tests/gauntlet_transcripts/
+# Falls back to a temp dir if the project root can't be determined.
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+TRANSCRIPT_DIR = os.environ.get(
+    "ANIMUS_GAUNTLET_TRANSCRIPT_DIR",
+    str(_PROJECT_ROOT / "tests" / "gauntlet_transcripts"),
+)
 TEST_DIR_NAME = "animus_gauntlet_test"
 
 
@@ -87,6 +93,10 @@ def test_gauntlet_create_calculator():
     except ImportError:
         pass
 
+    # Use a temp directory so the test is portable (no hardcoded user paths)
+    tmp_base = Path(tempfile.mkdtemp(prefix="animus_gauntlet_"))
+    test_dir = tmp_base / TEST_DIR_NAME
+
     transcript = TranscriptLogger()
     agent = Agent(
         provider=provider,
@@ -97,9 +107,8 @@ def test_gauntlet_create_calculator():
         transcript=transcript,
     )
 
-    test_dir = DOWNLOADS_DIR / TEST_DIR_NAME
     task = (
-        f'Create a folder called "{TEST_DIR_NAME}" in {DOWNLOADS_DIR}, '
+        f'Create a folder called "{TEST_DIR_NAME}" in {tmp_base}, '
         f"then write a file called calculator.py inside it with 4 functions: "
         f"add(a, b), subtract(a, b), multiply(a, b), divide(a, b) that each "
         f"return the result of the operation. Include a proper if __name__ == '__main__' block. "
@@ -121,8 +130,9 @@ def test_gauntlet_create_calculator():
 
     # Save transcript BEFORE assertions (so we always get it)
     timestamp = time.strftime("%Y%m%d_%H%M%S")
-    transcript_path = GECK_TESTS_DIR / f"gauntlet_{timestamp}.md"
-    GECK_TESTS_DIR.mkdir(parents=True, exist_ok=True)
+    transcript_out = Path(TRANSCRIPT_DIR)
+    transcript_out.mkdir(parents=True, exist_ok=True)
+    transcript_path = transcript_out / f"gauntlet_{timestamp}.md"
     transcript.save(transcript_path)
 
     # Assertions
@@ -155,5 +165,5 @@ def test_gauntlet_create_calculator():
 
     finally:
         # Cleanup test directory
-        if test_dir.exists():
-            shutil.rmtree(test_dir, ignore_errors=True)
+        if tmp_base.exists():
+            shutil.rmtree(tmp_base, ignore_errors=True)

@@ -4,7 +4,9 @@ Runs the same multi-step task as the gauntlet test but standalone:
     python -m scripts.run_gauntlet
 
 Prints step progress to console, a verification checklist (PASS/FAIL),
-and saves transcript to GECK/tests/.
+and saves transcript to tests/gauntlet_transcripts/.
+
+Override transcript output with ANIMUS_GAUNTLET_TRANSCRIPT_DIR env var.
 """
 
 from __future__ import annotations
@@ -13,11 +15,15 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
-GECK_TESTS_DIR = Path(r"C:\Users\charl\GECK\tests")
-DOWNLOADS_DIR = Path(os.path.expanduser("~/Downloads"))
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+TRANSCRIPT_DIR = os.environ.get(
+    "ANIMUS_GAUNTLET_TRANSCRIPT_DIR",
+    str(_PROJECT_ROOT / "tests" / "gauntlet_transcripts"),
+)
 TEST_DIR_NAME = "animus_gauntlet_test"
 
 
@@ -69,6 +75,10 @@ def main() -> int:
     except ImportError:
         print("WARNING: Git tools not available")
 
+    # Use a temp directory so the runner is portable
+    tmp_base = Path(tempfile.mkdtemp(prefix="animus_gauntlet_"))
+    test_dir = tmp_base / TEST_DIR_NAME
+
     # Set up agent with transcript
     transcript = TranscriptLogger()
     agent = Agent(
@@ -80,9 +90,8 @@ def main() -> int:
         transcript=transcript,
     )
 
-    test_dir = DOWNLOADS_DIR / TEST_DIR_NAME
     task = (
-        f'Create a folder called "{TEST_DIR_NAME}" in {DOWNLOADS_DIR}, '
+        f'Create a folder called "{TEST_DIR_NAME}" in {tmp_base}, '
         f"then write a file called calculator.py inside it with 4 functions: "
         f"add(a, b), subtract(a, b), multiply(a, b), divide(a, b) that each "
         f"return the result of the operation. Include a proper if __name__ == '__main__' block. "
@@ -121,8 +130,9 @@ def main() -> int:
 
     # Save transcript BEFORE verification
     timestamp = time.strftime("%Y%m%d_%H%M%S")
-    transcript_path = GECK_TESTS_DIR / f"gauntlet_{timestamp}.md"
-    GECK_TESTS_DIR.mkdir(parents=True, exist_ok=True)
+    transcript_out = Path(TRANSCRIPT_DIR)
+    transcript_out.mkdir(parents=True, exist_ok=True)
+    transcript_path = transcript_out / f"gauntlet_{timestamp}.md"
     transcript.save(transcript_path)
     print(f"Transcript saved: {transcript_path}")
     print()
@@ -184,9 +194,9 @@ def main() -> int:
     print()
 
     # Cleanup
-    if test_dir.exists():
-        shutil.rmtree(test_dir, ignore_errors=True)
-        print(f"Cleaned up: {test_dir}")
+    if tmp_base.exists():
+        shutil.rmtree(tmp_base, ignore_errors=True)
+        print(f"Cleaned up: {tmp_base}")
 
     return 0 if all_pass else 1
 

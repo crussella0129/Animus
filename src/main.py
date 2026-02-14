@@ -362,7 +362,7 @@ def search(
     top_k: int = typer.Option(5, "--top-k", "-k", help="Number of results"),
 ) -> None:
     """Search the vector store."""
-    from src.memory.embedder import MockEmbedder
+    from src.memory.embedder import NativeEmbedder
     from src.memory.vectorstore import SQLiteVectorStore
 
     cfg = AnimusConfig.load()
@@ -371,8 +371,7 @@ def search(
         error("No vector store found. Run 'animus ingest <path>' first.")
         raise typer.Exit(1)
 
-    from src.memory.embedder import NativeEmbedder
-    embedder = NativeEmbedder()  # Real semantic embeddings for search
+    embedder = NativeEmbedder()
     store = SQLiteVectorStore(db_path)
 
     query_embedding = embedder.embed([query])[0]

@@ -261,6 +261,9 @@ animus.log
 animus_history.json
 trace.json
 
+# Gauntlet test transcripts
+tests/gauntlet_transcripts/
+
 # ==========================
 # Packaging (PyInstaller/Nuitka)
 # ==========================

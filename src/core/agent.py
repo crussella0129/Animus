@@ -282,108 +282,23 @@ class Agent:
         self,
         on_chunk: Optional[Callable[[str], None]] = None,
     ) -> str:
-        """Core agentic loop with streaming support.
-
-        Grammar is used on the first turn to get a valid tool call. After
-        executing a tool, the result is fed back for the model to summarize
-        (without grammar). If the model keeps producing tool calls, each is
-        executed. After all tool calls are done, the last tool result is
-        returned directly as a fallback.
-
-        Repeated identical tool calls are detected and broken to prevent
-        infinite loops (e.g. model retrying a denied command).
-
-        Args:
-            on_chunk: Optional callback for streaming chunks (None for non-streaming)
-        """
-        last_tool_result = ""
-        prev_call_key: str | None = None
-        repeat_count = 0
-        for turn in range(self._max_turns):
-            # Use grammar on the first turn only; after tool results,
-            # let the model respond freely.
-            use_grammar = (turn == 0)
-            response_text = self._step(use_grammar=use_grammar)
-            if response_text is None:
-                # If generation failed but we have a tool result, return it
-                if last_tool_result:
-                    return last_tool_result
-                return "Error: Failed to get a response from the model."
-
-            self._cumulative_tokens += estimate_tokens(response_text)
-
-            tool_calls = self._parse_tool_calls(response_text)
-            if not tool_calls:
-                return response_text
-
-            # Deduplicate tool calls within the same response
-            seen_in_response = set()
-            unique_calls = []
-            for call in tool_calls:
-                call_signature = json.dumps((call["name"], call["arguments"]), sort_keys=True)
-                if call_signature not in seen_in_response:
-                    seen_in_response.add(call_signature)
-                    unique_calls.append(call)
-
-            if len(unique_calls) < len(tool_calls):
-                # Duplicates found in single response - use unique calls only
-                tool_calls = unique_calls
-
-            # Detect repeated identical tool calls
-            call_key = json.dumps(
-                [(c["name"], c["arguments"]) for c in tool_calls], sort_keys=True
-            )
-            if call_key == prev_call_key:
-                repeat_count += 1
-                if repeat_count >= 1:  # Break after first repeat (2 identical calls total)
-                    self._messages.append({"role": "assistant", "content": response_text})
-                    self._messages.append({
-                        "role": "user",
-                        "content": "[System]: That tool call was repeated and failed. Try a completely different approach or return your current result.",
-                    })
-                    if last_tool_result:
-                        return last_tool_result
-                    return "Stopped due to repeated tool call with no progress."
-            else:
-                repeat_count = 0
-            prev_call_key = call_key
-
-            self._messages.append({"role": "assistant", "content": response_text})
-            for call in tool_calls:
-                result = self._tools.execute(call["name"], call["arguments"])
-                last_tool_result = result
-                # Apply reflection/evaluation to tool result
-                evaluated_result = self._evaluate_tool_result(call["name"], result)
-                self._messages.append({
-                    "role": "user",
-                    "content": evaluated_result,
-                })
-
-            # Rate limiting: progressive slowdown for rapid tool calls
-            # Prevents overwhelming systems with too many rapid operations
-            if turn > 0:
-                delay = min(0.5, turn * 0.1)
-                time.sleep(delay)
-
-        # Exhausted turns but have a tool result — return it directly
-        if last_tool_result:
-            return last_tool_result
-        return "Reached maximum turns without a final response."
-
-    def _run_agentic_loop_stream(
-        self,
-        on_chunk: Optional[Callable[[str], None]] = None,
-    ) -> str:
         """Core agentic loop with optional streaming support.
 
         Unified implementation for both streaming and non-streaming execution.
         When on_chunk is None, operates in non-streaming mode.
+
+        Note: GBNF grammar is only applied on the first turn of non-streaming
+        mode. Streaming mode cannot use grammar constraints because
+        llama-cpp-python does not support grammar with streaming chat
+        completions. This means streaming with small native models may produce
+        malformed tool calls on the first turn. API providers are unaffected.
         """
         last_tool_result = ""
         prev_call_key: str | None = None
         repeat_count = 0
         for turn in range(self._max_turns):
-            # Use streaming or non-streaming based on callback
+            # Grammar on first turn only; streaming cannot use grammar
+            # (llama-cpp-python limitation — see _step_stream docstring).
             use_grammar = (turn == 0)
             if on_chunk is not None:
                 response_text = self._step_stream(on_chunk)
