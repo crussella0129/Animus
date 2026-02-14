@@ -32,6 +32,7 @@ DANGEROUS_FILES: frozenset[str] = frozenset({
     ".ssh/authorized_keys",
     ".ssh/id_rsa",
     ".ssh/id_ed25519",
+    ".animus/config.yaml",
 })
 
 # Commands that are always blocked
@@ -43,6 +44,27 @@ BLOCKED_COMMANDS: frozenset[str] = frozenset({
     ":(){ :|:& };:",  # fork bomb
     "> /dev/sda",
     "chmod -R 777 /",
+})
+
+# Commands that make outbound network connections.
+# Blocked by default in shell execution to prevent data exfiltration
+# (e.g., LLM hallucinating a git push to a fabricated remote URL).
+NETWORK_COMMANDS: frozenset[str] = frozenset({
+    "curl",
+    "wget",
+    "ssh",
+    "scp",
+    "sftp",
+    "ftp",
+    "nc",
+    "netcat",
+    "ncat",
+    "telnet",
+    "rsync",
+    "git push",
+    "git fetch",
+    "git pull",
+    "git clone",
 })
 
 # Commands that require confirmation
@@ -84,8 +106,10 @@ class PermissionChecker:
         for dangerous in DANGEROUS_DIRECTORIES:
             if resolved.startswith(dangerous):
                 return False
+        # Normalize separators for cross-platform matching
+        resolved_fwd = resolved.replace("\\", "/")
         for dangerous in DANGEROUS_FILES:
-            if resolved.endswith(dangerous) or dangerous in resolved:
+            if resolved_fwd.endswith(dangerous) or dangerous in resolved_fwd:
                 return False
         return True
 
@@ -112,3 +136,21 @@ class PermissionChecker:
                 return True
 
         return False
+
+    def is_command_network(self, command: str) -> str | None:
+        """Check if command makes outbound network connections.
+
+        Returns the matched pattern if it's a network command, None otherwise.
+        """
+        cmd_lower = command.strip().lower()
+        first_word = cmd_lower.split()[0] if cmd_lower.split() else ""
+
+        for net_cmd in NETWORK_COMMANDS:
+            net_lower = net_cmd.lower()
+            # Single-word: match first word exactly
+            if " " not in net_lower and first_word == net_lower:
+                return net_cmd
+            # Multi-word (e.g. "git push"): match as prefix
+            if " " in net_lower and cmd_lower.startswith(net_lower):
+                return net_cmd
+        return None

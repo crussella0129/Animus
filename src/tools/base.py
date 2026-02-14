@@ -118,6 +118,39 @@ def _coerce_args(args: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]
     return coerced
 
 
+def _validate_args(args: dict[str, Any], schema: dict[str, Any]) -> str | None:
+    """Validate tool arguments against JSON Schema declarations.
+
+    Returns an error message if validation fails, None if OK.
+    Only checks required fields and basic type constraints — not a full
+    JSON Schema validator, but catches the most common LLM mistakes.
+    """
+    properties = schema.get("properties", {})
+    required = schema.get("required", [])
+
+    # Check required fields
+    for field in required:
+        if field not in args:
+            return f"Missing required argument: '{field}'"
+
+    # Check basic types for provided fields
+    for key, value in args.items():
+        if key not in properties:
+            continue  # Allow extra fields (LLMs often add them)
+        expected_type = properties[key].get("type")
+        if expected_type is None:
+            continue
+        if expected_type == "string" and not isinstance(value, str):
+            return f"Argument '{key}' should be string, got {type(value).__name__}"
+        if expected_type == "integer" and not isinstance(value, int):
+            return f"Argument '{key}' should be integer, got {type(value).__name__}"
+        if expected_type == "boolean" and not isinstance(value, bool):
+            return f"Argument '{key}' should be boolean, got {type(value).__name__}"
+        if expected_type == "array" and not isinstance(value, list):
+            return f"Argument '{key}' should be array, got {type(value).__name__}"
+    return None
+
+
 class ToolRegistry:
     """Registry for managing available tools."""
 
@@ -147,6 +180,9 @@ class ToolRegistry:
             return f"Error: Unknown tool '{name}'"
         try:
             coerced = _coerce_args(args, tool.parameters)
+            validation_error = _validate_args(coerced, tool.parameters)
+            if validation_error:
+                return f"Error: Invalid arguments for {name}: {validation_error}"
             return tool.execute(coerced)
         except Exception as e:
             return f"Error executing {name}: {e}"

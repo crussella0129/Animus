@@ -48,3 +48,35 @@ class TestPermissionChecker:
         checker = PermissionChecker()
         result = checker.is_command_blocked(":(){ :|:& };:")
         assert result is not None
+
+    def test_network_command_curl(self):
+        checker = PermissionChecker()
+        assert checker.is_command_network("curl https://example.com") == "curl"
+
+    def test_network_command_wget(self):
+        checker = PermissionChecker()
+        assert checker.is_command_network("wget https://example.com/file") == "wget"
+
+    def test_network_command_git_push(self):
+        checker = PermissionChecker()
+        assert checker.is_command_network("git push origin main") == "git push"
+
+    def test_network_command_git_clone(self):
+        checker = PermissionChecker()
+        assert checker.is_command_network("git clone https://github.com/user/repo") == "git clone"
+
+    def test_network_command_ssh(self):
+        checker = PermissionChecker()
+        assert checker.is_command_network("ssh user@host") == "ssh"
+
+    def test_non_network_command(self):
+        checker = PermissionChecker()
+        assert checker.is_command_network("echo hello") is None
+        assert checker.is_command_network("ls -la") is None
+        assert checker.is_command_network("git status") is None
+        assert checker.is_command_network("git add .") is None
+        assert checker.is_command_network("git commit -m 'test'") is None
+
+    def test_animus_config_protected(self):
+        checker = PermissionChecker()
+        assert checker.is_path_safe(Path.home() / ".animus" / "config.yaml") is False

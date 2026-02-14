@@ -19,6 +19,7 @@ from src.core.planner import (
     _compute_planning_profile,
     _filter_tools,
     _heuristic_decompose,
+    _infer_expected_tools,
     _infer_step_type,
     _is_simple_task,
     should_use_planner,
@@ -780,6 +781,22 @@ class TestDynamicPlanningProfiles:
         profile_medium = _compute_planning_profile(caps_medium)
         assert profile_unknown == profile_medium
 
+    def test_small_model_fewer_tools_per_step(self):
+        """Small model should have a tighter tool budget per step."""
+        caps_small = ModelCapabilities(context_length=4096, size_tier="small")
+        caps_large = ModelCapabilities(context_length=4096, size_tier="large")
+        profile_small = _compute_planning_profile(caps_small)
+        profile_large = _compute_planning_profile(caps_large)
+        assert profile_small["max_tools_per_step"] < profile_large["max_tools_per_step"]
+        assert profile_small["max_tools_per_step"] == 2
+        assert profile_large["max_tools_per_step"] == 6
+
+    def test_medium_model_tool_budget(self):
+        """Medium model should have 4 tools per step."""
+        caps = ModelCapabilities(context_length=4096, size_tier="medium")
+        profile = _compute_planning_profile(caps)
+        assert profile["max_tools_per_step"] == 4
+
 
 class TestHeuristicDecompose:
     """Test conjunction-based task splitting for small model fallback."""
@@ -821,3 +838,41 @@ class TestHeuristicDecompose:
         assert len(steps) == 2
         assert len(steps[0].relevant_tools) > 0
         assert len(steps[1].relevant_tools) > 0
+
+
+class TestScopeEnforcement:
+    """Test _infer_expected_tools for step scope boundary detection."""
+
+    def test_git_init_step(self):
+        available = ["git_init", "git_status", "git_add", "git_commit", "run_shell"]
+        expected = _infer_expected_tools("Initialize a git repository", available)
+        assert "git_init" in expected or "run_shell" in expected
+        assert "git_commit" not in expected
+        assert "git_add" not in expected
+
+    def test_write_file_step(self):
+        available = ["read_file", "write_file", "list_dir"]
+        expected = _infer_expected_tools("Write a calculator.py file", available)
+        assert "write_file" in expected
+        assert "list_dir" not in expected
+
+    def test_git_commit_step(self):
+        available = ["git_init", "git_status", "git_add", "git_commit", "git_branch"]
+        expected = _infer_expected_tools("Commit the staged changes", available)
+        assert "git_commit" in expected
+        assert "git_branch" not in expected
+
+    def test_read_file_step(self):
+        available = ["read_file", "write_file", "list_dir"]
+        expected = _infer_expected_tools("Read the configuration file", available)
+        assert "read_file" in expected
+
+    def test_no_match_returns_empty(self):
+        available = ["read_file", "write_file"]
+        expected = _infer_expected_tools("Do something vague", available)
+        assert len(expected) == 0
+
+    def test_explicit_tool_name_in_description(self):
+        available = ["run_shell", "read_file", "write_file"]
+        expected = _infer_expected_tools("Use run_shell to create directory", available)
+        assert "run_shell" in expected

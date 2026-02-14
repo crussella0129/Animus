@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
+
+import pytest
 
 from src.core.config import AnimusConfig, ModelConfig, RAGConfig
 
@@ -47,3 +50,10 @@ class TestAnimusConfig:
     def test_config_file_path(self, tmp_config_dir: Path):
         cfg = AnimusConfig(config_dir=tmp_config_dir)
         assert cfg.config_file == tmp_config_dir / "config.yaml"
+
+    @pytest.mark.skipif(os.name == "nt", reason="chmod 600 is a no-op on Windows")
+    def test_save_sets_restrictive_permissions(self, tmp_config_dir: Path):
+        cfg = AnimusConfig(config_dir=tmp_config_dir)
+        cfg.save()
+        mode = cfg.config_file.stat().st_mode & 0o777
+        assert mode == 0o600, f"Expected 0o600, got {oct(mode)}"

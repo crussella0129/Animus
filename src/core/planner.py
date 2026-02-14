@@ -104,7 +104,7 @@ _STEP_TYPE_TOOLS: dict[StepType, list[str]] = {
     StepType.READ: ["read_file", "list_dir", "git_status", "git_diff", "git_log", "search_codebase"],
     StepType.WRITE: ["read_file", "write_file", "list_dir"],
     StepType.SHELL: ["run_shell", "read_file", "list_dir"],
-    StepType.GIT: ["git_status", "git_diff", "git_log", "git_branch", "git_add", "git_commit", "git_checkout"],
+    StepType.GIT: ["git_init", "git_status", "git_diff", "git_log", "git_branch", "git_add", "git_commit", "git_checkout"],
     StepType.ANALYZE: ["read_file", "list_dir", "git_status", "git_diff", "git_log", "run_shell", "search_code_graph", "get_callers", "get_blast_radius", "search_codebase"],
     StepType.GENERATE: ["read_file", "write_file", "list_dir"],
 }
@@ -120,18 +120,21 @@ _PLANNING_TIER_FACTORS: dict[str, dict[str, float]] = {
         "turn_base": 1.5,
         "output_ratio": 0.0625,
         "desc_ratio": 0.012,
+        "tools_per_step": 2,
     },
     "medium": {
         "step_base": 2.5,
         "turn_base": 2.5,
         "output_ratio": 0.125,
         "desc_ratio": 0.024,
+        "tools_per_step": 4,
     },
     "large": {
         "step_base": 3.5,
         "turn_base": 5.0,
         "output_ratio": 0.5,
         "desc_ratio": 0.0,
+        "tools_per_step": 6,
     },
 }
 
@@ -157,6 +160,7 @@ def _compute_planning_profile(caps: ModelCapabilities) -> dict[str, int]:
         "max_step_turns": max(1, turns),
         "max_output_tokens": max(64, output),
         "max_step_desc_tokens": desc,
+        "max_tools_per_step": int(factors["tools_per_step"]),
     }
 
 
@@ -167,18 +171,21 @@ _PLANNING_PROFILES: dict[str, dict[str, int]] = {
         "max_step_turns": 3,
         "max_output_tokens": 256,
         "max_step_desc_tokens": 50,
+        "max_tools_per_step": 2,
     },
     "medium": {
         "max_plan_steps": 5,
         "max_step_turns": 5,
         "max_output_tokens": 512,
         "max_step_desc_tokens": 100,
+        "max_tools_per_step": 4,
     },
     "large": {
         "max_plan_steps": 7,
         "max_step_turns": 10,
         "max_output_tokens": 2048,
         "max_step_desc_tokens": 0,
+        "max_tools_per_step": 6,
     },
 }
 
@@ -186,6 +193,50 @@ _PLANNING_PROFILES: dict[str, dict[str, int]] = {
 def _get_planning_profile(caps: ModelCapabilities) -> dict[str, int]:
     """Get planning profile for a model's capabilities."""
     return _compute_planning_profile(caps)
+
+
+def _infer_expected_tools(description: str, available_tools: list[str]) -> set[str]:
+    """Infer which tools a step description expects based on keywords.
+
+    Returns the subset of available_tools that are mentioned or implied
+    by the step description. Used for scope enforcement — tool calls
+    outside this set trigger warnings.
+    """
+    desc_lower = description.lower()
+    expected: set[str] = set()
+
+    # Direct mention: description contains the tool name
+    for tool_name in available_tools:
+        if tool_name in desc_lower:
+            expected.add(tool_name)
+
+    # Keyword-based inference for common patterns
+    _KEYWORD_TO_TOOLS: dict[str, list[str]] = {
+        "init": ["git_init", "run_shell"],
+        "mkdir": ["run_shell"],
+        "create dir": ["run_shell"],
+        "create folder": ["run_shell"],
+        "write": ["write_file"],
+        "create file": ["write_file"],
+        "read": ["read_file"],
+        "commit": ["git_commit"],
+        "stage": ["git_add"],
+        "add file": ["git_add"],
+        "branch": ["git_branch"],
+        "checkout": ["git_checkout"],
+        "status": ["git_status"],
+        "diff": ["git_diff"],
+        "log": ["git_log"],
+        "list": ["list_dir"],
+    }
+
+    for keyword, tools in _KEYWORD_TO_TOOLS.items():
+        if keyword in desc_lower:
+            for t in tools:
+                if t in available_tools:
+                    expected.add(t)
+
+    return expected
 
 
 def _filter_tools(registry: ToolRegistry, step_type: StepType, step_description: str = "") -> ToolRegistry:
@@ -217,7 +268,7 @@ def _filter_tools(registry: ToolRegistry, step_type: StepType, step_description:
 # ---------------------------------------------------------------------------
 
 _TYPE_KEYWORDS: list[tuple[StepType, list[str]]] = [
-    (StepType.GIT, ["commit", "branch", "checkout", "stage", "git add", "git status", "git diff", "git log", "push", "merge"]),
+    (StepType.GIT, ["commit", "branch", "checkout", "stage", "git init", "git add", "git status", "git diff", "git log", "push", "merge", "initialize a git", "initialize git"]),
     (StepType.WRITE, ["write", "create file", "create a", "make a", "save", "modify", "edit", "update file", "add to file", "append"]),
     (StepType.READ, ["read", "view", "open", "inspect", "examine", "look at", "check file", "cat "]),
     (StepType.SHELL, ["run ", "execute", "install", "pip", "npm", "command", "terminal", "shell", "pytest", "test"]),
@@ -432,6 +483,7 @@ class ChunkedExecutor:
         profile = _get_planning_profile(caps)
         self._max_step_turns = min(max_step_turns, profile["max_step_turns"])
         self._max_output_tokens = profile["max_output_tokens"]
+        self._max_tools_per_step = profile.get("max_tools_per_step", 6)
 
     def execute_plan(self, steps: list[Step], original_request: str) -> list[StepResult]:
         """Execute all steps sequentially with inter-step memory.
@@ -608,7 +660,11 @@ class ChunkedExecutor:
         # Track tool names to detect thrashing (same tool, different args)
         tool_name_history: list[str] = []
         total_tool_calls = 0
-        MAX_TOOLS_PER_STEP = 6  # Hard limit to prevent runaway execution
+        max_tools = self._max_tools_per_step
+        out_of_scope_count = 0
+        has_successful_call = False
+        # Infer expected tools from step description for scope enforcement
+        expected_tools = _infer_expected_tools(step.description, filtered_registry.names())
 
         for turn in range(self._max_step_turns):
             full_messages = [{"role": "system", "content": system_prompt}] + messages
@@ -728,16 +784,16 @@ class ChunkedExecutor:
                 total_tool_calls += 1
 
                 # Hard limit: prevent runaway tool execution
-                if total_tool_calls >= MAX_TOOLS_PER_STEP:
+                if total_tool_calls >= max_tools:
                     messages.append({
                         "role": "user",
-                        "content": f"[System]: Hard limit reached - {MAX_TOOLS_PER_STEP} tool calls executed in this step. "
+                        "content": f"[System]: Hard limit reached - {max_tools} tool calls executed in this step. "
                                    f"Returning current result to prevent runaway execution.",
                     })
                     return StepResult(
                         step=step,
                         status=StepStatus.COMPLETED,
-                        output=last_tool_result or f"Stopped after {MAX_TOOLS_PER_STEP} tool calls."
+                        output=last_tool_result or f"Stopped after {max_tools} tool calls."
                     )
 
                 if self._transcript:
@@ -754,6 +810,26 @@ class ChunkedExecutor:
                     "role": "user",
                     "content": evaluated_result,
                 })
+
+                # Scope enforcement: detect out-of-scope tool calls
+                is_error = result.startswith("Error")
+                if not is_error:
+                    if has_successful_call and expected_tools and call["name"] not in expected_tools:
+                        out_of_scope_count += 1
+                        if out_of_scope_count >= 2:
+                            # Two out-of-scope calls after primary work — stop
+                            return StepResult(
+                                step=step,
+                                status=StepStatus.COMPLETED,
+                                output=last_tool_result or "Step completed (scope limit reached).",
+                            )
+                        # First out-of-scope call — warn
+                        messages.append({
+                            "role": "user",
+                            "content": f"[System]: Tool '{call['name']}' is outside the scope of this step "
+                                       f"(\"{step.description}\"). Complete this step and move on.",
+                        })
+                    has_successful_call = True
 
         # Exhausted turns — consider the step complete with what we have
         last_output = last_tool_result or (messages[-1].get("content", "") if messages else "")

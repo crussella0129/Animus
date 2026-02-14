@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
-from src.tools.base import ToolRegistry, _coerce_args
+from src.tools.base import ToolRegistry, _coerce_args, _validate_args
 from src.tools.filesystem import ListDirTool, ReadFileTool, WriteFileTool, register_filesystem_tools
 from src.tools.shell import RunShellTool, register_shell_tools
 
@@ -183,3 +183,104 @@ class TestArgCoercion:
         register_shell_tools(registry)
         result = registry.execute("run_shell", {"command": "echo coerced", "timeout": "5"})
         assert "coerced" in result
+
+
+class TestNetworkIsolation:
+    """Test that outbound network commands are blocked by default."""
+
+    def test_curl_blocked_by_default(self):
+        tool = RunShellTool()
+        result = tool.execute({"command": "curl https://example.com"})
+        assert "Network command blocked" in result
+        assert "curl" in result
+
+    def test_wget_blocked_by_default(self):
+        tool = RunShellTool()
+        result = tool.execute({"command": "wget https://example.com/file"})
+        assert "Network command blocked" in result
+
+    def test_git_push_blocked_by_default(self):
+        tool = RunShellTool()
+        result = tool.execute({"command": "git push origin main"})
+        assert "Network command blocked" in result
+        assert "git push" in result
+
+    def test_git_clone_blocked_by_default(self):
+        tool = RunShellTool()
+        result = tool.execute({"command": "git clone https://github.com/user/repo"})
+        assert "Network command blocked" in result
+
+    def test_ssh_blocked_by_default(self):
+        tool = RunShellTool()
+        result = tool.execute({"command": "ssh user@host"})
+        assert "Network command blocked" in result
+
+    def test_non_network_allowed(self):
+        tool = RunShellTool()
+        result = tool.execute({"command": "echo hello"})
+        assert "hello" in result
+        assert "Network command blocked" not in result
+
+    def test_git_status_allowed(self):
+        """Non-network git commands should not be blocked."""
+        tool = RunShellTool()
+        result = tool.execute({"command": "git status"})
+        assert "Network command blocked" not in result
+
+    def test_allow_network_flag(self):
+        """When allow_network=True, network commands should be allowed through."""
+        tool = RunShellTool(allow_network=True)
+        result = tool.execute({"command": "echo allowed"})
+        assert "Network command blocked" not in result
+
+
+class TestSchemaValidation:
+    """Test argument validation against tool parameter schemas."""
+
+    def test_missing_required_field(self):
+        schema = {
+            "type": "object",
+            "properties": {"command": {"type": "string"}},
+            "required": ["command"],
+        }
+        err = _validate_args({}, schema)
+        assert err is not None
+        assert "Missing required" in err
+        assert "command" in err
+
+    def test_valid_args_pass(self):
+        schema = {
+            "type": "object",
+            "properties": {"command": {"type": "string"}},
+            "required": ["command"],
+        }
+        assert _validate_args({"command": "echo hi"}, schema) is None
+
+    def test_wrong_type_string(self):
+        schema = {"properties": {"path": {"type": "string"}}, "required": []}
+        err = _validate_args({"path": 123}, schema)
+        assert err is not None
+        assert "should be string" in err
+
+    def test_wrong_type_array(self):
+        schema = {"properties": {"paths": {"type": "array"}}, "required": []}
+        err = _validate_args({"paths": "file.txt"}, schema)
+        assert err is not None
+        assert "should be array" in err
+
+    def test_extra_fields_allowed(self):
+        """LLMs sometimes add unexpected fields — these should not cause errors."""
+        schema = {
+            "type": "object",
+            "properties": {"command": {"type": "string"}},
+            "required": ["command"],
+        }
+        assert _validate_args({"command": "echo hi", "extra": "junk"}, schema) is None
+
+    def test_registry_blocks_invalid_args(self):
+        """Registry.execute should return error for invalid args."""
+        registry = ToolRegistry()
+        register_shell_tools(registry)
+        result = registry.execute("run_shell", {})
+        assert "Error" in result
+        assert "Missing required" in result

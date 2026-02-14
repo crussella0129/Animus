@@ -11,6 +11,7 @@ from src.tools.git import (
     GitCheckoutTool,
     GitCommitTool,
     GitDiffTool,
+    GitInitTool,
     GitLogTool,
     GitStatusTool,
     register_git_tools,
@@ -24,6 +25,48 @@ def _mock_run(stdout: str = "", stderr: str = "", returncode: int = 0):
     mock.stderr = stderr
     mock.returncode = returncode
     return mock
+
+
+class TestGitInitTool:
+    @patch("src.tools.git.subprocess.run")
+    def test_init_default_directory(self, mock_run, tmp_path):
+        mock_run.return_value = _mock_run(stdout="Initialized empty Git repository")
+        from src.core.cwd import SessionCwd
+        session_cwd = SessionCwd(tmp_path)
+        tool = GitInitTool(session_cwd=session_cwd)
+        result = tool.execute({})
+        assert "Initialized" in result
+        mock_run.assert_called_once()
+        assert mock_run.call_args[0][0] == ["git", "init"]
+
+    @patch("src.tools.git.subprocess.run")
+    def test_init_specific_path(self, mock_run, tmp_path):
+        target = tmp_path / "new_repo"
+        target.mkdir()
+        mock_run.return_value = _mock_run(stdout="Initialized empty Git repository")
+        tool = GitInitTool()
+        result = tool.execute({"path": str(target)})
+        assert "Initialized" in result
+
+    def test_init_nonexistent_path(self, tmp_path):
+        tool = GitInitTool()
+        result = tool.execute({"path": str(tmp_path / "nonexistent")})
+        assert "Error" in result
+        assert "does not exist" in result
+
+    def test_init_existing_repo(self, tmp_path):
+        (tmp_path / ".git").mkdir()
+        tool = GitInitTool()
+        result = tool.execute({"path": str(tmp_path)})
+        assert "Error" in result
+        assert "already exists" in result
+
+    def test_init_cancelled(self, tmp_path):
+        tool = GitInitTool(confirm_callback=lambda _: False)
+        from src.core.cwd import SessionCwd
+        tool._session_cwd = SessionCwd(tmp_path)
+        result = tool.execute({})
+        assert "cancelled" in result.lower()
 
 
 class TestGitStatusTool:
@@ -180,6 +223,7 @@ class TestGitToolRegistration:
         registry = ToolRegistry()
         register_git_tools(registry)
         names = registry.names()
+        assert "git_init" in names
         assert "git_status" in names
         assert "git_diff" in names
         assert "git_log" in names
@@ -193,9 +237,11 @@ class TestGitToolRegistration:
         cb = lambda msg: True
         register_git_tools(registry, confirm_callback=cb)
         # Confirm tools needing confirmation got the callback
+        init_tool = registry.get("git_init")
         branch_tool = registry.get("git_branch")
         commit_tool = registry.get("git_commit")
         checkout_tool = registry.get("git_checkout")
+        assert init_tool._confirm is cb
         assert branch_tool._confirm is cb
         assert commit_tool._confirm is cb
         assert checkout_tool._confirm is cb
@@ -204,7 +250,7 @@ class TestGitToolRegistration:
         registry = ToolRegistry()
         register_git_tools(registry)
         schemas = registry.to_openai_schemas()
-        assert len(schemas) == 7
+        assert len(schemas) == 8
         for schema in schemas:
             assert schema["type"] == "function"
             assert "function" in schema

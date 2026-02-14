@@ -140,11 +140,13 @@ class RunShellTool(Tool):
         confirm_callback: Any = None,
         execution_budget: ExecutionBudget | None = None,
         session_cwd: SessionCwd | None = None,
+        allow_network: bool = False,
     ) -> None:
         super().__init__()  # Initialize Tool base class
         self._confirm = confirm_callback
         self._budget = execution_budget or ExecutionBudget(max_total_seconds=300)
         self._session_cwd = session_cwd
+        self._allow_network = allow_network
 
     @property
     def name(self) -> str:
@@ -188,6 +190,15 @@ class RunShellTool(Tool):
         blocked = checker.is_command_blocked(command)
         if blocked:
             return f"Error: Command blocked for safety: {blocked}"
+
+        if not self._allow_network:
+            net_match = checker.is_command_network(command)
+            if net_match:
+                return (
+                    f"Error: Network command blocked: '{net_match}'. "
+                    "Outbound network access is disabled by default to prevent "
+                    "data exfiltration. Use allow_network=True to enable."
+                )
 
         if checker.is_command_dangerous(command) and self._confirm:
             if not self._confirm(f"Allow dangerous command: {command}?"):
@@ -276,6 +287,7 @@ def register_shell_tools(
     confirm_callback: Any = None,
     execution_budget: ExecutionBudget | None = None,
     session_cwd: SessionCwd | None = None,
+    allow_network: bool = False,
 ) -> None:
     """Register shell tools with the given registry.
 
@@ -284,9 +296,11 @@ def register_shell_tools(
         confirm_callback: Optional callback for confirming dangerous commands
         execution_budget: Optional shared execution budget for tracking cumulative time
         session_cwd: Optional session-level CWD tracker for persisting cd across calls
+        allow_network: Whether to allow outbound network commands (default: False)
     """
     registry.register(RunShellTool(
         confirm_callback=confirm_callback,
         execution_budget=execution_budget,
         session_cwd=session_cwd,
+        allow_network=allow_network,
     ))

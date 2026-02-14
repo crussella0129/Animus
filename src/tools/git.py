@@ -1,4 +1,4 @@
-"""Git tools: status, diff, log, branch, add, commit, checkout."""
+"""Git tools: init, status, diff, log, branch, add, commit, checkout."""
 
 from __future__ import annotations
 
@@ -108,6 +108,52 @@ def _is_blocked(command_str: str) -> str | None:
         if pattern.lower() in lower:
             return f"Blocked operation: {pattern}"
     return None
+
+
+class GitInitTool(Tool):
+    """Initialize a new git repository."""
+
+    def __init__(self, confirm_callback: Any = None, session_cwd: SessionCwd | None = None) -> None:
+        self._confirm = confirm_callback
+        self._session_cwd = session_cwd
+
+    @property
+    def name(self) -> str:
+        return "git_init"
+
+    @property
+    def description(self) -> str:
+        return "Initialize a new git repository in the current directory or a specified path. Requires confirmation."
+
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Directory to initialize (default: current directory)"},
+            },
+            "required": [],
+        }
+
+    def execute(self, args: dict[str, Any]) -> str:
+        target_path = args.get("path")
+        if target_path:
+            target = Path(target_path).resolve()
+        elif self._session_cwd:
+            target = self._session_cwd.path
+        else:
+            target = Path.cwd()
+
+        if not target.exists():
+            return f"Error: Directory does not exist: {target}"
+        if not target.is_dir():
+            return f"Error: Not a directory: {target}"
+        if (target / ".git").exists():
+            return f"Error: Git repository already exists at {target}"
+
+        if self._confirm and not self._confirm(f"Initialize git repository at {target}?"):
+            return "Git init cancelled by user."
+        return _run_git(["init"], cwd=str(target))
 
 
 class GitStatusTool(Tool):
@@ -361,6 +407,7 @@ def register_git_tools(
     session_cwd: SessionCwd | None = None,
 ) -> None:
     """Register all git tools with the given registry."""
+    registry.register(GitInitTool(confirm_callback=confirm_callback, session_cwd=session_cwd))
     registry.register(GitStatusTool(session_cwd=session_cwd))
     registry.register(GitDiffTool(session_cwd=session_cwd))
     registry.register(GitLogTool(session_cwd=session_cwd))

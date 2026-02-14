@@ -135,11 +135,14 @@ class AnimusConfig(BaseSettings):
         return self.config_dir / "voices"
 
     def save(self) -> None:
-        """Save configuration to YAML file."""
+        """Save configuration to YAML file with restrictive permissions."""
         self.config_dir.mkdir(parents=True, exist_ok=True)
         data = self.model_dump(exclude={"config_dir"})
         with open(self.config_file, "w") as f:
             yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+        # Set owner-only permissions (no-op on Windows, where ACLs are used instead)
+        if os.name != "nt":
+            self.config_file.chmod(0o600)
 
     @classmethod
     def load(cls, config_dir: Optional[Path] = None) -> "AnimusConfig":
