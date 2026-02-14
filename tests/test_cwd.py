@@ -10,7 +10,7 @@ import pytest
 
 from src.core.cwd import SessionCwd
 from src.tools.git import GitAddTool, GitCommitTool, GitStatusTool, _check_git_repo
-from src.tools.shell import RunShellTool, _CD_RE, _normalize_quotes_for_windows
+from src.tools.shell import RunShellTool, _CD_RE, _normalize_quotes_for_windows, _UNQUOTED_PATH_RE
 
 
 class TestSessionCwd:
@@ -173,6 +173,54 @@ class TestQuoteNormalization:
         tool.execute({"command": "mkdir 'my project' && cd 'my project'"})
         expected = (tmp_path / "my project").resolve()
         assert session_cwd.path == expected
+
+
+class TestUnquotedPathNormalization:
+    """Test auto-quoting of unquoted paths with spaces for Windows commands."""
+
+    def test_mkdir_unquoted_absolute_path(self):
+        cmd = r"mkdir C:\Users\charl\Downloads\test 1"
+        result = _normalize_quotes_for_windows(cmd)
+        assert result == r'mkdir "C:\Users\charl\Downloads\test 1"'
+
+    def test_cd_unquoted_absolute_path(self):
+        cmd = r"cd C:\Users\charl\My Documents"
+        result = _normalize_quotes_for_windows(cmd)
+        assert result == r'cd "C:\Users\charl\My Documents"'
+
+    def test_no_spaces_unchanged(self):
+        cmd = r"mkdir C:\Users\charl\Downloads\test1"
+        assert _normalize_quotes_for_windows(cmd) == cmd
+
+    def test_already_quoted_unchanged(self):
+        cmd = r'mkdir "C:\Users\charl\Downloads\test 1"'
+        assert _normalize_quotes_for_windows(cmd) == cmd
+
+    def test_chained_commands(self):
+        cmd = r"mkdir C:\Users\charl\Downloads\test 1 && cd C:\Users\charl\Downloads\test 1"
+        result = _normalize_quotes_for_windows(cmd)
+        assert r'"C:\Users\charl\Downloads\test 1"' in result
+
+    def test_unix_path_with_spaces(self):
+        cmd = "mkdir /home/user/my folder"
+        result = _normalize_quotes_for_windows(cmd)
+        assert result == 'mkdir "/home/user/my folder"'
+
+    def test_non_path_command_unchanged(self):
+        """Commands not in _PATH_COMMANDS should not be affected."""
+        cmd = "echo hello world"
+        assert _normalize_quotes_for_windows(cmd) == cmd
+
+    @pytest.mark.skipif(os.name != "nt", reason="Windows-only integration test")
+    def test_mkdir_unquoted_via_tool(self, tmp_path: Path):
+        """End-to-end: mkdir with unquoted spaced path should create one directory."""
+        session_cwd = SessionCwd(tmp_path)
+        tool = RunShellTool(session_cwd=session_cwd)
+        target = tmp_path / "test folder"
+        tool.execute({"command": f"mkdir {target}"})
+        assert target.exists(), f"Expected '{target}' to exist but it doesn't"
+        # Make sure it didn't split on space
+        assert not (tmp_path / "test").exists()
 
 
 class TestGitRepoGuard:

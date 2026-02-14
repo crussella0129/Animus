@@ -20,22 +20,52 @@ _CD_RE = re.compile(r'(?:^|&&|\|\||;)\s*cd\s')
 # (contractions have a word-char immediately before the opening quote).
 _SINGLE_QUOTE_RE = re.compile(r"(?<!\w)'([^']*)'")
 
+# Commands where the trailing argument is a filesystem path.
+# Used by _quote_unquoted_path_args to auto-quote paths with spaces.
+_PATH_COMMANDS = ("mkdir", "rmdir", "cd", "rd", "md", "type", "del", "copy", "move", "ren")
+
+# Matches: <command> <unquoted path containing spaces> at end of a
+# simple command or before a chain operator (&& || ; &).
+# Group 1 = command name, Group 2 = unquoted path with spaces.
+_UNQUOTED_PATH_RE = re.compile(
+    r'\b(' + '|'.join(_PATH_COMMANDS) + r')'   # command name
+    r'\s+'                                      # whitespace
+    r'([A-Za-z]:\\[^"&|;]+?'                    # drive letter path...
+    r'|/[^"&|;]+?)'                             # ...or Unix path
+    r'(?=\s*(?:&&|\|\||;|&|$))',                # lookahead for chain or EOL
+    re.IGNORECASE,
+)
+
 
 def _normalize_quotes_for_windows(command: str) -> str:
-    r"""Convert Unix-style single-quoted arguments to double quotes for cmd.exe.
+    r"""Fix quoting issues that cause cmd.exe to mishandle paths with spaces.
 
-    LLMs frequently generate commands like:
-        mkdir 'test 1' && cd 'test 1'
-    which on cmd.exe creates directories named  'test  and  1'  (single
-    quotes are literal characters, not delimiters).
+    LLMs frequently generate commands with broken quoting on Windows:
 
-    This converts them to:
-        mkdir "test 1" && cd "test 1"
+    1. Single quotes:  mkdir 'test 1'  →  mkdir "test 1"
+       (cmd.exe treats single quotes as literal characters)
 
-    Only applied on Windows. Skips strings that look like contractions
-    (e.g. "don't") by requiring no word-character before the opening quote.
+    2. No quotes:  mkdir C:\Users\charl\Downloads\test 1  →
+                   mkdir "C:\Users\charl\Downloads\test 1"
+       (cmd.exe splits on spaces, creating two directories)
+
+    Only applied on Windows.
     """
-    return _SINGLE_QUOTE_RE.sub(r'"\1"', command)
+    # Pass 1: Convert single-quoted strings to double-quoted
+    result = _SINGLE_QUOTE_RE.sub(r'"\1"', command)
+
+    # Pass 2: Auto-quote unquoted path arguments that contain spaces
+    # for common filesystem commands (mkdir, cd, etc.)
+    def _quote_path_match(m: re.Match) -> str:
+        cmd_name = m.group(1)
+        path = m.group(2).rstrip()
+        if ' ' in path and not path.startswith('"'):
+            return f'{cmd_name} "{path}"'
+        return m.group(0)
+
+    result = _UNQUOTED_PATH_RE.sub(_quote_path_match, result)
+
+    return result
 
 
 class ExecutionBudget:
@@ -189,6 +219,7 @@ class RunShellTool(Tool):
                 text=True,
                 timeout=timeout,
                 cwd=cwd,
+                stdin=subprocess.DEVNULL,
             )
             elapsed = time.time() - start_time
             self._budget.consume(elapsed)

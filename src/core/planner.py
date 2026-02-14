@@ -259,6 +259,7 @@ _PLANNING_PROMPT = """You are an AI agent. Your working directory is: {cwd}
 Your tools: {tool_names}
 Break this task into 1-5 numbered steps. Each step is one tool call.
 Do NOT include "open terminal" or "press Enter". Keep it short.
+IMPORTANT: Always use double quotes around paths/names that contain spaces (e.g., mkdir "my folder", cd "test 1").
 
 Task: {task}
 
@@ -363,6 +364,7 @@ CRITICAL RULES:
 3. Do NOT read files you just wrote - trust that the write succeeded
 4. Use absolute paths (e.g., C:\\Users\\...) not relative paths
 5. If you've made 3+ tool calls, STOP and return what you have
+6. ALWAYS double-quote paths and names containing spaces (e.g., mkdir "my folder", cd "test 1")
 
 QUALITY RULES:
 - When writing code files: Include proper if __name__ == "__main__" blocks
