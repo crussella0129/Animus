@@ -27,9 +27,15 @@ Think of it as the "development brain" of Animus - it captures the *why* and *ho
 ```
 LLM_GECK/
 ├── README.md                    # This file
-├── Improvement_Audit_*.md       # Comprehensive code audits
-├── logs/                        # Development activity logs
-├── findings/                    # Issue reports and analysis
+├── GECK_Inst.md                 # Agent instructions
+├── GECK_Repor_Instructions.md   # Repor instructions
+├── MANIFOLD_BUILD_INSTRUCTIONS.md # Build instructions
+├── LLM_init.md                  # Project init reference
+├── env.md                       # Environment reference
+├── log.md                       # Active session log
+├── tasks.md                     # Active task tracking
+├── Archival Assets/             # Historical reports and analysis
+├── Previous GECK Logs/          # Archived log entries
 └── templates/                   # Reusable patterns and examples
 ```
 
@@ -87,7 +93,7 @@ If conducting a new audit:
 - **Audits** are versioned by date (`Improvement_Audit_2_12.md` = Feb 12, 2026)
 - **Findings** stay in the directory as historical context
 - **Completed improvements** are marked with ✅ in task trackers
-- **Obsolete documents** are moved to `archive/` rather than deleted
+- **Obsolete documents** are moved to `Archival Assets/` rather than deleted
 
 ## Philosophy
 
@@ -117,4 +123,4 @@ A: `/docs` is user-facing (how to use Animus). GECK is developer-facing (how to 
 
 ---
 
-**Next Steps:** Check `Improvement_Audit_2_12.md` for the latest comprehensive review and priority improvements.
+**Next Steps:** Check `Archival Assets/Improvement_Audit_2_12.md` for the latest comprehensive review and priority improvements.

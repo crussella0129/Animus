@@ -32,6 +32,14 @@
 
 ---
 
+## Report Archival Rule
+
+All custom reports, assessments, test results, and analysis documents go to
+`LLM_GECK/Archival Assets/`. Only operational documents (instructions, active
+logs, task trackers, build guides) remain in the GECK root or project root.
+
+---
+
 ## Work Mode Selection
 
 **Before starting work, select mode:**

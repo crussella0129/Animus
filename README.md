@@ -595,7 +595,7 @@ Agent (with 7B model):
 
 **Key insight:** Below ~3B parameters, models cannot follow the tool-call contract regardless of scaffolding. Above the threshold, returns diminish rapidly — 7B with good scaffolding (plan-then-execute, GBNF grammar, tool filtering) outperforms 14B with the same scaffolding in wall-clock efficiency. *Infrastructure matters more than model size once you cross the viability threshold.*
 
-See [LLM_GECK/Phase_2_assessment.md](LLM_GECK/Phase_2_assessment.md) for full empirical analysis and security audit.
+See [LLM_GECK/Archival Assets/Phase_2_assessment.md](LLM_GECK/Archival%20Assets/Phase_2_assessment.md) for full empirical analysis and security audit.
 
 ### Key Insight: Hardcoded Beats LLM for Navigation
 
