@@ -412,20 +412,47 @@ class ChunkedExecutor:
         self._max_output_tokens = profile["max_output_tokens"]
 
     def execute_plan(self, steps: list[Step], original_request: str) -> list[StepResult]:
-        """Execute all steps sequentially, returning results for each."""
+        """Execute all steps sequentially with inter-step memory.
+
+        Each step can learn from previous steps' outcomes to adapt its approach.
+        """
         results: list[StepResult] = []
         total = len(steps)
+
+        # Inter-step context: carries forward learnings from previous steps
+        step_context = {
+            "failed_paths": set(),  # Paths that failed in previous steps
+            "successful_operations": [],  # Operations that succeeded
+            "discovered_info": {},  # Information discovered during execution
+        }
 
         for step in steps:
             if self._on_progress:
                 self._on_progress(step.number, total, step.description)
 
-            result = self._execute_step(step, total, original_request)
+            result = self._execute_step(step, total, original_request, step_context)
             results.append(result)
+
+            # Update inter-step context based on result
+            if result.status == StepStatus.FAILED and result.error:
+                # Track failure patterns
+                if "No such file" in result.error or "not found" in result.error.lower():
+                    # Extract failed path if present
+                    import re
+                    path_match = re.search(r'["\']([^"\']+)["\']', result.error)
+                    if path_match:
+                        step_context["failed_paths"].add(path_match.group(1))
+            elif result.status == StepStatus.COMPLETED:
+                # Track successful operations
+                step_context["successful_operations"].append({
+                    "step": step.number,
+                    "description": step.description,
+                    "output_preview": result.output[:100] if result.output else "",
+                })
 
             # On failure: record but continue (user can inspect results)
             if result.status == StepStatus.FAILED:
-                # Don't abort — let remaining steps attempt execution
+                # Don't abort — let remaining steps attempt execution with learned context
                 pass
 
         return results
@@ -468,9 +495,27 @@ class ChunkedExecutor:
         # Success case
         return f"[Tool result for {tool_name}]: {result}"
 
-    def _execute_step(self, step: Step, total: int, original_request: str) -> StepResult:
-        """Execute a single step with fresh context and filtered tools."""
+    def _execute_step(
+        self,
+        step: Step,
+        total: int,
+        original_request: str,
+        step_context: dict | None = None,
+    ) -> StepResult:
+        """Execute a single step with fresh context, filtered tools, and inter-step memory.
+
+        Args:
+            step: The step to execute
+            total: Total number of steps in plan
+            original_request: Original user request
+            step_context: Optional context from previous steps (failed paths, discoveries)
+
+        Returns:
+            StepResult with execution outcome
+        """
         import os
+
+        step_context = step_context or {}
 
         # Filter tools for this step type (narrows to single tool if description mentions one)
         filtered_registry = _filter_tools(self._full_registry, step.step_type, step.description)
@@ -493,15 +538,30 @@ class ChunkedExecutor:
             tool_lines.append(f"- {tool.name}: {tool.description} Params: {params_text}")
         tool_schemas_str = "\n".join(tool_lines) if tool_lines else "No tools available."
 
+        # Build step context summary if available
+        context_info = ""
+        if step_context:
+            context_parts = []
+            if step_context.get("failed_paths"):
+                paths = list(step_context["failed_paths"])[:3]
+                context_parts.append(f"Failed paths from previous steps: {', '.join(paths)}")
+            if step_context.get("successful_operations"):
+                recent = step_context["successful_operations"][-2:]  # Last 2 successful ops
+                for op in recent:
+                    context_parts.append(f"Step {op['step']} succeeded: {op['output_preview']}")
+
+            if context_parts:
+                context_info = "\n\nLEARNINGS FROM PREVIOUS STEPS:\n" + "\n".join(f"- {p}" for p in context_parts)
+
         system_prompt = _EXECUTION_PROMPT.format(
             step_num=step.number,
             total_steps=total,
             step_description=step.description,
             tool_schemas=tool_schemas_str,
             cwd=os.getcwd(),
-        )
+        ) + context_info
 
-        # Fresh message history — no carryover from previous steps
+        # Fresh message history — no carryover from previous steps except learned context
         messages: list[dict[str, str]] = [
             {"role": "user", "content": step.description},
         ]

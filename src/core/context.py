@@ -209,33 +209,86 @@ class ContextWindow:
         messages: list[dict[str, str]],
         system_prompt: str,
         add_summary: bool = True,
+        prioritize_tool_results: bool = True,
     ) -> list[dict[str, str]]:
-        """Trim message history to fit within context budget, with optional summary.
+        """Trim message history to fit within context budget with priority retention.
 
         Args:
             messages: The conversation history to trim
             system_prompt: The system prompt (for budget calculation)
             add_summary: If True, prepend a summary marker indicating dropped messages
+            prioritize_tool_results: If True, preferentially keep tool results
 
         Returns:
             Trimmed message list that fits within the budget
+
+        Priority retention strategy:
+        1. Always keep the most recent N messages
+        2. For older messages, prioritize tool results over conversational turns
+        3. Fill remaining budget with highest-priority messages
         """
         budget = self.compute_budget(system_prompt, messages)
-        if estimate_messages_tokens(messages) <= budget.history_tokens:
+        total_tokens = estimate_messages_tokens(messages)
+
+        if total_tokens <= budget.history_tokens:
             return messages
 
-        # Keep most recent messages that fit
-        trimmed = []
-        running_tokens = 0
-        split_point = 0
+        if not prioritize_tool_results:
+            # Simple recency-based trimming (old behavior)
+            return self._trim_by_recency(messages, budget.history_tokens, add_summary)
 
-        for i, msg in enumerate(reversed(messages)):
-            msg_tokens = estimate_tokens(msg.get("content", "")) + 4
-            if running_tokens + msg_tokens > budget.history_tokens:
-                split_point = len(messages) - i
-                break
-            trimmed.insert(0, msg)
-            running_tokens += msg_tokens
+        # Priority-based trimming
+        # Always keep most recent messages (last 5 or 20% of budget, whichever is smaller)
+        recent_count = min(5, len(messages))
+        recent_messages = messages[-recent_count:]
+        recent_tokens = estimate_messages_tokens(recent_messages)
+
+        # Budget remaining for older messages
+        remaining_budget = budget.history_tokens - recent_tokens
+
+        if remaining_budget <= 0:
+            # Recent messages already exceed budget - just trim by recency
+            return self._trim_by_recency(messages, budget.history_tokens, add_summary)
+
+        # Score older messages by priority
+        older_messages = messages[:-recent_count] if recent_count > 0 else []
+        scored_messages = []
+
+        for i, msg in enumerate(older_messages):
+            content = msg.get("content", "")
+            tokens = estimate_tokens(content) + 4
+
+            # Priority scoring
+            priority = 0
+            if "[Tool result" in content or "[Tool " in content:
+                priority = 10  # Highest: Tool results
+            elif msg.get("role") == "assistant" and len(content) > 100:
+                priority = 5  # Medium: Substantial assistant responses
+            elif msg.get("role") == "user":
+                priority = 3  # Low-medium: User messages
+            else:
+                priority = 1  # Low: Other messages
+
+            scored_messages.append((priority, i, msg, tokens))
+
+        # Sort by priority (descending), then by recency (index)
+        scored_messages.sort(key=lambda x: (-x[0], -x[1]))
+
+        # Fill budget with highest-priority messages
+        kept_older = []
+        used_tokens = 0
+        for priority, idx, msg, tokens in scored_messages:
+            if used_tokens + tokens <= remaining_budget:
+                kept_older.append((idx, msg))
+                used_tokens += tokens
+
+        # Sort by original index to maintain chronological order
+        kept_older.sort(key=lambda x: x[0])
+        older_kept = [msg for _, msg in kept_older]
+
+        # Combine: older (priority-selected) + recent (always kept)
+        trimmed = older_kept + recent_messages
+        split_point = len(messages) - len(trimmed)
 
         # If we dropped messages and summary is enabled, prepend a marker
         if split_point > 0 and add_summary:
@@ -303,6 +356,46 @@ class ContextWindow:
             summary = summary[:max_length] + "..."
 
         return summary
+
+    def _trim_by_recency(
+        self,
+        messages: list[dict[str, str]],
+        budget_tokens: int,
+        add_summary: bool,
+    ) -> list[dict[str, str]]:
+        """Simple recency-based trimming (keeps most recent messages).
+
+        Args:
+            messages: Messages to trim
+            budget_tokens: Token budget
+            add_summary: Whether to add summary marker
+
+        Returns:
+            Trimmed messages
+        """
+        trimmed = []
+        running_tokens = 0
+        split_point = 0
+
+        for i, msg in enumerate(reversed(messages)):
+            msg_tokens = estimate_tokens(msg.get("content", "")) + 4
+            if running_tokens + msg_tokens > budget_tokens:
+                split_point = len(messages) - i
+                break
+            trimmed.insert(0, msg)
+            running_tokens += msg_tokens
+
+        if split_point > 0 and add_summary:
+            dropped_info = self._summarize_dropped_messages(messages[:split_point])
+            summary_content = (
+                f"[Context Summary: {split_point} earlier messages trimmed]\n"
+                f"{dropped_info}"
+            )
+            summary_tokens = estimate_tokens(summary_content) + 4
+            if summary_tokens < budget_tokens:
+                return [{"role": "system", "content": summary_content}] + trimmed
+
+        return trimmed
 
     def chunk_instruction(self, instruction: str) -> list[str]:
         """Break a large instruction into smaller chunks for small models.
