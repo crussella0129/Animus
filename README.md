@@ -21,7 +21,7 @@
 
 **Local-first AI agent with intelligent code understanding and multi-strategy retrieval.**
 
-Animus is a production-ready agentic system designed to run entirely on edge hardware (8W Jetson to consumer GPUs) with sub-7B models. Features novel **Animus: Manifold** multi-strategy retrieval that combines vector search, knowledge graphs, and keyword search with hardcoded routing—no cloud dependencies, no LLM-based classification overhead.
+Animus is an experimental agentic system designed to run entirely on edge hardware (8W Jetson/Pi with Transformer hat to consumer GPUs) with sub-7B models. Features novel **Animus: Manifold** multi-strategy retrieval that combines vector search, knowledge graphs, and keyword search with hardcoded routing—no cloud dependencies, no LLM-based classification overhead.
 
 **Key Innovation:** The first local-first system to achieve <400ms hybrid query latency by treating the entire codebase as "one surface" through AST-based knowledge graphs and contextual embeddings, eliminating naive chunking strategies.
 
