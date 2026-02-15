@@ -719,7 +719,7 @@ animus/
 | RRF fusion | <1ms | Pure math |
 | **Total (cached embedding)** | **<200ms** | **Combined** |
 | Query embedding (MiniLM) | 50-200ms | GPU/CPU dependent |
-| **Total (cold query)** | **<400ms** | **End-to-end** |
+| **Total (cold query)** | **<400ms** | **End-to-end** (Does not include LLM prompt processing time or plan formation) |
 
 Tested on RTX 2080 Ti with 601 chunks, 1,240 graph nodes.
 
