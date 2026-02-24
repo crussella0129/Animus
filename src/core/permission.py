@@ -94,19 +94,39 @@ class PermissionChecker:
 
     _instance: PermissionChecker | None = None
 
+    _INJECTION_RE = re.compile(
+        r'\$\('       # $(command)
+        r'|`'         # `command`
+        r'|;'         # command separator
+        r'|&&'        # logical and
+        r'|\|\|'      # logical or
+    )
+
     def __new__(cls) -> PermissionChecker:
         """Ensure only one instance exists (singleton pattern)."""
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
 
+    def has_injection_pattern(self, command: str) -> bool:
+        """Check if command contains shell injection patterns.
+
+        Defense-in-depth: with shell=True removed, these patterns can't
+        execute, but detecting them flags suspicious LLM output.
+        """
+        return bool(self._INJECTION_RE.search(command))
+
     def is_path_safe(self, path: Path) -> bool:
-        """Check if a path is safe to access."""
-        resolved = str(path.resolve())
+        """Check if a path is safe to access. Follows symlinks."""
+        try:
+            resolved = str(path.resolve(strict=False))
+        except (OSError, ValueError):
+            return False
         for dangerous in DANGEROUS_DIRECTORIES:
-            if resolved.startswith(dangerous):
+            norm_dangerous = dangerous.replace("\\", "/")
+            norm_resolved = resolved.replace("\\", "/")
+            if norm_resolved.startswith(norm_dangerous):
                 return False
-        # Normalize separators for cross-platform matching
         resolved_fwd = resolved.replace("\\", "/")
         for dangerous in DANGEROUS_FILES:
             if resolved_fwd.endswith(dangerous) or dangerous in resolved_fwd:
