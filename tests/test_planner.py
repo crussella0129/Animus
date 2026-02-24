@@ -928,3 +928,31 @@ class TestHardBlockScope:
             "Expected a '[System]: Tool not available' blocked message but found none. "
             "Scope enforcement should block out-of-scope tools BEFORE execution."
         )
+
+
+class TestExplicitToolMessaging:
+    """Step prompts should explicitly state which tools are allowed."""
+
+    def test_step_prompt_includes_only_instruction(self):
+        from unittest.mock import MagicMock
+        from src.core.planner import ChunkedExecutor, Step, StepType
+        from src.tools.base import ToolRegistry
+        from src.tools.filesystem import ReadFileTool
+
+        mock_provider = MagicMock()
+        mock_provider.capabilities.return_value = MagicMock(
+            context_length=4096, size_tier="small"
+        )
+        mock_provider.generate.return_value = "Done reading."
+
+        registry = ToolRegistry()
+        registry.register(ReadFileTool())
+
+        executor = ChunkedExecutor(provider=mock_provider, tool_registry=registry)
+        step = Step(number=1, description="Read config", step_type=StepType.READ)
+        executor._execute_step(step, 1, "Read config")
+
+        call_args = mock_provider.generate.call_args
+        messages = call_args[0][0]
+        system_msg = messages[0]["content"]
+        assert "ONLY use the tools listed above" in system_msg

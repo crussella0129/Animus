@@ -621,6 +621,13 @@ class ChunkedExecutor:
             tool_lines.append(f"- {tool.name}: {tool.description} Params: {params_text}")
         tool_schemas_str = "\n".join(tool_lines) if tool_lines else "No tools available."
 
+        # Explicit tool restriction to prevent scope bleed
+        tool_schemas_str += (
+            "\n\nIMPORTANT: You may ONLY use the tools listed above. "
+            "Do not attempt to use any other tools. If the step cannot be completed "
+            "with the available tools, return what you have."
+        )
+
         # Build step context summary if available
         context_info = ""
         if step_context:
