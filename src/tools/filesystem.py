@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -72,6 +73,7 @@ class WriteFileTool(Tool):
 
     # Class-level audit log (shared across all instances)
     _write_log: list[dict[str, Any]] = []
+    _write_log_lock = threading.Lock()
 
     def __init__(self, session_cwd: SessionCwd | None = None):
         super().__init__()
@@ -87,12 +89,14 @@ class WriteFileTool(Tool):
         Returns:
             List of write operations with path, size, hash, and timestamp
         """
-        return cls._write_log.copy()
+        with cls._write_log_lock:
+            return cls._write_log.copy()
 
     @classmethod
     def clear_write_log(cls) -> None:
         """Clear the write audit log."""
-        cls._write_log.clear()
+        with cls._write_log_lock:
+            cls._write_log.clear()
 
     @property
     def name(self) -> str:
@@ -128,13 +132,14 @@ class WriteFileTool(Tool):
 
             # Record write operation in audit log
             content_hash = hashlib.md5(content.encode()).hexdigest()
-            self._write_log.append({
-                "path": str(path),
-                "size": len(content),
-                "timestamp": time.time(),
-                "hash": content_hash,
-                "lines": content.count('\n') + 1,
-            })
+            with self._write_log_lock:
+                self._write_log.append({
+                    "path": str(path),
+                    "size": len(content),
+                    "timestamp": time.time(),
+                    "hash": content_hash,
+                    "lines": content.count('\n') + 1,
+                })
 
             return f"Successfully wrote {len(content)} characters to {path}"
         except Exception as e:

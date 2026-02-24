@@ -411,3 +411,32 @@ class TestShellMetacharRejection:
         result = tool.execute({"command": "echo hello"})
         assert "hello" in result
         assert "not supported" not in result.lower()
+
+
+import threading
+
+
+class TestWriteLogThreadSafety:
+    """WriteFileTool._write_log must be thread-safe."""
+
+    def test_concurrent_writes_no_data_loss(self, tmp_path: Path):
+        WriteFileTool.clear_write_log()
+        errors = []
+
+        def write_file(i: int):
+            try:
+                tool = WriteFileTool()
+                target = tmp_path / f"file_{i}.txt"
+                tool.execute({"path": str(target), "content": f"content_{i}"})
+            except Exception as e:
+                errors.append(e)
+
+        threads = [threading.Thread(target=write_file, args=(i,)) for i in range(20)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert not errors
+        log = WriteFileTool.get_write_log()
+        assert len(log) == 20
