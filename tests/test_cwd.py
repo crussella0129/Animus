@@ -10,7 +10,7 @@ import pytest
 
 from src.core.cwd import SessionCwd
 from src.tools.git import GitAddTool, GitCommitTool, GitStatusTool, _check_git_repo
-from src.tools.shell import RunShellTool, _CD_RE, _normalize_quotes_for_windows, _UNQUOTED_PATH_RE
+from src.tools.shell import RunShellTool, _normalize_quotes_for_windows, _UNQUOTED_PATH_RE
 
 
 class TestSessionCwd:
@@ -52,26 +52,6 @@ class TestSessionCwd:
         assert resolved == (tmp_path / "file.txt").resolve()
 
 
-class TestCdRegex:
-    """Verify the regex that detects cd commands in shell strings."""
-
-    def test_bare_cd(self):
-        assert _CD_RE.search("cd /tmp")
-
-    def test_cd_after_and(self):
-        assert _CD_RE.search("mkdir foo && cd foo")
-
-    def test_cd_after_semicolon(self):
-        assert _CD_RE.search("echo hi; cd /tmp")
-
-    def test_no_cd(self):
-        assert not _CD_RE.search("echo hello world")
-
-    def test_cd_in_word_no_match(self):
-        # "abcd foo" should not match
-        assert not _CD_RE.search("abcd foo")
-
-
 class TestShellCwdCapture:
     """Test that cd updates the session CWD and markers are stripped."""
 
@@ -90,29 +70,35 @@ class TestShellCwdCapture:
         tool.execute({"command": "echo hello"})
         assert session_cwd.path == original
 
-    def test_marker_stripped_from_output(self, tmp_path: Path):
+    def test_cd_output_has_no_markers(self, tmp_path: Path):
+        """cd is handled directly by SessionCwd; no shell markers in output."""
         sub = tmp_path / "marker_test"
         sub.mkdir()
         session_cwd = SessionCwd(tmp_path)
         tool = RunShellTool(session_cwd=session_cwd)
-        result = tool.execute({"command": f"echo before && cd \"{sub}\""})
+        result = tool.execute({"command": f'cd "{sub}"'})
         assert "__ANIMUS_CWD__" not in result
+        assert "Changed directory" in result
 
     def test_shell_uses_session_cwd(self, tmp_path: Path):
         """Shell commands should run in the session CWD, not the process CWD."""
         session_cwd = SessionCwd(tmp_path)
         tool = RunShellTool(session_cwd=session_cwd)
         if os.name == "nt":
-            result = tool.execute({"command": "cd"})
+            # Use 'cd' via cmd /c to print CWD (not the cd handler)
+            result = tool.execute({"command": "echo %CD%"})
         else:
             result = tool.execute({"command": "pwd"})
         assert str(tmp_path.resolve()).lower() in result.lower()
 
-    def test_chained_cd_and_mkdir(self, tmp_path: Path):
-        """mkdir + cd should update session CWD to the new directory."""
+    def test_separate_mkdir_then_cd(self, tmp_path: Path):
+        """mkdir then cd as separate commands should update session CWD."""
         session_cwd = SessionCwd(tmp_path)
         tool = RunShellTool(session_cwd=session_cwd)
-        tool.execute({"command": f"cd \"{tmp_path}\" && mkdir new_dir && cd new_dir"})
+        # Step 1: mkdir
+        tool.execute({"command": "mkdir new_dir"})
+        # Step 2: cd
+        tool.execute({"command": "cd new_dir"})
         expected = (tmp_path / "new_dir").resolve()
         assert session_cwd.path == expected
 
@@ -167,10 +153,11 @@ class TestQuoteNormalization:
 
     @pytest.mark.skipif(os.name != "nt", reason="Windows-only integration test")
     def test_mkdir_and_cd_with_spaces_via_tool(self, tmp_path: Path):
-        """mkdir + cd with single-quoted spaced name should work end-to-end."""
+        """mkdir + cd with single-quoted spaced name should work as separate calls."""
         session_cwd = SessionCwd(tmp_path)
         tool = RunShellTool(session_cwd=session_cwd)
-        tool.execute({"command": "mkdir 'my project' && cd 'my project'"})
+        tool.execute({"command": "mkdir 'my project'"})
+        tool.execute({"command": "cd 'my project'"})
         expected = (tmp_path / "my project").resolve()
         assert session_cwd.path == expected
 

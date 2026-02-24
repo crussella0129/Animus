@@ -286,6 +286,77 @@ class TestSchemaValidation:
         assert "Missing required" in result
 
 
+class TestShellCdHandling:
+    """cd commands are handled directly via SessionCwd, not subprocess."""
+
+    def test_cd_updates_session_cwd(self, tmp_path: Path):
+        from src.core.cwd import SessionCwd
+        cwd = SessionCwd(initial=tmp_path)
+        subdir = tmp_path / "subdir"
+        subdir.mkdir()
+        tool = RunShellTool(session_cwd=cwd)
+        result = tool.execute({"command": f"cd {subdir}"})
+        assert "Changed directory" in result
+        assert cwd.path == subdir
+
+    def test_cd_with_quotes(self, tmp_path: Path):
+        from src.core.cwd import SessionCwd
+        cwd = SessionCwd(initial=tmp_path)
+        subdir = tmp_path / "sub dir"
+        subdir.mkdir()
+        tool = RunShellTool(session_cwd=cwd)
+        result = tool.execute({"command": f'cd "{subdir}"'})
+        assert "Changed directory" in result
+        assert cwd.path == subdir
+
+    def test_cd_nonexistent_stays_unchanged(self, tmp_path: Path):
+        from src.core.cwd import SessionCwd
+        cwd = SessionCwd(initial=tmp_path)
+        tool = RunShellTool(session_cwd=cwd)
+        result = tool.execute({"command": "cd /nonexistent/path"})
+        assert cwd.path == tmp_path  # unchanged
+
+    def test_cd_without_session_cwd(self):
+        tool = RunShellTool()
+        result = tool.execute({"command": "cd /tmp"})
+        # Should handle gracefully
+        assert "no session tracking" in result.lower() or "Changed" in result
+
+    def test_cd_home(self, tmp_path: Path):
+        """cd with no argument should go to home directory."""
+        from src.core.cwd import SessionCwd
+        cwd = SessionCwd(initial=tmp_path)
+        tool = RunShellTool(session_cwd=cwd)
+        result = tool.execute({"command": "cd"})
+        assert "Changed directory" in result
+
+    def test_cd_relative(self, tmp_path: Path):
+        """cd to a relative path should resolve against session CWD."""
+        from src.core.cwd import SessionCwd
+        subdir = tmp_path / "child"
+        subdir.mkdir()
+        cwd = SessionCwd(initial=tmp_path)
+        tool = RunShellTool(session_cwd=cwd)
+        result = tool.execute({"command": "cd child"})
+        assert "Changed directory" in result
+        assert cwd.path == subdir
+
+
+class TestShellListBasedExecution:
+    """Tests for list-based subprocess execution (no shell=True)."""
+
+    def test_command_not_found(self):
+        tool = RunShellTool()
+        result = tool.execute({"command": "nonexistent_command_xyz"})
+        assert "Error" in result or "not found" in result.lower()
+
+    def test_empty_after_parse(self):
+        tool = RunShellTool()
+        result = tool.execute({"command": "   "})
+        # Should handle gracefully (either cd-like or empty command)
+        assert isinstance(result, str)
+
+
 class TestShellMetacharRejection:
     """Shell metacharacters must be rejected to prevent injection."""
 
