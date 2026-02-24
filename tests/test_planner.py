@@ -876,3 +876,55 @@ class TestScopeEnforcement:
         available = ["run_shell", "read_file", "write_file"]
         expected = _infer_expected_tools("Use run_shell to create directory", available)
         assert "run_shell" in expected
+
+
+class TestHardBlockScope:
+    """Out-of-scope tool calls should be blocked on first violation."""
+
+    def test_out_of_scope_tool_not_executed(self):
+        """First out-of-scope tool call should be blocked, not just warned."""
+        from unittest.mock import MagicMock, patch
+        from src.core.planner import ChunkedExecutor, Step, StepType, StepStatus
+        from src.tools.base import ToolRegistry
+        from src.tools.filesystem import ReadFileTool, ListDirTool
+
+        mock_provider = MagicMock()
+        mock_provider.capabilities.return_value = MagicMock(
+            context_length=4096, size_tier="small"
+        )
+
+        # First response: out-of-scope tool (run_shell for a READ step)
+        # Second response: correct tool (read_file)
+        # Third response: just text (no tool call)
+        mock_provider.generate.side_effect = [
+            '{"name": "run_shell", "arguments": {"command": "echo hack"}}',
+            '{"name": "read_file", "arguments": {"path": "test.txt"}}',
+            'Done.',
+        ]
+
+        registry = ToolRegistry()
+        registry.register(ReadFileTool())
+        registry.register(ListDirTool())
+
+        executor = ChunkedExecutor(provider=mock_provider, tool_registry=registry)
+
+        step = Step(number=1, description="Read the config file", step_type=StepType.READ)
+
+        # Patch the filtered registry's execute to track calls
+        with patch.object(executor, '_execute_step', wraps=executor._execute_step):
+            result = executor._execute_step(step, 1, "Read config")
+
+        # The step should complete (run_shell was blocked, then read_file tried)
+        assert result.status == StepStatus.COMPLETED
+
+        # Verify the blocked message was injected (not a tool error message)
+        # The model should have received a system message about run_shell being unavailable
+        second_call_messages = mock_provider.generate.call_args_list[1][0][0]
+        blocked_messages = [
+            m for m in second_call_messages
+            if m["role"] == "user" and "not available for this step" in m.get("content", "")
+        ]
+        assert len(blocked_messages) >= 1, (
+            "Expected a '[System]: Tool not available' blocked message but found none. "
+            "Scope enforcement should block out-of-scope tools BEFORE execution."
+        )

@@ -662,7 +662,6 @@ class ChunkedExecutor:
         total_tool_calls = 0
         max_tools = self._max_tools_per_step
         out_of_scope_count = 0
-        has_successful_call = False
         # Infer expected tools from step description for scope enforcement
         expected_tools = _infer_expected_tools(step.description, filtered_registry.names())
 
@@ -796,6 +795,24 @@ class ChunkedExecutor:
                         output=last_tool_result or f"Stopped after {max_tools} tool calls."
                     )
 
+                # Scope enforcement: block out-of-scope tool calls BEFORE execution
+                if expected_tools and call["name"] not in expected_tools:
+                    out_of_scope_count += 1
+                    blocked_msg = (
+                        f"[System]: Tool '{call['name']}' is not available for this step "
+                        f"(\"{step.description}\"). Available tools: {', '.join(expected_tools)}. "
+                        f"Use only the listed tools."
+                    )
+                    messages.append({"role": "user", "content": blocked_msg})
+
+                    if out_of_scope_count >= 2:
+                        return StepResult(
+                            step=step,
+                            status=StepStatus.COMPLETED,
+                            output=last_tool_result or "Step terminated: repeated out-of-scope tool calls.",
+                        )
+                    continue  # Skip execution, give model another chance
+
                 if self._transcript:
                     self._transcript.log_tool_call(call["name"], call["arguments"], step_num=step.number)
                 _tool_t0 = time.time()
@@ -810,26 +827,6 @@ class ChunkedExecutor:
                     "role": "user",
                     "content": evaluated_result,
                 })
-
-                # Scope enforcement: detect out-of-scope tool calls
-                is_error = result.startswith("Error")
-                if not is_error:
-                    if has_successful_call and expected_tools and call["name"] not in expected_tools:
-                        out_of_scope_count += 1
-                        if out_of_scope_count >= 2:
-                            # Two out-of-scope calls after primary work — stop
-                            return StepResult(
-                                step=step,
-                                status=StepStatus.COMPLETED,
-                                output=last_tool_result or "Step completed (scope limit reached).",
-                            )
-                        # First out-of-scope call — warn
-                        messages.append({
-                            "role": "user",
-                            "content": f"[System]: Tool '{call['name']}' is outside the scope of this step "
-                                       f"(\"{step.description}\"). Complete this step and move on.",
-                        })
-                    has_successful_call = True
 
         # Exhausted turns — consider the step complete with what we have
         last_output = last_tool_result or (messages[-1].get("content", "") if messages else "")
