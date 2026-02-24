@@ -818,7 +818,7 @@ def rise(
                         is_first,
                     )
 
-                    audio.speak(response, blocking=cfg.audio.blocking, prepend_title=title_prefix)
+                    audio.speak("Task completed.", blocking=cfg.audio.blocking, prepend_title=title_prefix)
 
                 # Reset plan mode toggle after use
                 if _plan_mode_state["active"]:
