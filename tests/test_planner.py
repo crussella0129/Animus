@@ -956,3 +956,39 @@ class TestExplicitToolMessaging:
         messages = call_args[0][0]
         system_msg = messages[0]["content"]
         assert "ONLY use the tools listed above" in system_msg
+
+
+class TestTighterStepTypeInference:
+    """File extensions should take priority over keyword matching."""
+
+    def test_test_py_file_is_write_not_shell(self):
+        from src.core.planner import _infer_step_type, StepType
+        assert _infer_step_type("edit test_auth.py") == StepType.WRITE
+
+    def test_test_py_file_read(self):
+        from src.core.planner import _infer_step_type, StepType
+        assert _infer_step_type("read test_auth.py") == StepType.READ
+
+    def test_run_pytest_is_shell(self):
+        from src.core.planner import _infer_step_type, StepType
+        assert _infer_step_type("run pytest") == StepType.SHELL
+
+    def test_create_config_json_is_write(self):
+        from src.core.planner import _infer_step_type, StepType
+        assert _infer_step_type("create config.json") == StepType.WRITE
+
+    def test_check_readme_md_is_read(self):
+        from src.core.planner import _infer_step_type, StepType
+        assert _infer_step_type("check readme.md contents") == StepType.READ
+
+    def test_implement_file_is_write(self):
+        from src.core.planner import _infer_step_type, StepType
+        assert _infer_step_type("implement auth_handler.py") == StepType.WRITE
+
+    def test_build_file_is_write(self):
+        from src.core.planner import _infer_step_type, StepType
+        assert _infer_step_type("build utils.py module") == StepType.WRITE
+
+    def test_make_file_is_write(self):
+        from src.core.planner import _infer_step_type, StepType
+        assert _infer_step_type("make test_config.py") == StepType.WRITE

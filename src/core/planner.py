@@ -291,8 +291,14 @@ def _infer_step_type(description: str) -> StepType:
 
     if has_file_pattern:
         # If description mentions a file, check for file operation verbs first
-        write_verbs = ["edit", "modify", "update", "change", "fix", "add to", "append", "write", "create"]
-        read_verbs = ["read", "view", "check", "look at", "examine", "inspect", "show", "cat", "display"]
+        write_verbs = [
+            "edit", "modify", "update", "change", "fix", "add to", "append",
+            "write", "create", "save", "implement", "build", "make",
+        ]
+        read_verbs = [
+            "read", "view", "check", "look at", "examine", "inspect",
+            "show", "cat", "display", "open", "review",
+        ]
 
         if any(verb in lower for verb in write_verbs):
             return StepType.WRITE
