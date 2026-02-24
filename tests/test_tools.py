@@ -284,3 +284,59 @@ class TestSchemaValidation:
         result = registry.execute("run_shell", {})
         assert "Error" in result
         assert "Missing required" in result
+
+
+class TestShellMetacharRejection:
+    """Shell metacharacters must be rejected to prevent injection."""
+
+    def test_pipe_rejected(self):
+        tool = RunShellTool()
+        result = tool.execute({"command": "echo hello | grep hello"})
+        assert "Error" in result
+        assert "not supported" in result.lower()
+
+    def test_redirect_out_rejected(self):
+        tool = RunShellTool()
+        result = tool.execute({"command": "echo hello > /tmp/out.txt"})
+        assert "Error" in result
+
+    def test_redirect_in_rejected(self):
+        tool = RunShellTool()
+        result = tool.execute({"command": "cat < /etc/passwd"})
+        assert "Error" in result
+
+    def test_semicolon_rejected(self):
+        tool = RunShellTool()
+        result = tool.execute({"command": "echo safe; rm -rf /"})
+        assert "Error" in result
+
+    def test_and_chain_rejected(self):
+        tool = RunShellTool()
+        result = tool.execute({"command": "mkdir foo && cd foo"})
+        assert "Error" in result
+
+    def test_or_chain_rejected(self):
+        tool = RunShellTool()
+        result = tool.execute({"command": "false || echo fallback"})
+        assert "Error" in result
+
+    def test_command_substitution_dollar_rejected(self):
+        tool = RunShellTool()
+        result = tool.execute({"command": "echo $(whoami)"})
+        assert "Error" in result
+
+    def test_command_substitution_backtick_rejected(self):
+        tool = RunShellTool()
+        result = tool.execute({"command": "echo `whoami`"})
+        assert "Error" in result
+
+    def test_background_ampersand_rejected(self):
+        tool = RunShellTool()
+        result = tool.execute({"command": "sleep 100 &"})
+        assert "Error" in result
+
+    def test_simple_command_allowed(self):
+        tool = RunShellTool()
+        result = tool.execute({"command": "echo hello"})
+        assert "hello" in result
+        assert "not supported" not in result.lower()

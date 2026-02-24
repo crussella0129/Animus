@@ -36,6 +36,28 @@ _UNQUOTED_PATH_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Shell metacharacters that indicate injection risk.
+_SHELL_METACHAR_RE = re.compile(
+    r'\|'       # pipe or logical or
+    r'|&&'      # logical and
+    r'|;'       # command separator
+    r'|>'       # redirect out
+    r'|<'       # redirect in
+    r'|`'       # backtick substitution
+    r'|\$\('    # dollar-paren substitution
+    r'|&(?!&)'  # background (&) but not already matched &&
+)
+
+
+def _reject_shell_features(command: str) -> str | None:
+    """Check command for shell metacharacters. Returns error message if found."""
+    if _SHELL_METACHAR_RE.search(command):
+        return (
+            "Shell features (pipes, redirects, command chaining, substitution) "
+            "are not supported. Use separate tool calls instead."
+        )
+    return None
+
 
 def _normalize_quotes_for_windows(command: str) -> str:
     r"""Fix quoting issues that cause cmd.exe to mishandle paths with spaces.
@@ -185,6 +207,11 @@ class RunShellTool(Tool):
                 f"Budget stats: {stats['used']}s used in {stats['call_count']} commands, "
                 f"{stats['remaining']}s remaining"
             )
+
+        # Reject shell metacharacters (prevents injection)
+        shell_err = _reject_shell_features(command)
+        if shell_err:
+            return f"Error: {shell_err}"
 
         checker = PermissionChecker()
         blocked = checker.is_command_blocked(command)
