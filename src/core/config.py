@@ -44,6 +44,7 @@ class AgentConfig(BaseModel):
     max_turns: int = 20
     system_prompt: str = "You are Animus, a helpful local AI assistant with tool use capabilities."
     confirm_dangerous: bool = True
+    workspace_root: Optional[str] = None
 
 
 class AudioConfig(BaseModel):

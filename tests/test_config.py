@@ -57,3 +57,18 @@ class TestAnimusConfig:
         cfg.save()
         mode = cfg.config_file.stat().st_mode & 0o777
         assert mode == 0o600, f"Expected 0o600, got {oct(mode)}"
+
+
+class TestWorkspaceConfig:
+    def test_workspace_root_default_none(self):
+        from src.core.config import AnimusConfig
+        config = AnimusConfig()
+        assert config.agent.workspace_root is None
+
+    def test_workspace_root_roundtrip(self, tmp_config_dir):
+        from src.core.config import AnimusConfig
+        config = AnimusConfig(config_dir=tmp_config_dir)
+        config.agent.workspace_root = "/home/user/project"
+        config.save()
+        loaded = AnimusConfig.load(config_dir=tmp_config_dir)
+        assert loaded.agent.workspace_root == "/home/user/project"
