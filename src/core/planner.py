@@ -19,7 +19,7 @@ from enum import Enum
 from typing import Any, Callable, Optional
 
 from src.core.context import ContextWindow, estimate_tokens
-from src.core.cwd import SessionCwd
+from src.core.workspace import Workspace
 from src.core.errors import classify_error, RecoveryStrategy
 from src.core.tool_parsing import parse_tool_calls
 from src.llm.base import ModelCapabilities, ModelProvider
@@ -342,7 +342,7 @@ class TaskDecomposer:
         provider: ModelProvider,
         planning_provider: Optional[ModelProvider] = None,
         tool_names: Optional[list[str]] = None,
-        session_cwd: SessionCwd | None = None,
+        session_cwd: Workspace | None = None,
         transcript: TranscriptLogger | None = None,
     ) -> None:
         self._provider = planning_provider or provider
@@ -469,7 +469,7 @@ class ChunkedExecutor:
         max_step_turns: int = 10,
         on_progress: Optional[Callable[[int, int, str], None]] = None,
         on_step_output: Optional[Callable[[str], None]] = None,
-        session_cwd: SessionCwd | None = None,
+        session_cwd: Workspace | None = None,
         transcript: TranscriptLogger | None = None,
     ) -> None:
         self._provider = provider
@@ -873,7 +873,7 @@ class PlanExecutor:
         max_step_turns: int = 10,
         on_progress: Optional[Callable[[int, int, str], None]] = None,
         on_step_output: Optional[Callable[[str], None]] = None,
-        session_cwd: SessionCwd | None = None,
+        session_cwd: Workspace | None = None,
         transcript: TranscriptLogger | None = None,
     ) -> None:
         self._transcript = transcript

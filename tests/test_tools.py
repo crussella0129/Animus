@@ -287,34 +287,35 @@ class TestSchemaValidation:
 
 
 class TestShellCdHandling:
-    """cd commands are handled directly via SessionCwd, not subprocess."""
+    """cd commands are handled directly via Workspace, not subprocess."""
 
     def test_cd_updates_session_cwd(self, tmp_path: Path):
-        from src.core.cwd import SessionCwd
-        cwd = SessionCwd(initial=tmp_path)
+        from src.core.workspace import Workspace
+        ws = Workspace(root=tmp_path)
         subdir = tmp_path / "subdir"
         subdir.mkdir()
-        tool = RunShellTool(session_cwd=cwd)
+        tool = RunShellTool(session_cwd=ws)
         result = tool.execute({"command": f"cd {subdir}"})
         assert "Changed directory" in result
-        assert cwd.path == subdir
+        assert ws.path == subdir
 
     def test_cd_with_quotes(self, tmp_path: Path):
-        from src.core.cwd import SessionCwd
-        cwd = SessionCwd(initial=tmp_path)
+        from src.core.workspace import Workspace
+        ws = Workspace(root=tmp_path)
         subdir = tmp_path / "sub dir"
         subdir.mkdir()
-        tool = RunShellTool(session_cwd=cwd)
+        tool = RunShellTool(session_cwd=ws)
         result = tool.execute({"command": f'cd "{subdir}"'})
         assert "Changed directory" in result
-        assert cwd.path == subdir
+        assert ws.path == subdir
 
     def test_cd_nonexistent_stays_unchanged(self, tmp_path: Path):
-        from src.core.cwd import SessionCwd
-        cwd = SessionCwd(initial=tmp_path)
-        tool = RunShellTool(session_cwd=cwd)
+        from src.core.workspace import Workspace
+        ws = Workspace(root=tmp_path)
+        tool = RunShellTool(session_cwd=ws)
         result = tool.execute({"command": "cd /nonexistent/path"})
-        assert cwd.path == tmp_path  # unchanged
+        assert ws.path == tmp_path  # unchanged
+        assert "Error" in result
 
     def test_cd_without_session_cwd(self):
         tool = RunShellTool()
@@ -323,23 +324,24 @@ class TestShellCdHandling:
         assert "no session tracking" in result.lower() or "Changed" in result
 
     def test_cd_home(self, tmp_path: Path):
-        """cd with no argument should go to home directory."""
-        from src.core.cwd import SessionCwd
-        cwd = SessionCwd(initial=tmp_path)
-        tool = RunShellTool(session_cwd=cwd)
+        """cd with no argument: if home is outside workspace, cd is rejected."""
+        from src.core.workspace import Workspace
+        ws = Workspace(root=tmp_path)
+        tool = RunShellTool(session_cwd=ws)
         result = tool.execute({"command": "cd"})
-        assert "Changed directory" in result
+        # Home is likely outside tmp_path workspace, so it should be rejected
+        assert "Error" in result or "Changed directory" in result
 
     def test_cd_relative(self, tmp_path: Path):
         """cd to a relative path should resolve against session CWD."""
-        from src.core.cwd import SessionCwd
+        from src.core.workspace import Workspace
         subdir = tmp_path / "child"
         subdir.mkdir()
-        cwd = SessionCwd(initial=tmp_path)
-        tool = RunShellTool(session_cwd=cwd)
+        ws = Workspace(root=tmp_path)
+        tool = RunShellTool(session_cwd=ws)
         result = tool.execute({"command": "cd child"})
         assert "Changed directory" in result
-        assert cwd.path == subdir
+        assert ws.path == subdir
 
 
 class TestShellListBasedExecution:

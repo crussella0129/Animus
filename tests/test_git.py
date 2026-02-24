@@ -31,8 +31,8 @@ class TestGitInitTool:
     @patch("src.tools.git.subprocess.run")
     def test_init_default_directory(self, mock_run, tmp_path):
         mock_run.return_value = _mock_run(stdout="Initialized empty Git repository")
-        from src.core.cwd import SessionCwd
-        session_cwd = SessionCwd(tmp_path)
+        from src.core.workspace import Workspace
+        session_cwd = Workspace(root=tmp_path)
         tool = GitInitTool(session_cwd=session_cwd)
         result = tool.execute({})
         assert "Initialized" in result
@@ -63,8 +63,8 @@ class TestGitInitTool:
 
     def test_init_cancelled(self, tmp_path):
         tool = GitInitTool(confirm_callback=lambda _: False)
-        from src.core.cwd import SessionCwd
-        tool._session_cwd = SessionCwd(tmp_path)
+        from src.core.workspace import Workspace
+        tool._session_cwd = Workspace(root=tmp_path)
         result = tool.execute({})
         assert "cancelled" in result.lower()
 

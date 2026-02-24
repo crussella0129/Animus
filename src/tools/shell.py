@@ -9,7 +9,7 @@ import subprocess
 import time
 from typing import Any
 
-from src.core.cwd import SessionCwd
+from src.core.workspace import Workspace
 from src.core.permission import PermissionChecker
 from src.tools.base import Tool, ToolRegistry, isolated
 
@@ -159,7 +159,7 @@ class RunShellTool(Tool):
         self,
         confirm_callback: Any = None,
         execution_budget: ExecutionBudget | None = None,
-        session_cwd: SessionCwd | None = None,
+        session_cwd: Workspace | None = None,
         allow_network: bool = False,
     ) -> None:
         super().__init__()  # Initialize Tool base class
@@ -211,7 +211,7 @@ class RunShellTool(Tool):
         if shell_err:
             return f"Error: {shell_err}"
 
-        # Handle cd commands directly via SessionCwd (shell builtin)
+        # Handle cd commands directly via Workspace boundary tracking (shell builtin)
         cd_match = re.match(r'^\s*cd(?:\s+(.*))?$', command)
         if cd_match:
             return self._handle_cd(cd_match.group(1))
@@ -295,14 +295,17 @@ class RunShellTool(Tool):
             return f"Error executing command: {e}"
 
     def _handle_cd(self, target: str | None) -> str:
-        """Handle cd command directly via SessionCwd."""
+        """Handle cd command directly via Workspace."""
         if target is None or not target.strip():
             target = os.path.expanduser("~")
         else:
             target = target.strip().strip("\"'")
         if self._session_cwd is None:
             return f"Changed directory to {target} (no session tracking)"
+        old_cwd = self._session_cwd.path
         self._session_cwd.set(target)
+        if self._session_cwd.path == old_cwd and target != str(old_cwd):
+            return f"Error: Cannot change directory to {target} (outside workspace or does not exist)"
         return f"Changed directory to {self._session_cwd.path}"
 
 
@@ -310,7 +313,7 @@ def register_shell_tools(
     registry: ToolRegistry,
     confirm_callback: Any = None,
     execution_budget: ExecutionBudget | None = None,
-    session_cwd: SessionCwd | None = None,
+    session_cwd: Workspace | None = None,
     allow_network: bool = False,
 ) -> None:
     """Register shell tools with the given registry.
@@ -319,7 +322,7 @@ def register_shell_tools(
         registry: The tool registry to register with
         confirm_callback: Optional callback for confirming dangerous commands
         execution_budget: Optional shared execution budget for tracking cumulative time
-        session_cwd: Optional session-level CWD tracker for persisting cd across calls
+        session_cwd: Optional Workspace for persisting cd across calls with boundary enforcement
         allow_network: Whether to allow outbound network commands (default: False)
     """
     registry.register(RunShellTool(

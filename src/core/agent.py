@@ -9,7 +9,7 @@ from collections.abc import Generator
 from typing import Any, Callable, Optional
 
 from src.core.context import ContextWindow, estimate_tokens
-from src.core.cwd import SessionCwd
+from src.core.workspace import Workspace
 from src.core.errors import RecoveryStrategy, classify_error
 from src.core.tool_parsing import parse_tool_calls
 from src.llm.base import ModelProvider
@@ -60,7 +60,7 @@ class Agent:
         system_prompt: str = "You are a helpful assistant.",
         max_turns: int = 20,
         planning_provider: Optional[ModelProvider] = None,
-        session_cwd: SessionCwd | None = None,
+        session_cwd: Workspace | None = None,
         transcript: TranscriptLogger | None = None,
     ) -> None:
         self._provider = provider

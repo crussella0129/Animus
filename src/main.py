@@ -570,7 +570,7 @@ def rise(
 ) -> None:
     """Awaken Animus. Start an interactive agent session."""
     from src.core.agent import Agent
-    from src.core.cwd import SessionCwd
+    from src.core.workspace import Workspace
     from src.core.session import Session
     from src.llm.factory import ProviderFactory
     from src.tools.base import ToolRegistry
@@ -604,8 +604,8 @@ def rise(
         error(f"Provider '{cfg.model.provider}' is not available. Run 'animus status' to check.")
         raise typer.Exit(1)
 
-    # Set up session-level working directory tracker
-    session_cwd = SessionCwd()
+    # Set up session-level working directory tracker with workspace boundary
+    session_cwd = Workspace(root=cfg.agent.workspace_root)
 
     # Set up tool registry with confirmation callback
     registry = ToolRegistry()

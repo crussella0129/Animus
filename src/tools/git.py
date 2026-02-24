@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from src.core.cwd import SessionCwd
+from src.core.workspace import Workspace
 from src.tools.base import Tool, ToolRegistry
 
 # Operations that are never allowed
@@ -22,7 +22,7 @@ _BLOCKED_PATTERNS = frozenset({
 })
 
 
-def _check_git_repo(session_cwd: SessionCwd | None) -> str | None:
+def _check_git_repo(session_cwd: Workspace | None) -> str | None:
     """Verify git repo exists at the session CWD.
 
     For mutating operations (add, commit, branch create, checkout), we check
@@ -113,7 +113,7 @@ def _is_blocked(command_str: str) -> str | None:
 class GitInitTool(Tool):
     """Initialize a new git repository."""
 
-    def __init__(self, confirm_callback: Any = None, session_cwd: SessionCwd | None = None) -> None:
+    def __init__(self, confirm_callback: Any = None, session_cwd: Workspace | None = None) -> None:
         self._confirm = confirm_callback
         self._session_cwd = session_cwd
 
@@ -159,7 +159,7 @@ class GitInitTool(Tool):
 class GitStatusTool(Tool):
     """Show working tree status."""
 
-    def __init__(self, session_cwd: SessionCwd | None = None) -> None:
+    def __init__(self, session_cwd: Workspace | None = None) -> None:
         self._session_cwd = session_cwd
 
     @property
@@ -182,7 +182,7 @@ class GitStatusTool(Tool):
 class GitDiffTool(Tool):
     """Show changes in working tree or staging area."""
 
-    def __init__(self, session_cwd: SessionCwd | None = None) -> None:
+    def __init__(self, session_cwd: Workspace | None = None) -> None:
         self._session_cwd = session_cwd
 
     @property
@@ -217,7 +217,7 @@ class GitDiffTool(Tool):
 class GitLogTool(Tool):
     """Show commit log."""
 
-    def __init__(self, session_cwd: SessionCwd | None = None) -> None:
+    def __init__(self, session_cwd: Workspace | None = None) -> None:
         self._session_cwd = session_cwd
 
     @property
@@ -247,7 +247,7 @@ class GitLogTool(Tool):
 class GitBranchTool(Tool):
     """List or create branches."""
 
-    def __init__(self, confirm_callback: Any = None, session_cwd: SessionCwd | None = None) -> None:
+    def __init__(self, confirm_callback: Any = None, session_cwd: Workspace | None = None) -> None:
         self._confirm = confirm_callback
         self._session_cwd = session_cwd
 
@@ -285,7 +285,7 @@ class GitBranchTool(Tool):
 class GitAddTool(Tool):
     """Stage files for commit."""
 
-    def __init__(self, session_cwd: SessionCwd | None = None) -> None:
+    def __init__(self, session_cwd: Workspace | None = None) -> None:
         self._session_cwd = session_cwd
 
     @property
@@ -324,7 +324,7 @@ class GitAddTool(Tool):
 class GitCommitTool(Tool):
     """Commit staged changes."""
 
-    def __init__(self, confirm_callback: Any = None, session_cwd: SessionCwd | None = None) -> None:
+    def __init__(self, confirm_callback: Any = None, session_cwd: Workspace | None = None) -> None:
         self._confirm = confirm_callback
         self._session_cwd = session_cwd
 
@@ -362,7 +362,7 @@ class GitCommitTool(Tool):
 class GitCheckoutTool(Tool):
     """Switch branches or restore files."""
 
-    def __init__(self, confirm_callback: Any = None, session_cwd: SessionCwd | None = None) -> None:
+    def __init__(self, confirm_callback: Any = None, session_cwd: Workspace | None = None) -> None:
         self._confirm = confirm_callback
         self._session_cwd = session_cwd
 
@@ -404,7 +404,7 @@ class GitCheckoutTool(Tool):
 def register_git_tools(
     registry: ToolRegistry,
     confirm_callback: Any = None,
-    session_cwd: SessionCwd | None = None,
+    session_cwd: Workspace | None = None,
 ) -> None:
     """Register all git tools with the given registry."""
     registry.register(GitInitTool(confirm_callback=confirm_callback, session_cwd=session_cwd))
