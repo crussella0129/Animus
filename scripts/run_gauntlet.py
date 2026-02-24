@@ -30,7 +30,7 @@ TEST_DIR_NAME = "animus_gauntlet_test"
 def main() -> int:
     from src.core.agent import Agent
     from src.core.config import AnimusConfig
-    from src.core.cwd import SessionCwd
+    from src.core.workspace import Workspace
     from src.core.transcript import TranscriptLogger
     from src.llm.factory import ProviderFactory
     from src.tools.base import ToolRegistry
@@ -64,7 +64,7 @@ def main() -> int:
     print()
 
     # Set up tools
-    session_cwd = SessionCwd()
+    session_cwd = Workspace()
     registry = ToolRegistry()
     register_filesystem_tools(registry, session_cwd=session_cwd)
     register_shell_tools(registry, confirm_callback=lambda _: True, session_cwd=session_cwd)
