@@ -33,7 +33,9 @@ def _retry_with_backoff(func):
             last_exc = exc
             if attempt < _MAX_RETRIES - 1:
                 time.sleep(_BASE_DELAY * (2 ** attempt))
-    raise last_exc
+    if last_exc is not None:
+        raise last_exc
+    raise RuntimeError(f"_retry_with_backoff exhausted {_MAX_RETRIES} retries with no exception captured")
 
 
 class OpenAIProvider(ModelProvider):
