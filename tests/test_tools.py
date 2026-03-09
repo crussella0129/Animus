@@ -462,6 +462,83 @@ class TestRespondTool:
         assert result == "Task complete."
 
 
+class TestFunctionToolDecorator:
+    def test_creates_tool_subclass(self):
+        """@function_tool returns a class that is a Tool subclass."""
+        from src.tools.base import function_tool, Tool
+
+        @function_tool(description="Add two numbers")
+        def add(a: int, b: int) -> int:
+            return a + b
+
+        instance = add()
+        assert isinstance(instance, Tool)
+        assert instance.name == "add"
+        assert instance.description == "Add two numbers"
+
+    def test_generates_schema_from_type_hints(self):
+        """@function_tool generates correct JSON Schema from type annotations."""
+        from src.tools.base import function_tool
+
+        @function_tool(description="Greet")
+        def greet(name: str, loud: bool) -> str:
+            return name.upper() if loud else name
+
+        schema = greet().parameters
+        assert schema["properties"]["name"]["type"] == "string"
+        assert schema["properties"]["loud"]["type"] == "boolean"
+        assert "name" in schema["required"]
+        assert "loud" in schema["required"]
+
+    def test_execute_calls_function_and_returns_str(self):
+        """execute() calls the wrapped function and coerces result to str."""
+        from src.tools.base import function_tool
+
+        @function_tool(description="Multiply")
+        def multiply(x: int, y: int) -> int:
+            return x * y
+
+        result = multiply().execute({"x": 3, "y": 4})
+        assert result == "12"
+
+    def test_optional_param_not_in_required(self):
+        """Parameters with defaults are excluded from the required list."""
+        from src.tools.base import function_tool
+
+        @function_tool(description="Echo with prefix")
+        def echo(message: str, prefix: str = ">>") -> str:
+            return f"{prefix} {message}"
+
+        schema = echo().parameters
+        assert "message" in schema["required"]
+        assert "prefix" not in schema.get("required", [])
+
+    def test_unknown_type_defaults_to_string(self):
+        """Parameters with unknown types default to 'string' in schema."""
+        from src.tools.base import function_tool
+        from pathlib import Path
+
+        @function_tool(description="Process path")
+        def process(p: Path) -> str:  # Path is not in _TYPE_MAP
+            return str(p)
+
+        schema = process().parameters
+        assert schema["properties"]["p"]["type"] == "string"
+
+    def test_decorated_tool_registers_in_registry(self):
+        """A function_tool instance can be registered and executed via ToolRegistry."""
+        from src.tools.base import function_tool, ToolRegistry
+
+        @function_tool(description="Return constant")
+        def const() -> str:
+            return "hello"
+
+        registry = ToolRegistry()
+        registry.register(const())
+        result = registry.execute("const", {})
+        assert result == "hello"
+
+
 import threading
 
 
