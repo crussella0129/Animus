@@ -134,6 +134,21 @@ class WriteFileTool(Tool):
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             content = args["content"]
+            # Unescape JSON-escaped sequences that LLMs emit inside string arguments.
+            # Models like Qwen emit \" instead of " when writing content containing
+            # double-quotes, causing syntax errors in written files. We decode known
+            # escape sequences but preserve intentional double-backslashes (\\).
+            _UNESCAPE = [
+                ('\\"', '"'),
+                ('\\n', '\n'),
+                ('\\t', '\t'),
+                ('\\\\', '\\'),
+            ]
+            # Only apply if the content looks like it has been JSON-escaped
+            # (i.e. contains \" but not actual unescaped content already)
+            if '\\"' in content or '\\n' in content or '\\t' in content or '\\\\' in content:
+                for escaped, unescaped in _UNESCAPE:
+                    content = content.replace(escaped, unescaped)
             path.write_text(content, encoding="utf-8")
 
             # Record write operation in audit log
