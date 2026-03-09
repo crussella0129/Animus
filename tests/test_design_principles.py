@@ -10,13 +10,13 @@ class TestNoUserInputTimeouts:
 
     def test_no_timeout_in_confirm_callback(self):
         """Ensure confirmation prompts have no timeout."""
-        main_file = Path("src/main.py")
-        with open(main_file, 'r') as f:
+        session_manager_file = Path("src/cli/session_manager.py")
+        with open(session_manager_file, 'r') as f:
             content = f.read()
 
-        # Check _make_confirm_callback function
-        assert "_make_confirm_callback" in content
-        confirm_section = content[content.find("def _make_confirm_callback"):content.find("def _make_confirm_callback") + 1000]
+        # Check make_confirm_callback function
+        assert "make_confirm_callback" in content
+        confirm_section = content[content.find("def make_confirm_callback"):content.find("def make_confirm_callback") + 1000]
 
         # Should NOT contain timeout parameter
         assert "timeout=" not in confirm_section.lower()
@@ -24,8 +24,8 @@ class TestNoUserInputTimeouts:
 
     def test_no_timeout_in_main_input(self):
         """Ensure main REPL input has no timeout."""
-        main_file = Path("src/main.py")
-        with open(main_file, 'r') as f:
+        app_file = Path("src/cli/app.py")
+        with open(app_file, 'r') as f:
             content = f.read()
 
         # Find the main input loop
@@ -56,7 +56,8 @@ class TestNoUserInputTimeouts:
 
     def test_console_input_calls_no_timeout(self):
         """Check all console.input() calls for timeout parameters."""
-        main_file = Path("src/main.py")
+        # The REPL loop and confirm callback are now in src/cli/
+        main_file = Path("src/cli/app.py")
 
         with open(main_file, 'r') as f:
             tree = ast.parse(f.read())
