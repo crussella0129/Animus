@@ -63,6 +63,20 @@ class Agent:
         session_cwd: Workspace | None = None,
         transcript: TranscriptLogger | None = None,
     ) -> None:
+        """Initialise the Agent.
+
+        Args:
+            provider: The primary model provider used for generation.
+            tool_registry: Registry of tools available to the agent.
+                Note: The tool_registry must be fully populated before
+                constructing Agent, or use agent.register_tool() after
+                construction to keep grammar and system prompt in sync.
+            system_prompt: Base system prompt text.
+            max_turns: Maximum agentic loop iterations before giving up.
+            planning_provider: Optional separate provider used for planning.
+            session_cwd: Optional workspace for enforcing directory boundaries.
+            transcript: Optional transcript logger for recording sessions.
+        """
         self._provider = provider
         self._tools = tool_registry
         self._base_system_prompt = system_prompt
@@ -110,6 +124,16 @@ class Agent:
             tool_names=", ".join(tool_names),
             tool_examples=_build_tool_examples(self._tools),
         )
+
+    def register_tool(self, tool) -> None:
+        """Register a tool and rebuild grammar + system prompt.
+
+        Use this instead of agent._tools.register() directly to ensure the
+        grammar and system prompt stay in sync with the tool registry.
+        """
+        self._tools.register(tool)
+        self._grammar = self._build_tool_grammar()
+        self._system_prompt = self._build_system_prompt()
 
     @property
     def messages(self) -> list[dict[str, str]]:
