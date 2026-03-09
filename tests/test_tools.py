@@ -445,6 +445,23 @@ class TestSandboxedRunShellTool:
         assert "direct" in result
 
 
+class TestRespondTool:
+    def test_respond_tool_name_and_schema(self):
+        """RespondTool has name='respond' and requires 'message' parameter."""
+        from src.tools.base import RespondTool
+        tool = RespondTool()
+        assert tool.name == "respond"
+        assert "message" in tool.parameters["properties"]
+        assert "message" in tool.parameters.get("required", [])
+
+    def test_respond_tool_execute_returns_message(self):
+        """RespondTool.execute() returns the message string directly."""
+        from src.tools.base import RespondTool
+        tool = RespondTool()
+        result = tool.execute({"message": "Task complete."})
+        assert result == "Task complete."
+
+
 import threading
 
 

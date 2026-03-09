@@ -151,6 +151,42 @@ def _validate_args(args: dict[str, Any], schema: dict[str, Any]) -> str | None:
     return None
 
 
+class RespondTool(Tool):
+    """Special tool the model calls to return a final natural-language response.
+
+    Used with grammar-constrained decoding: since grammar forces JSON tool calls
+    on every turn, the model calls respond() to return its final answer.
+    The agent loop detects this tool and returns the message directly to the user.
+    """
+
+    @property
+    def name(self) -> str:
+        return "respond"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Return a final response to the user. Call this when your task is complete "
+            "or when you need to communicate results without making another tool call."
+        )
+
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string",
+                    "description": "The response to return to the user.",
+                }
+            },
+            "required": ["message"],
+        }
+
+    def execute(self, args: dict[str, Any]) -> str:
+        return args["message"]
+
+
 class ToolRegistry:
     """Registry for managing available tools."""
 

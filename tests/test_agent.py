@@ -115,6 +115,54 @@ class TestAgent:
         assert calls == []
 
 
+class TestGrammarOnAllTurns:
+    """Grammar should be applied on ALL non-streaming turns, not just turn 0."""
+
+    def test_step_called_with_use_grammar_true_on_all_turns(self):
+        """_step() must receive use_grammar=True on every non-streaming turn."""
+        from unittest.mock import patch, call
+
+        # Turn 0: tool call; Turn 1: final answer
+        provider = _make_mock_provider([
+            '{"name": "mock_tool", "arguments": {"input": "test"}}',
+            '{"name": "respond", "arguments": {"message": "All done."}}',
+        ])
+        registry = ToolRegistry()
+        registry.register(MockTool())
+        agent = Agent(provider=provider, tool_registry=registry)
+
+        grammar_calls: list[bool] = []
+        original_step = agent._step
+
+        def spy_step(use_grammar: bool = True):
+            grammar_calls.append(use_grammar)
+            return original_step(use_grammar=use_grammar)
+
+        with patch.object(agent, "_step", side_effect=spy_step):
+            agent.run("Do something")
+
+        # Every non-streaming _step call must have use_grammar=True
+        assert len(grammar_calls) >= 2, f"Expected at least 2 _step calls, got {grammar_calls}"
+        assert all(grammar_calls), f"Some turns had use_grammar=False: {grammar_calls}"
+
+    def test_respond_tool_auto_registered(self):
+        """Agent.__init__() auto-registers RespondTool in the tool registry."""
+        provider = _make_mock_provider(["Hello"])
+        registry = ToolRegistry()
+        agent = Agent(provider=provider, tool_registry=registry)
+        assert "respond" in agent._tools.names()
+
+    def test_respond_tool_short_circuits_loop(self):
+        """When model calls respond(), the loop returns its message immediately."""
+        provider = _make_mock_provider([
+            '{"name": "respond", "arguments": {"message": "Task complete."}}',
+        ])
+        registry = ToolRegistry()
+        agent = Agent(provider=provider, tool_registry=registry)
+        result = agent.run("Summarise things")
+        assert result == "Task complete."
+
+
 class TestChunkedExecution:
     """Test multi-chunk instruction processing."""
 
