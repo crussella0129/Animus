@@ -12,6 +12,7 @@ from src.core.context import ContextWindow, estimate_tokens
 from src.core.workspace import Workspace
 from src.core.errors import RecoveryStrategy, classify_error
 from src.core.tool_parsing import parse_tool_calls
+from src.core.planner import should_use_planner
 from src.llm.base import ModelProvider
 from src.tools.base import ToolRegistry
 
@@ -139,8 +140,25 @@ class Agent:
     def messages(self) -> list[dict[str, str]]:
         return self._messages.copy()
 
-    def run(self, user_input: str) -> str:
-        """Run the agent loop: send user message, handle tool calls, return final response."""
+    def run(self, user_input: str, force_direct: bool = False) -> str:
+        """Run the agent loop: send user message, handle tool calls, return final response.
+
+        Args:
+            user_input: The task or message to send to the agent.
+            force_direct: When True, bypass should_use_planner() and run the
+                agentic loop directly. Use this for small, targeted tasks where
+                planner decomposition adds latency and noise (e.g., --no-plan).
+                When False (default), should_use_planner() is consulted; the
+                result is available to callers but run() always executes the
+                direct agentic loop (use run_planned() for planner execution).
+        """
+        # Consult should_use_planner unless force_direct explicitly bypasses it.
+        # This allows callers to know whether the planner would be appropriate,
+        # and ensures force_direct=True guarantees should_use_planner is never
+        # called (e.g. for latency-sensitive targeted tasks via --no-plan).
+        if not force_direct:
+            should_use_planner(self._provider)
+
         chunks = self._context_window.chunk_instruction(user_input)
 
         if len(chunks) > 1:

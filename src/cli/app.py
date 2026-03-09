@@ -472,6 +472,7 @@ def rise(
     cautious: bool = typer.Option(False, "--cautious", help="Enable Ornstein sandbox for tool execution"),
     paranoid: bool = typer.Option(False, "--paranoid", help="Enable Smough container isolation (not yet implemented)"),
     transcript: Optional[str] = typer.Option(None, "--transcript", help="Save execution transcript to this .md path"),
+    no_plan: bool = typer.Option(False, "--no-plan", help="Bypass planner — use agent loop directly for targeted tasks"),
 ) -> None:
     """Awaken Animus. Start an interactive agent session."""
     from src.core.agent import Agent
@@ -628,7 +629,7 @@ def rise(
             # Determine execution mode
             from src.core.planner import should_use_planner
 
-            use_plan = _plan_mode_state["active"] or should_use_planner(provider)
+            use_plan = not no_plan and (_plan_mode_state["active"] or should_use_planner(provider))
 
             if use_plan:
                 # Plan-then-execute mode
