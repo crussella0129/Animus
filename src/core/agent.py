@@ -41,7 +41,7 @@ def _build_tool_examples(registry: ToolRegistry) -> str:
             if param_info.get("type") == "integer":
                 example_args[param_name] = 10
             elif param_info.get("type") == "boolean":
-                example_args[param_name] = False
+                example_args[param_name] = True
             else:
                 example_args[param_name] = f"example_{param_name}"
         import json

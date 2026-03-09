@@ -458,7 +458,7 @@ class TestRespondTool:
         """RespondTool.execute() returns the message string directly."""
         from src.tools.base import RespondTool
         tool = RespondTool()
-        result = tool.execute({"message": "Task complete."})
+        result = tool.execute({"message": "Task complete.", "verified": True})
         assert result == "Task complete."
 
 
