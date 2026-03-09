@@ -9,7 +9,8 @@ pub struct CodeNode {
     pub file_path: String,
     pub line_start: usize,
     pub line_end: usize,
-    pub docstring: Option<String>,
+    #[serde(default)]
+    pub docstring: String,
     #[serde(default)]
     pub args: Vec<String>,
     #[serde(default)]

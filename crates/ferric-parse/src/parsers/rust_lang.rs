@@ -1,7 +1,7 @@
 use std::path::Path;
 use tree_sitter::{Parser, Node};
 use crate::output::{FileParseResult, CodeNode};
-use crate::parsers::LanguageParser;
+use crate::parsers::{LanguageParser, node_text};
 
 pub struct RustParser;
 
@@ -26,15 +26,11 @@ impl LanguageParser for RustParser {
     }
 }
 
-fn get_text<'a>(node: Node, source: &'a str) -> &'a str {
-    &source[node.start_byte()..node.end_byte()]
-}
-
 fn collect_rust_nodes(node: Node, source: &str, module: &str, file_path: &str, result: &mut FileParseResult) {
     match node.kind() {
         "struct_item" | "enum_item" => {
             if let Some(name_node) = node.child_by_field_name("name") {
-                let name = get_text(name_node, source).to_string();
+                let name = node_text(name_node, source).to_string();
                 result.nodes.push(CodeNode {
                     kind: "class".to_string(),
                     name: name.clone(),
@@ -48,7 +44,7 @@ fn collect_rust_nodes(node: Node, source: &str, module: &str, file_path: &str, r
         }
         "function_item" => {
             if let Some(name_node) = node.child_by_field_name("name") {
-                let name = get_text(name_node, source).to_string();
+                let name = node_text(name_node, source).to_string();
                 result.nodes.push(CodeNode {
                     kind: "function".to_string(),
                     name: name.clone(),

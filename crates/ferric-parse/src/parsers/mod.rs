@@ -15,3 +15,8 @@ pub fn get_parser_for_extension(ext: &str) -> Option<Box<dyn LanguageParser>> {
         _ => None,
     }
 }
+
+/// Extract the source text for a tree-sitter node.
+pub fn node_text<'a>(node: tree_sitter::Node, source: &'a str) -> &'a str {
+    &source[node.start_byte()..node.end_byte()]
+}
