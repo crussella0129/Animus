@@ -155,7 +155,7 @@ class TestGrammarOnAllTurns:
     def test_respond_tool_short_circuits_loop(self):
         """When model calls respond(), the loop returns its message immediately."""
         provider = _make_mock_provider([
-            '{"name": "respond", "arguments": {"message": "Task complete."}}',
+            '{"name": "respond", "arguments": {"message": "Task complete.", "verified": true}}',
         ])
         registry = ToolRegistry()
         agent = Agent(provider=provider, tool_registry=registry)

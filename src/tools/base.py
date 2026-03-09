@@ -166,8 +166,10 @@ class RespondTool(Tool):
     @property
     def description(self) -> str:
         return (
-            "Return a final response to the user. Call this when your task is complete "
-            "or when you need to communicate results without making another tool call."
+            "Return a final response to the user. IMPORTANT: Only call this after you have "
+            "verified your work — e.g., re-read any file you wrote, ran the relevant test, "
+            "or confirmed the output. Set verified=true once you have confirmed the result. "
+            "Do NOT call this as your first action."
         )
 
     @property
@@ -177,10 +179,14 @@ class RespondTool(Tool):
             "properties": {
                 "message": {
                     "type": "string",
-                    "description": "The response to return to the user.",
-                }
+                    "description": "The final response to return to the user.",
+                },
+                "verified": {
+                    "type": "boolean",
+                    "description": "Set to true after you have verified your work (read back the file, ran tests, etc.)",
+                },
             },
-            "required": ["message"],
+            "required": ["message", "verified"],
         }
 
     def execute(self, args: dict[str, Any]) -> str:
