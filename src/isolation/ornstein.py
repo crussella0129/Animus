@@ -317,8 +317,13 @@ class OrnsteinSandbox:
             )
 
         # Get result from queue
-        if not result_queue.empty():
-            result_data = result_queue.get()
+        import queue
+        try:
+            result_data = result_queue.get(timeout=1)
+        except queue.Empty:
+            result_data = None
+
+        if result_data is not None:
             return OrnsteinResult(
                 success=result_data["success"],
                 output=result_data["output"],
