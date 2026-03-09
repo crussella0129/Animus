@@ -3,12 +3,37 @@
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import Generator
 from typing import Any
 
 import httpx
 
 from src.llm.base import ModelCapabilities, ModelProvider
+
+_RETRYABLE_STATUS_CODES = frozenset({429, 503, 529})
+_MAX_RETRIES = 3
+_BASE_DELAY = 1.0  # seconds; doubles each attempt (1s, 2s, 4s)
+
+
+def _retry_with_backoff(func):
+    """Call func(), retrying on transient HTTP errors (429, 503, 529).
+
+    Applies exponential backoff: 1s -> 2s -> 4s between retries.
+    Non-retryable errors (400, 401, 404, etc.) propagate immediately.
+    Raises the last exception if all retries are exhausted.
+    """
+    last_exc = None
+    for attempt in range(_MAX_RETRIES):
+        try:
+            return func()
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code not in _RETRYABLE_STATUS_CODES:
+                raise
+            last_exc = exc
+            if attempt < _MAX_RETRIES - 1:
+                time.sleep(_BASE_DELAY * (2 ** attempt))
+    raise last_exc
 
 
 class OpenAIProvider(ModelProvider):
@@ -49,14 +74,17 @@ class OpenAIProvider(ModelProvider):
         if tools:
             payload["tools"] = tools
 
-        with httpx.Client(timeout=self._timeout) as client:
-            response = client.post(
-                f"{self._base_url}/chat/completions",
-                headers=self._headers(),
-                json=payload,
-            )
-            response.raise_for_status()
+        def _call():
+            with httpx.Client(timeout=self._timeout) as client:
+                resp = client.post(
+                    f"{self._base_url}/chat/completions",
+                    headers=self._headers(),
+                    json=payload,
+                )
+                resp.raise_for_status()
+                return resp
 
+        response = _retry_with_backoff(_call)
         data = response.json()
         choices = data.get("choices", [])
         if choices:
@@ -69,6 +97,9 @@ class OpenAIProvider(ModelProvider):
         tools: list[dict] | None = None,
         **kwargs: Any,
     ) -> Generator[str, None, None]:
+        # TODO: streaming retry is out of scope — retrying mid-stream is complex
+        # because the response has already started and partial data may have been
+        # yielded. A full solution would require buffering or a restart mechanism.
         payload: dict[str, Any] = {
             "model": self._model_name,
             "messages": messages,
@@ -174,14 +205,17 @@ class AnthropicProvider(ModelProvider):
             # Convert OpenAI tool format to Anthropic tool format
             payload["tools"] = self._convert_tools(tools)
 
-        with httpx.Client(timeout=self._timeout) as client:
-            response = client.post(
-                f"{self._base_url}/messages",
-                headers=self._headers(),
-                json=payload,
-            )
-            response.raise_for_status()
+        def _call():
+            with httpx.Client(timeout=self._timeout) as client:
+                resp = client.post(
+                    f"{self._base_url}/messages",
+                    headers=self._headers(),
+                    json=payload,
+                )
+                resp.raise_for_status()
+                return resp
 
+        response = _retry_with_backoff(_call)
         data = response.json()
         content_blocks = data.get("content", [])
         text_parts = []
@@ -212,6 +246,9 @@ class AnthropicProvider(ModelProvider):
         tools: list[dict] | None = None,
         **kwargs: Any,
     ) -> Generator[str, None, None]:
+        # TODO: streaming retry is out of scope — retrying mid-stream is complex
+        # because the response has already started and partial data may have been
+        # yielded. A full solution would require buffering or a restart mechanism.
         system_text = ""
         filtered_messages = []
         for msg in messages:
