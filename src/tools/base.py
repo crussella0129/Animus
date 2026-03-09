@@ -212,6 +212,7 @@ def function_tool(description: str):
         float: "number",
         bool: "boolean",
     }
+    _SKIP_KINDS = {inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD}
 
     def decorator(func):
         sig = inspect.signature(func)
@@ -224,6 +225,8 @@ def function_tool(description: str):
         required: list[str] = []
 
         for param_name, param in sig.parameters.items():
+            if param.kind in _SKIP_KINDS:
+                continue
             py_type = hints.get(param_name, str)
             json_type = _TYPE_MAP.get(py_type, "string")
             properties[param_name] = {"type": json_type}

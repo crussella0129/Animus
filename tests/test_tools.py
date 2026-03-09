@@ -538,6 +538,19 @@ class TestFunctionToolDecorator:
         result = registry.execute("const", {})
         assert result == "hello"
 
+    def test_variadic_params_skipped_in_schema(self):
+        """*args and **kwargs are not included in the generated schema."""
+        from src.tools.base import function_tool
+
+        @function_tool(description="Variadic func")
+        def variadic(a: str, *args, **kwargs) -> str:
+            return a
+
+        schema = variadic().parameters
+        assert "args" not in schema["properties"]
+        assert "kwargs" not in schema["properties"]
+        assert "a" in schema["properties"]
+
 
 import threading
 
