@@ -469,3 +469,22 @@ class TestOrnsteinHelpers:
 
         assert sandbox._is_domain_allowed("anything.com") is True
         assert sandbox._is_domain_allowed("example.org") is True
+
+
+class TestOrnsteinRunCommand:
+    """Test OrnsteinSandbox.run_command() method."""
+
+    def test_ornstein_sandbox_run_command_success(self):
+        """run_command() executes a subprocess in the sandbox and returns output."""
+        from src.isolation.ornstein import create_sandbox
+        sandbox = create_sandbox(timeout_seconds=10)
+        result = sandbox.run_command(["python", "-c", "print('hello')"], cwd=None, timeout=5)
+        assert result.success is True
+        assert "hello" in result.output
+
+    def test_ornstein_sandbox_run_command_failure(self):
+        """run_command() returns failure result when command exits non-zero."""
+        from src.isolation.ornstein import create_sandbox
+        sandbox = create_sandbox(timeout_seconds=10)
+        result = sandbox.run_command(["python", "-c", "import sys; sys.exit(1)"], cwd=None, timeout=5)
+        assert result.success is False

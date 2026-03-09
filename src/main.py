@@ -611,7 +611,9 @@ def rise(
     registry = ToolRegistry()
     register_filesystem_tools(registry, session_cwd=session_cwd)
     confirm_cb = _make_confirm_callback(cfg)
-    register_shell_tools(registry, confirm_callback=confirm_cb, session_cwd=session_cwd)
+    from src.isolation.ornstein import create_sandbox as _create_sandbox
+    shell_sandbox = _create_sandbox(memory_mb=512, timeout_seconds=30)
+    register_shell_tools(registry, confirm_callback=confirm_cb, session_cwd=session_cwd, sandbox=shell_sandbox)
 
     # Register git tools if available
     try:

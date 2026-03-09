@@ -161,12 +161,14 @@ class RunShellTool(Tool):
         execution_budget: ExecutionBudget | None = None,
         session_cwd: Workspace | None = None,
         allow_network: bool = False,
+        sandbox: Any = None,
     ) -> None:
         super().__init__()  # Initialize Tool base class
         self._confirm = confirm_callback
         self._budget = execution_budget or ExecutionBudget(max_total_seconds=300)
         self._session_cwd = session_cwd
         self._allow_network = allow_network
+        self._sandbox = sandbox
 
     @property
     def name(self) -> str:
@@ -262,6 +264,20 @@ class RunShellTool(Tool):
 
         # Track actual execution time
         start_time = time.time()
+
+        if self._sandbox is not None:
+            sandbox_result = self._sandbox.run_command(cmd_list, cwd=cwd, timeout=timeout)
+            elapsed = time.time() - start_time
+            self._budget.consume(elapsed)
+            stdout = sandbox_result.output or ""
+            stderr = sandbox_result.error or ""
+            output = stdout
+            if stderr:
+                output += f"\n[stderr]: {stderr}"
+            if not sandbox_result.success and not stderr:
+                output += f"\n[sandboxed command failed]"
+            return output.strip() or "(no output)"
+
         try:
             result = subprocess.run(
                 cmd_list,
@@ -315,6 +331,7 @@ def register_shell_tools(
     execution_budget: ExecutionBudget | None = None,
     session_cwd: Workspace | None = None,
     allow_network: bool = False,
+    sandbox: Any = None,
 ) -> None:
     """Register shell tools with the given registry.
 
@@ -324,10 +341,12 @@ def register_shell_tools(
         execution_budget: Optional shared execution budget for tracking cumulative time
         session_cwd: Optional Workspace for persisting cd across calls with boundary enforcement
         allow_network: Whether to allow outbound network commands (default: False)
+        sandbox: Optional OrnsteinSandbox for process-level isolation of shell commands
     """
     registry.register(RunShellTool(
         confirm_callback=confirm_callback,
         execution_budget=execution_budget,
         session_cwd=session_cwd,
         allow_network=allow_network,
+        sandbox=sandbox,
     ))

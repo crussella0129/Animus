@@ -415,6 +415,36 @@ class TestShellMetacharRejection:
         assert "not supported" not in result.lower()
 
 
+class TestSandboxedRunShellTool:
+    """Tests for RunShellTool sandbox integration."""
+
+    def test_run_shell_tool_uses_sandbox_when_provided(self):
+        """When a sandbox is passed, RunShellTool routes execution through it."""
+        from unittest.mock import MagicMock
+        from src.tools.shell import RunShellTool
+        from src.isolation.ornstein import OrnsteinResult
+
+        mock_sandbox = MagicMock()
+        mock_sandbox.run_command.return_value = OrnsteinResult(
+            success=True, output="sandboxed output", error="", isolation_level="ornstein", resource_usage={}
+        )
+        tool = RunShellTool(
+            confirm_callback=lambda _: True,
+            session_cwd=None,
+            sandbox=mock_sandbox,
+        )
+        result = tool.execute({"command": "echo hello"})
+        assert mock_sandbox.run_command.called
+        assert "sandboxed output" in result
+
+    def test_run_shell_tool_no_sandbox_falls_back_to_subprocess(self):
+        """When no sandbox is provided, RunShellTool uses subprocess directly."""
+        from src.tools.shell import RunShellTool
+        tool = RunShellTool(confirm_callback=lambda _: True, session_cwd=None, sandbox=None)
+        result = tool.execute({"command": "echo direct"})
+        assert "direct" in result
+
+
 import threading
 
 

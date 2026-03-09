@@ -224,6 +224,29 @@ def _execute_in_sandbox(func, args, kwargs, config, result_queue):
         })
 
 
+def _subprocess_worker(cmd_list: list, cwd, timeout: int) -> dict:
+    """Module-level worker for OrnsteinSandbox.run_command(). Must be module-level for pickling."""
+    import subprocess
+    try:
+        result = subprocess.run(
+            cmd_list,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            cwd=cwd,
+            stdin=subprocess.DEVNULL,
+        )
+        return {
+            "success": result.returncode == 0,
+            "output": result.stdout,
+            "error": result.stderr,
+        }
+    except subprocess.TimeoutExpired:
+        return {"success": False, "output": "", "error": "Command timed out"}
+    except Exception as e:
+        return {"success": False, "output": "", "error": str(e)}
+
+
 class OrnsteinSandbox:
     """
     Lightweight process-level sandbox for web exploration.
@@ -321,6 +344,29 @@ class OrnsteinSandbox:
     def _is_domain_allowed(self, host: str) -> bool:
         """Check if domain is in allowlist."""
         return _is_domain_allowed(host, self.config)
+
+    def run_command(self, cmd_list: list, cwd, timeout: int) -> "OrnsteinResult":
+        """Run a shell command in the sandbox. Returns OrnsteinResult."""
+        inner = self.execute(_subprocess_worker, args=(cmd_list, cwd, timeout))
+        # inner.output is the dict returned by _subprocess_worker (or None on crash/timeout)
+        if inner.output is not None and isinstance(inner.output, dict):
+            return OrnsteinResult(
+                success=inner.output["success"],
+                output=inner.output["output"],
+                error=inner.output["error"],
+                isolation_level=inner.isolation_level,
+                resource_usage=inner.resource_usage,
+                execution_time=inner.execution_time,
+            )
+        # Sandbox itself failed (timeout, crash, etc.)
+        return OrnsteinResult(
+            success=False,
+            output="",
+            error=inner.error or "Sandbox execution failed",
+            isolation_level=inner.isolation_level,
+            resource_usage=inner.resource_usage,
+            execution_time=inner.execution_time,
+        )
 
 
 def create_sandbox(
