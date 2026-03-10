@@ -11,7 +11,6 @@ from typing import Any
 
 from src.core.workspace import Workspace
 from src.core.permission import PermissionChecker
-from src.ferric import find_ferric_binary as _find_ferric_binary  # noqa: F401
 from src.tools.base import Tool, ToolRegistry, isolated
 
 # Match single-quoted strings that should be double-quoted on Windows.

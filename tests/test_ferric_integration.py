@@ -1,18 +1,27 @@
 """Integration tests: verify ferric-parse binary produces correct output via FerricParser."""
 import json
-import shutil
 import subprocess
 from pathlib import Path
 import pytest
 
-# Path to the debug binary (built by `cargo build -p ferric-parse`)
-_FERRIC_PARSE_BINARY = (
-    shutil.which("ferric-parse")
-    or str(Path(__file__).parent.parent / "target" / "debug" / "ferric-parse.exe")
-    or str(Path(__file__).parent.parent / "target" / "debug" / "ferric-parse")
-)
+from src.ferric import find_ferric_binary
 
-_BINARY_EXISTS = Path(_FERRIC_PARSE_BINARY).exists() if _FERRIC_PARSE_BINARY else False
+_DEBUG_DIR = Path(__file__).parent.parent / "target" / "debug"
+
+
+def _locate_binary() -> str | None:
+    """Find ferric-parse: bundled/PATH first, then cargo debug output."""
+    found = find_ferric_binary("ferric-parse")
+    if found:
+        return found
+    for candidate in (_DEBUG_DIR / "ferric-parse.exe", _DEBUG_DIR / "ferric-parse"):
+        if candidate.exists():
+            return str(candidate)
+    return None
+
+
+_FERRIC_PARSE_BINARY = _locate_binary() or ""
+_BINARY_EXISTS = bool(_FERRIC_PARSE_BINARY)
 
 
 @pytest.mark.skipif(not _BINARY_EXISTS, reason="ferric-parse binary not built (run: cargo build -p ferric-parse)")
@@ -57,16 +66,14 @@ class TestFerricParseIntegration:
         assert bar_method is not None, f"Expected 'bar' in {names}"
         assert bar_method.kind == "method", f"Expected bar to be 'method', got '{bar_method.kind}'"
 
-    def test_unsupported_extension_returns_empty(self):
-        """ferric-parse emits empty result for unsupported extensions, not an error."""
+    def test_unsupported_extension_returns_empty(self, tmp_path):
+        """ferric-parse emits exit 0 + empty nodes for unsupported extensions."""
+        toml_file = tmp_path / "config.toml"
+        toml_file.write_text("[package]\nname = \"test\"\n")
         result = subprocess.run(
-            [_FERRIC_PARSE_BINARY, "some_file.toml"],
+            [_FERRIC_PARSE_BINARY, str(toml_file)],
             capture_output=True, text=True, timeout=30
         )
-        # Exit 0 and empty nodes (file doesn't need to exist for unsupported extension logic
-        # but may fail with exit 1 if file not found — that's acceptable)
-        # The key contract: no crash on empty/unsupported input
-        assert result.returncode in (0, 1), f"Unexpected exit code: {result.returncode}"
-        if result.returncode == 0:
-            data = json.loads(result.stdout)
-            assert data["nodes"] == []
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        data = json.loads(result.stdout)
+        assert data["nodes"] == []
