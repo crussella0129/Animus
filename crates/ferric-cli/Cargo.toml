@@ -6,7 +6,4 @@ description = "Fast Animus CLI entrypoint — simple commands handled in Rust, h
 
 [dependencies]
 clap = { version = "4", features = ["derive", "color"] }
-serde = { version = "1", features = ["derive"] }
-serde_yaml = "0.9"
 sysinfo = "0.32"
-colored = "2"

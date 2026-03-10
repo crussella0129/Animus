@@ -4,6 +4,7 @@
 mod commands {
     pub mod detect;
     pub mod config_cmd;
+    pub mod status;
 }
 mod delegate;
 
@@ -23,10 +24,7 @@ enum Commands {
     Detect,
     /// Show or manage configuration
     Config {
-        /// Show full config content
-        #[arg(long)]
-        show: bool,
-        /// Show path to config file
+        /// Show path to config file only
         #[arg(long)]
         path: bool,
     },
@@ -88,7 +86,7 @@ fn main() -> ExitCode {
             commands::detect::run();
             ExitCode::SUCCESS
         }
-        Commands::Config { show: _, path } => {
+        Commands::Config { path } => {
             if path {
                 commands::config_cmd::show_config_path();
             } else {
@@ -97,7 +95,7 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Commands::Status => {
-            commands::detect::run();
+            commands::status::run();
             ExitCode::SUCCESS
         }
         // All other commands delegate to Python
