@@ -469,8 +469,7 @@ def sessions() -> None:
 def rise(
     resume: bool = typer.Option(False, "--resume", help="Resume the most recent session"),
     session_id: Optional[str] = typer.Option(None, "--session", help="Resume a specific session by ID"),
-    cautious: bool = typer.Option(False, "--cautious", help="Enable Ornstein sandbox for tool execution"),
-    paranoid: bool = typer.Option(False, "--paranoid", help="Enable Smough container isolation (not yet implemented)"),
+    ornsmo: bool = typer.Option(False, "--ornsmo", help="Enable Ornstein & Smough isolation (kernel sandbox on Linux, process isolation on other platforms)"),
     transcript: Optional[str] = typer.Option(None, "--transcript", help="Save execution transcript to this .md path"),
     no_plan: bool = typer.Option(False, "--no-plan", help="Bypass planner — use agent loop directly for targeted tasks"),
 ) -> None:
@@ -485,14 +484,10 @@ def rise(
     cfg = AnimusConfig.load()
 
     # Apply isolation level from CLI flags
-    if paranoid:
-        error("Smough layer (--paranoid) not yet implemented.")
-        info("Use --cautious for Ornstein lightweight sandbox.")
-        raise typer.Exit(1)
-    elif cautious:
-        cfg.isolation.default_level = "ornstein"
+    if ornsmo:
+        cfg.isolation.default_level = "ornsmo"
         cfg.isolation.ornstein_enabled = True
-        info("[Isolation] Ornstein sandbox enabled (--cautious mode)")
+        info("[Isolation] Ornstein & Smough isolation enabled (--ornsmo mode)")
 
     factory = ProviderFactory()
     provider = factory.create(

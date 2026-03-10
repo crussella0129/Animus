@@ -36,16 +36,21 @@ def build_tool_registry(cfg: AnimusConfig, session_cwd, confirm_cb):
     from src.tools.base import ToolRegistry
     from src.tools.filesystem import register_filesystem_tools
     from src.tools.shell import register_shell_tools
-    from src.isolation.ornstein import create_sandbox as _create_sandbox
+    from src.isolation.ornstein import create_sandbox as _create_ornstein_sandbox
+    from src.isolation.ferric import create_ferric_sandbox as _create_ferric_sandbox
 
     registry = ToolRegistry()
     register_filesystem_tools(registry, session_cwd=session_cwd)
 
-    shell_sandbox = (
-        _create_sandbox(memory_mb=512, timeout_seconds=30)
-        if cfg.isolation.ornstein_enabled
-        else None
-    )
+    if cfg.isolation.default_level == "ornsmo":
+        shell_sandbox = _create_ferric_sandbox(
+            memory_mb=cfg.isolation.ornstein_memory_mb,
+            timeout_seconds=cfg.isolation.ornstein_timeout,
+        )
+    elif cfg.isolation.ornstein_enabled:
+        shell_sandbox = _create_ornstein_sandbox(memory_mb=512, timeout_seconds=30)
+    else:
+        shell_sandbox = None
     register_shell_tools(registry, confirm_callback=confirm_cb, session_cwd=session_cwd, sandbox=shell_sandbox)
 
     # Register git tools if available

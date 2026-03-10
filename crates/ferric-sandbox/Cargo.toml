@@ -2,7 +2,7 @@
 name = "ferric-sandbox"
 version.workspace = true
 edition.workspace = true
-description = "Kernel-level process isolation for Animus (Ornstein & Smough)"
+description = "Process isolation for Animus tool execution (Ornstein & Smough)"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
