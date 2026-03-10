@@ -72,17 +72,16 @@ class FerricSandbox:
         """
         import time
 
-        command_str = subprocess.list2cmdline(cmd_list)
         start = time.time()
 
         if self._binary is not None:
-            return self._run_via_ferric(command_str, cwd, timeout, start)
+            return self._run_via_ferric(cmd_list, cwd, timeout, start)
         else:
             return self._run_direct(cmd_list, cwd, timeout, start)
 
     def _run_via_ferric(
         self,
-        command_str: str,
+        cmd_list: list,
         cwd: Any,
         timeout: int,
         start: float,
@@ -90,7 +89,7 @@ class FerricSandbox:
         """Execute through the ferric-sandbox binary."""
         import time
 
-        sandbox_input = json.dumps({"command": command_str})
+        sandbox_input = json.dumps({"args": [str(a) for a in cmd_list]})
         args = [
             self._binary,
             "--memory", str(self._memory_mb),
@@ -112,12 +111,12 @@ class FerricSandbox:
             )
             elapsed = time.time() - start
 
-            if proc.returncode != 0 and not proc.stdout.strip():
-                # Binary itself failed (parse error, etc.)
+            if proc.returncode != 0:
+                # Non-zero exit from ferric-sandbox itself (not the sandboxed command)
                 return FerricResult(
                     success=False,
                     output="",
-                    error=proc.stderr or f"ferric-sandbox exited with code {proc.returncode}",
+                    error=f"ferric-sandbox exited with code {proc.returncode}: {proc.stderr}",
                     isolation_level="ornsmo",
                     resource_usage={"wall_time_ms": int(elapsed * 1000)},
                     execution_time=elapsed,
@@ -152,8 +151,6 @@ class FerricSandbox:
         except (json.JSONDecodeError, OSError, ValueError) as exc:
             elapsed = time.time() - start
             logger.warning(f"[FerricSandbox] Binary error ({exc!r}), falling back to direct execution")
-            # Fall through to direct execution
-            cmd_list = command_str.split()  # best-effort reconstruction
             return self._run_direct(cmd_list, cwd, timeout, start)
 
     def _run_direct(

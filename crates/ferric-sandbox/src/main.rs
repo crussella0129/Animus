@@ -21,7 +21,7 @@ struct Cli {
 
 #[derive(Deserialize)]
 struct SandboxRequest {
-    command: String,
+    args: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -76,15 +76,14 @@ fn main() {
         }
     };
 
-    // Parse and run the command via subprocess (list-split on whitespace — simple heuristic)
-    let parts: Vec<&str> = req.command.split_whitespace().collect();
-    if parts.is_empty() {
-        eprintln!("ferric-sandbox: empty command");
+    // Run the command using the pre-split args list (preserves arguments with spaces)
+    if req.args.is_empty() {
+        eprintln!("ferric-sandbox: empty args");
         std::process::exit(1);
     }
 
-    let result = Command::new(parts[0])
-        .args(&parts[1..])
+    let result = Command::new(&req.args[0])
+        .args(&req.args[1..])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .output();

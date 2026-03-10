@@ -73,7 +73,7 @@ class IsolationConfig(BaseModel):
     model_config = {"extra": "ignore"}
 
     # Default isolation level for all tools
-    default_level: str = "none"  # "none", "ornstein", "smough"
+    default_level: str = "none"  # "none", "ornstein", "smough", "ornsmo"
 
     # Ornstein (lightweight sandbox) settings
     ornstein_enabled: bool = False
