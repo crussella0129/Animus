@@ -19,17 +19,21 @@ class TestFerricParserInterface:
         assert ".rs" in exts
 
     def test_ferric_parser_falls_back_when_binary_absent(self, tmp_path):
-        """When ferric-parse binary is missing, parse_file returns empty FileParseResult."""
+        """When ferric-parse binary is not discoverable, parse_file returns empty FileParseResult."""
         from src.knowledge.parser import FerricParser
-        parser = FerricParser(binary_path="nonexistent-binary-xyz-abc")
+        from unittest.mock import patch
 
         sample = tmp_path / "test.py"
         sample.write_text("def hello(): pass\n")
 
-        result = parser.parse_file(sample)
-        # Should not raise, returns empty result
+        with patch("src.ferric.find_ferric_binary", return_value=None):
+            parser = FerricParser()  # binary_path=None → auto-discovery returns None
+            assert parser.is_available() is False
+            result = parser.parse_file(sample)
+
         assert result.file_path == str(sample)
         assert isinstance(result.nodes, list)
+        assert len(result.nodes) == 0
 
     def test_ferric_parser_parses_python_file(self, tmp_path):
         """When binary is available, parse_file returns populated FileParseResult."""

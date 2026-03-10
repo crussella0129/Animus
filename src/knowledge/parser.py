@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
+from src.ferric import find_ferric_binary as _find_ferric_binary
+
 
 @dataclass
 class NodeInfo:
@@ -413,8 +415,6 @@ class TypeScriptParser(LanguageParser):
 # Ferric binary-backed multi-language parser
 # ---------------------------------------------------------------------------
 
-from src.ferric import find_ferric_binary as _find_ferric_binary  # noqa: E402
-
 
 class FerricParser(LanguageParser):
     """Multi-language parser backed by the ferric-parse Rust binary.
@@ -480,3 +480,10 @@ class FerricParser(LanguageParser):
             return FileParseResult(file_path=str(path), nodes=nodes, edges=edges)
         except (subprocess.TimeoutExpired, ValueError, OSError, KeyError):
             return FileParseResult(file_path=str(path))
+
+
+# Register FerricParser when the binary is available — it handles more
+# languages than the Python-only fallback parsers.
+_ferric = FerricParser()
+if _ferric.is_available():
+    _default_registry.register(_ferric)
