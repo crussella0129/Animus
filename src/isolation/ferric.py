@@ -3,9 +3,10 @@
 Provides the same interface as OrnsteinSandbox.run_command() so it can be
 used as a drop-in replacement via the sandbox= parameter in register_shell_tools().
 
-On Windows and other non-Linux platforms the binary acts as a process-isolation
-wrapper only (no kernel features). On Linux, kernel-level isolation is reserved
-for a future implementation and a warning is logged.
+NOTE: Isolation constraints (memory, network, read-only) are scaffolded but not
+yet enforced. The binary currently acts as a process relay that records timing.
+Kernel-level isolation (seccomp, namespaces) is reserved for a future release.
+The isolation_level in results will read "ornsmo-stub" to reflect this.
 """
 
 from __future__ import annotations
@@ -117,7 +118,7 @@ class FerricSandbox:
                     success=False,
                     output="",
                     error=f"ferric-sandbox exited with code {proc.returncode}: {proc.stderr}",
-                    isolation_level="ornsmo",
+                    isolation_level="ornsmo-stub",
                     resource_usage={"wall_time_ms": int(elapsed * 1000)},
                     execution_time=elapsed,
                 )
@@ -128,7 +129,7 @@ class FerricSandbox:
                 success=data.get("success", False),
                 output=data.get("output", ""),
                 error=data.get("error"),
-                isolation_level="ornsmo",
+                isolation_level="ornsmo-stub",
                 resource_usage={
                     "wall_time_ms": resource.get("wall_time_ms", int(elapsed * 1000)),
                     "cpu_time_ms": resource.get("cpu_time_ms", 0),
@@ -144,7 +145,7 @@ class FerricSandbox:
                 success=False,
                 output="",
                 error="ferric-sandbox timed out",
-                isolation_level="ornsmo",
+                isolation_level="ornsmo-stub",
                 resource_usage={"wall_time_ms": int(elapsed * 1000)},
                 execution_time=elapsed,
             )

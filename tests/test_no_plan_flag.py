@@ -4,17 +4,18 @@ import pytest
 
 
 def test_no_plan_short_circuits_use_plan():
-    """When no_plan=True, use_plan is False regardless of should_use_planner()."""
-    from src.core.planner import should_use_planner
+    """When no_plan=True, use_plan is False and should_use_planner is never called."""
+    mock_provider = MagicMock()
 
     # Simulate the logic in app.py:
     # use_plan = not no_plan and (plan_mode_active or should_use_planner(provider))
-    mock_provider = MagicMock()
-
-    with patch("src.core.planner.executor.should_use_planner", return_value=True):
-        # With --no-plan: use_plan must be False
-        use_plan = not True and (False or should_use_planner(mock_provider))
+    with patch("src.core.planner.should_use_planner", return_value=True) as mock_sup:
+        from src.core.planner import should_use_planner
+        no_plan = True
+        use_plan = not no_plan and (False or should_use_planner(mock_provider))
         assert use_plan is False
+        # should_use_planner must not be called — short-circuit prevents it
+        mock_sup.assert_not_called()
 
 
 def test_no_plan_false_consults_planner():

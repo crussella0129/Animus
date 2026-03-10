@@ -72,4 +72,15 @@ fn test_parse_rust_file_produces_nodes() {
         .collect();
     assert!(names.contains(&"Calculator"), "Expected to find Calculator struct");
     assert!(names.contains(&"standalone_fn"), "Expected to find standalone_fn");
+
+    // Methods inside impl Calculator should be kind="method"
+    let method_nodes: Vec<&serde_json::Value> = nodes.iter()
+        .filter(|n| n["kind"].as_str() == Some("method"))
+        .collect();
+    assert!(!method_nodes.is_empty(), "Expected at least one method node from impl block");
+    let method_names: Vec<&str> = method_nodes.iter()
+        .filter_map(|n| n["name"].as_str())
+        .collect();
+    assert!(method_names.contains(&"new") || method_names.contains(&"add"),
+        "Expected impl Calculator methods (new/add), got: {:?}", method_names);
 }

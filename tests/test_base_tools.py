@@ -25,9 +25,17 @@ class TestRespondToolVerificationGate:
         tool = RespondTool()
         assert "verified" in tool.parameters["required"]
 
-    def test_respond_execute_returns_message(self):
-        """execute() returns the message argument (verified param ignored for output)."""
+    def test_respond_execute_returns_message_when_verified(self):
+        """execute() returns the message when verified=True."""
         from src.tools.base import RespondTool
         tool = RespondTool()
         result = tool.execute({"message": "hello world", "verified": True})
         assert result == "hello world"
+
+    def test_respond_execute_returns_error_when_not_verified(self):
+        """execute() returns an error string when verified=False."""
+        from src.tools.base import RespondTool
+        tool = RespondTool()
+        result = tool.execute({"message": "hello world", "verified": False})
+        assert "Error" in result
+        assert "verif" in result.lower()

@@ -190,6 +190,12 @@ class RespondTool(Tool):
         }
 
     def execute(self, args: dict[str, Any]) -> str:
+        if not args.get("verified", False):
+            return (
+                "Error: You must verify your work before calling respond. "
+                "Read back any file you wrote, run the relevant test, or confirm the output. "
+                "Then call respond again with verified=true."
+            )
         return args["message"]
 
 

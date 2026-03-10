@@ -21,12 +21,19 @@ impl LanguageParser for RustParser {
         };
 
         let module = path.file_stem().and_then(|s| s.to_str()).unwrap_or("unknown");
-        collect_rust_nodes(tree.root_node(), source, module, &path.display().to_string(), &mut result);
+        collect_rust_nodes(tree.root_node(), source, module, &path.display().to_string(), None, &mut result);
         result
     }
 }
 
-fn collect_rust_nodes(node: Node, source: &str, module: &str, file_path: &str, result: &mut FileParseResult) {
+fn collect_rust_nodes<'a>(
+    node: Node<'a>,
+    source: &str,
+    module: &str,
+    file_path: &str,
+    impl_name: Option<&str>,
+    result: &mut FileParseResult,
+) {
     match node.kind() {
         "struct_item" | "enum_item" => {
             if let Some(name_node) = node.child_by_field_name("name") {
@@ -42,13 +49,35 @@ fn collect_rust_nodes(node: Node, source: &str, module: &str, file_path: &str, r
                 });
             }
         }
+        "impl_item" => {
+            // Extract the type being implemented to pass as context to child functions
+            if let Some(type_node) = node.child_by_field_name("type") {
+                let name = node_text(type_node, source).to_string();
+                let mut cursor = node.walk();
+                for child in node.children(&mut cursor) {
+                    collect_rust_nodes(child, source, module, file_path, Some(&name), result);
+                }
+                return;
+            }
+        }
         "function_item" => {
             if let Some(name_node) = node.child_by_field_name("name") {
                 let name = node_text(name_node, source).to_string();
+                let (kind, qualified_name) = if let Some(impl_type) = impl_name {
+                    (
+                        "method".to_string(),
+                        format!("{}::{}::{}", module, impl_type, name),
+                    )
+                } else {
+                    (
+                        "function".to_string(),
+                        format!("{}::{}", module, name),
+                    )
+                };
                 result.nodes.push(CodeNode {
-                    kind: "function".to_string(),
+                    kind,
                     name: name.clone(),
-                    qualified_name: format!("{}::{}", module, name),
+                    qualified_name,
                     file_path: file_path.to_string(),
                     line_start: node.start_position().row + 1,
                     line_end: node.end_position().row + 1,
@@ -61,6 +90,6 @@ fn collect_rust_nodes(node: Node, source: &str, module: &str, file_path: &str, r
 
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        collect_rust_nodes(child, source, module, file_path, result);
+        collect_rust_nodes(child, source, module, file_path, impl_name, result);
     }
 }

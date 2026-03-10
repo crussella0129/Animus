@@ -469,7 +469,7 @@ def sessions() -> None:
 def rise(
     resume: bool = typer.Option(False, "--resume", help="Resume the most recent session"),
     session_id: Optional[str] = typer.Option(None, "--session", help="Resume a specific session by ID"),
-    ornsmo: bool = typer.Option(False, "--ornsmo", help="Enable Ornstein & Smough isolation (kernel sandbox on Linux, process isolation on other platforms)"),
+    ornsmo: bool = typer.Option(False, "--ornsmo", help="Route tool execution through ferric-sandbox (stub: process relay; kernel isolation is future work)"),
     transcript: Optional[str] = typer.Option(None, "--transcript", help="Save execution transcript to this .md path"),
     no_plan: bool = typer.Option(False, "--no-plan", help="Bypass planner — use agent loop directly for targeted tasks"),
 ) -> None:
