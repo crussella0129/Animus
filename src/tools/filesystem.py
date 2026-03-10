@@ -13,6 +13,15 @@ from src.core.workspace import Workspace, WorkspaceBoundaryError
 from src.core.permission import PermissionChecker
 from src.tools.base import Tool, ToolRegistry
 
+# JSON-escape sequences emitted by LLMs inside tool call arguments.
+# Applied in this order: \" first, \\ last (to avoid double-collapse).
+_JSON_UNESCAPE_MAP = [
+    ('\\"', '"'),
+    ('\\n', '\n'),
+    ('\\t', '\t'),
+    ('\\\\', '\\'),
+]
+
 
 class ReadFileTool(Tool):
     """Read files (no isolation needed - read-only operation)."""
@@ -134,6 +143,13 @@ class WriteFileTool(Tool):
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             content = args["content"]
+            # Only apply when the content contains one or more of the four JSON-escape
+            # sequences we handle. This heuristic fires on content that looks LLM-escaped.
+            # Known limitation: content with intentional two-char \n or \t sequences will
+            # also be transformed — acceptable trade-off for the common LLM output case.
+            if '\\"' in content or '\\n' in content or '\\t' in content or '\\\\' in content:
+                for escaped, unescaped in _JSON_UNESCAPE_MAP:
+                    content = content.replace(escaped, unescaped)
             path.write_text(content, encoding="utf-8")
 
             # Record write operation in audit log

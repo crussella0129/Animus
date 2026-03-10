@@ -41,7 +41,7 @@ def _build_tool_examples(registry: ToolRegistry) -> str:
             if param_info.get("type") == "integer":
                 example_args[param_name] = 10
             elif param_info.get("type") == "boolean":
-                example_args[param_name] = False
+                example_args[param_name] = True
             else:
                 example_args[param_name] = f"example_{param_name}"
         import json
@@ -63,6 +63,20 @@ class Agent:
         session_cwd: Workspace | None = None,
         transcript: TranscriptLogger | None = None,
     ) -> None:
+        """Initialise the Agent.
+
+        Args:
+            provider: The primary model provider used for generation.
+            tool_registry: Registry of tools available to the agent.
+                Note: The tool_registry must be fully populated before
+                constructing Agent, or use agent.register_tool() after
+                construction to keep grammar and system prompt in sync.
+            system_prompt: Base system prompt text.
+            max_turns: Maximum agentic loop iterations before giving up.
+            planning_provider: Optional separate provider used for planning.
+            session_cwd: Optional workspace for enforcing directory boundaries.
+            transcript: Optional transcript logger for recording sessions.
+        """
         self._provider = provider
         self._tools = tool_registry
         self._base_system_prompt = system_prompt
@@ -72,6 +86,11 @@ class Agent:
         self._planning_provider = planning_provider
         self._session_cwd = session_cwd
         self._transcript = transcript
+
+        # Auto-register RespondTool so grammar-constrained models can exit the loop
+        from src.tools.base import RespondTool
+        if "respond" not in self._tools.names():
+            self._tools.register(RespondTool())
 
         # Set up context window based on model capabilities
         caps = provider.capabilities()
@@ -105,6 +124,16 @@ class Agent:
             tool_names=", ".join(tool_names),
             tool_examples=_build_tool_examples(self._tools),
         )
+
+    def register_tool(self, tool) -> None:
+        """Register a tool and rebuild grammar + system prompt.
+
+        Use this instead of agent._tools.register() directly to ensure the
+        grammar and system prompt stay in sync with the tool registry.
+        """
+        self._tools.register(tool)
+        self._grammar = self._build_tool_grammar()
+        self._system_prompt = self._build_system_prompt()
 
     @property
     def messages(self) -> list[dict[str, str]]:
@@ -287,19 +316,20 @@ class Agent:
         Unified implementation for both streaming and non-streaming execution.
         When on_chunk is None, operates in non-streaming mode.
 
-        Note: GBNF grammar is only applied on the first turn of non-streaming
-        mode. Streaming mode cannot use grammar constraints because
-        llama-cpp-python does not support grammar with streaming chat
-        completions. This means streaming with small native models may produce
-        malformed tool calls on the first turn. API providers are unaffected.
+        Note: GBNF grammar is applied on ALL non-streaming turns. Streaming
+        mode cannot use grammar constraints because llama-cpp-python does not
+        support grammar with streaming chat completions. RespondTool provides
+        the model an exit path under grammar constraints: it calls respond()
+        to deliver its final answer without requiring free-form text output.
         """
         last_tool_result = ""
         prev_call_key: str | None = None
         repeat_count = 0
         for turn in range(self._max_turns):
-            # Grammar on first turn only; streaming cannot use grammar
-            # (llama-cpp-python limitation — see _step_stream docstring).
-            use_grammar = (turn == 0)
+            # Apply grammar on all non-streaming turns. Streaming cannot use grammar
+            # (llama-cpp-python limitation). RespondTool provides the model an exit:
+            # it calls respond() to return its final answer in grammar-constrained mode.
+            use_grammar = (on_chunk is None)
             if on_chunk is not None:
                 response_text = self._step_stream(on_chunk)
             else:
@@ -351,6 +381,8 @@ class Agent:
             for call in tool_calls:
                 result = self._tools.execute(call["name"], call["arguments"])
                 last_tool_result = result
+                if call["name"] == "respond":
+                    return result  # result is the message from RespondTool.execute()
                 # Apply reflection/evaluation to tool result
                 evaluated_result = self._evaluate_tool_result(call["name"], result)
                 self._messages.append({
@@ -371,8 +403,9 @@ class Agent:
         """Single generation step with context management and error handling.
 
         Args:
-            use_grammar: Whether to apply GBNF grammar constraint. Set False
-                after tool results so the model can respond in natural language.
+            use_grammar: Whether to apply GBNF grammar constraint. True for all
+                non-streaming turns; False for streaming (llama-cpp-python
+                limitation). RespondTool is the model's exit path under grammar.
         """
         trimmed = self._context_window.trim_messages(self._messages, self._system_prompt)
         full_messages = [{"role": "system", "content": self._system_prompt}] + trimmed

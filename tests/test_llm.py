@@ -166,6 +166,132 @@ class TestAnthropicProvider:
         assert caps.supports_tools is True
 
 
+class TestAPIProviderRetry:
+    def test_openai_provider_retries_on_429(self):
+        """OpenAIProvider retries up to 3 times on HTTP 429, then succeeds."""
+        import httpx
+        from unittest.mock import MagicMock, patch
+        from src.llm.api import OpenAIProvider
+
+        call_count = 0
+
+        def mock_post(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            mock_response = MagicMock()
+            if call_count < 3:
+                mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+                    "rate limited",
+                    request=MagicMock(),
+                    response=MagicMock(status_code=429),
+                )
+            else:
+                mock_response.raise_for_status.return_value = None
+                mock_response.json.return_value = {
+                    "choices": [{"message": {"content": "hello"}}]
+                }
+            return mock_response
+
+        with patch("httpx.Client") as mock_client_cls:
+            mock_client_cls.return_value.__enter__.return_value.post = mock_post
+            with patch("time.sleep"):  # don't actually sleep in tests
+                provider = OpenAIProvider(api_key="test-key", model_name="gpt-4")
+                result = provider.generate([{"role": "user", "content": "hi"}])
+
+        assert result == "hello"
+        assert call_count == 3
+
+    def test_openai_provider_raises_after_max_retries(self):
+        """OpenAIProvider raises after 3 failed attempts on 429."""
+        import httpx
+        from unittest.mock import MagicMock, patch
+        from src.llm.api import OpenAIProvider
+
+        def always_429(*args, **kwargs):
+            mock_response = MagicMock()
+            mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+                "rate limited",
+                request=MagicMock(),
+                response=MagicMock(status_code=429),
+            )
+            return mock_response
+
+        with patch("httpx.Client") as mock_client_cls:
+            mock_client_cls.return_value.__enter__.return_value.post = always_429
+            with patch("time.sleep"):
+                provider = OpenAIProvider(api_key="test-key")
+                try:
+                    provider.generate([{"role": "user", "content": "hi"}])
+                    assert False, "Should have raised"
+                except httpx.HTTPStatusError as e:
+                    assert e.response.status_code == 429
+
+    def test_openai_provider_does_not_retry_on_400(self):
+        """OpenAIProvider does NOT retry on 400 (client error, not transient)."""
+        import httpx
+        from unittest.mock import MagicMock, patch
+        from src.llm.api import OpenAIProvider
+
+        call_count = 0
+
+        def bad_request(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            mock_response = MagicMock()
+            mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+                "bad request",
+                request=MagicMock(),
+                response=MagicMock(status_code=400),
+            )
+            return mock_response
+
+        with patch("httpx.Client") as mock_client_cls:
+            mock_client_cls.return_value.__enter__.return_value.post = bad_request
+            with patch("time.sleep"):
+                provider = OpenAIProvider(api_key="test-key")
+                try:
+                    provider.generate([{"role": "user", "content": "hi"}])
+                    assert False, "Should have raised"
+                except httpx.HTTPStatusError:
+                    pass
+
+        assert call_count == 1, f"Should not retry on 400, but called {call_count} times"
+
+    def test_anthropic_provider_retries_on_529(self):
+        """AnthropicProvider retries on HTTP 529 (Anthropic overload)."""
+        import httpx
+        from unittest.mock import MagicMock, patch
+        from src.llm.api import AnthropicProvider
+
+        call_count = 0
+
+        def overload_then_ok(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            mock_response = MagicMock()
+            if call_count < 2:
+                mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+                    "overloaded",
+                    request=MagicMock(),
+                    response=MagicMock(status_code=529),
+                )
+            else:
+                mock_response.raise_for_status.return_value = None
+                mock_response.json.return_value = {
+                    "content": [{"type": "text", "text": "done"}]
+                }
+            return mock_response
+
+        with patch("httpx.Client") as mock_client_cls:
+            mock_client_cls.return_value.__enter__.return_value.post = overload_then_ok
+            with patch("time.sleep"):
+                provider = AnthropicProvider(api_key="test-key")
+                result = provider.generate([{"role": "user", "content": "hi"}])
+
+        assert result == "done"
+        assert call_count == 2
+
+
 class TestProviderFactory:
     def test_provider_names(self):
         factory = ProviderFactory()

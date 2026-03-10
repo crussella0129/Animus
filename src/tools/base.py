@@ -151,6 +151,130 @@ def _validate_args(args: dict[str, Any], schema: dict[str, Any]) -> str | None:
     return None
 
 
+class RespondTool(Tool):
+    """Special tool the model calls to return a final natural-language response.
+
+    Used with grammar-constrained decoding: since grammar forces JSON tool calls
+    on every turn, the model calls respond() to return its final answer.
+    The agent loop detects this tool and returns the message directly to the user.
+    """
+
+    @property
+    def name(self) -> str:
+        return "respond"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Return a final response to the user. IMPORTANT: Only call this after you have "
+            "verified your work — e.g., re-read any file you wrote, ran the relevant test, "
+            "or confirmed the output. Set verified=true once you have confirmed the result. "
+            "Do NOT call this as your first action."
+        )
+
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string",
+                    "description": "The final response to return to the user.",
+                },
+                "verified": {
+                    "type": "boolean",
+                    "description": "Set to true after you have verified your work (read back the file, ran tests, etc.)",
+                },
+            },
+            "required": ["message", "verified"],
+        }
+
+    def execute(self, args: dict[str, Any]) -> str:
+        if not args.get("verified", False):
+            return (
+                "Error: You must verify your work before calling respond. "
+                "Read back any file you wrote, run the relevant test, or confirm the output. "
+                "Then call respond again with verified=true."
+            )
+        return args["message"]
+
+
+def function_tool(description: str):
+    """Decorator to create a Tool subclass from a plain annotated function.
+
+    Auto-generates JSON Schema from type hints. Supports str, int, float, bool;
+    unrecognized types default to "string". Parameters without default values
+    are added to the required list.
+
+    Returns a Tool subclass (not an instance). Instantiate with the class itself:
+
+        @function_tool(description="Return the current time")
+        def get_time(format: str = "%H:%M") -> str:
+            from datetime import datetime
+            return datetime.now().strftime(format)
+
+        registry.register(get_time())  # get_time is the class; get_time() is the instance
+    """
+    import inspect
+    from typing import get_type_hints
+
+    _TYPE_MAP: dict = {
+        str: "string",
+        int: "integer",
+        float: "number",
+        bool: "boolean",
+    }
+    _SKIP_KINDS = {inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD}
+
+    def decorator(func):
+        sig = inspect.signature(func)
+        try:
+            hints = get_type_hints(func)
+        except Exception:
+            hints = {}
+
+        properties: dict[str, Any] = {}
+        required: list[str] = []
+
+        for param_name, param in sig.parameters.items():
+            if param.kind in _SKIP_KINDS:
+                continue
+            py_type = hints.get(param_name, str)
+            json_type = _TYPE_MAP.get(py_type, "string")
+            properties[param_name] = {"type": json_type}
+            if param.default is inspect.Parameter.empty:
+                required.append(param_name)
+
+        schema: dict[str, Any] = {"type": "object", "properties": properties}
+        if required:
+            schema["required"] = required
+
+        _func_name = func.__name__
+        _func_description = description
+
+        class _FunctionTool(Tool):
+            @property
+            def name(self) -> str:
+                return _func_name
+
+            @property
+            def description(self) -> str:
+                return _func_description
+
+            @property
+            def parameters(self) -> dict[str, Any]:
+                return schema
+
+            def execute(self, args: dict[str, Any]) -> str:
+                return str(func(**args))
+
+        _FunctionTool.__name__ = func.__name__
+        _FunctionTool.__qualname__ = func.__qualname__
+        return _FunctionTool
+
+    return decorator
+
+
 class ToolRegistry:
     """Registry for managing available tools."""
 

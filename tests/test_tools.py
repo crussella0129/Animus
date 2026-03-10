@@ -415,6 +415,143 @@ class TestShellMetacharRejection:
         assert "not supported" not in result.lower()
 
 
+class TestSandboxedRunShellTool:
+    """Tests for RunShellTool sandbox integration."""
+
+    def test_run_shell_tool_uses_sandbox_when_provided(self):
+        """When a sandbox is passed, RunShellTool routes execution through it."""
+        from unittest.mock import MagicMock
+        from src.tools.shell import RunShellTool
+        from src.isolation.ornstein import OrnsteinResult
+
+        mock_sandbox = MagicMock()
+        mock_sandbox.run_command.return_value = OrnsteinResult(
+            success=True, output="sandboxed output", error="", isolation_level="ornstein", resource_usage={}
+        )
+        tool = RunShellTool(
+            confirm_callback=lambda _: True,
+            session_cwd=None,
+            sandbox=mock_sandbox,
+        )
+        result = tool.execute({"command": "echo hello"})
+        assert mock_sandbox.run_command.called
+        assert "sandboxed output" in result
+
+    def test_run_shell_tool_no_sandbox_falls_back_to_subprocess(self):
+        """When no sandbox is provided, RunShellTool uses subprocess directly."""
+        from src.tools.shell import RunShellTool
+        tool = RunShellTool(confirm_callback=lambda _: True, session_cwd=None, sandbox=None)
+        result = tool.execute({"command": "echo direct"})
+        assert "direct" in result
+
+
+class TestRespondTool:
+    def test_respond_tool_name_and_schema(self):
+        """RespondTool has name='respond' and requires 'message' parameter."""
+        from src.tools.base import RespondTool
+        tool = RespondTool()
+        assert tool.name == "respond"
+        assert "message" in tool.parameters["properties"]
+        assert "message" in tool.parameters.get("required", [])
+
+    def test_respond_tool_execute_returns_message(self):
+        """RespondTool.execute() returns the message string directly."""
+        from src.tools.base import RespondTool
+        tool = RespondTool()
+        result = tool.execute({"message": "Task complete.", "verified": True})
+        assert result == "Task complete."
+
+
+class TestFunctionToolDecorator:
+    def test_creates_tool_subclass(self):
+        """@function_tool returns a class that is a Tool subclass."""
+        from src.tools.base import function_tool, Tool
+
+        @function_tool(description="Add two numbers")
+        def add(a: int, b: int) -> int:
+            return a + b
+
+        instance = add()
+        assert isinstance(instance, Tool)
+        assert instance.name == "add"
+        assert instance.description == "Add two numbers"
+
+    def test_generates_schema_from_type_hints(self):
+        """@function_tool generates correct JSON Schema from type annotations."""
+        from src.tools.base import function_tool
+
+        @function_tool(description="Greet")
+        def greet(name: str, loud: bool) -> str:
+            return name.upper() if loud else name
+
+        schema = greet().parameters
+        assert schema["properties"]["name"]["type"] == "string"
+        assert schema["properties"]["loud"]["type"] == "boolean"
+        assert "name" in schema["required"]
+        assert "loud" in schema["required"]
+
+    def test_execute_calls_function_and_returns_str(self):
+        """execute() calls the wrapped function and coerces result to str."""
+        from src.tools.base import function_tool
+
+        @function_tool(description="Multiply")
+        def multiply(x: int, y: int) -> int:
+            return x * y
+
+        result = multiply().execute({"x": 3, "y": 4})
+        assert result == "12"
+
+    def test_optional_param_not_in_required(self):
+        """Parameters with defaults are excluded from the required list."""
+        from src.tools.base import function_tool
+
+        @function_tool(description="Echo with prefix")
+        def echo(message: str, prefix: str = ">>") -> str:
+            return f"{prefix} {message}"
+
+        schema = echo().parameters
+        assert "message" in schema["required"]
+        assert "prefix" not in schema.get("required", [])
+
+    def test_unknown_type_defaults_to_string(self):
+        """Parameters with unknown types default to 'string' in schema."""
+        from src.tools.base import function_tool
+        from pathlib import Path
+
+        @function_tool(description="Process path")
+        def process(p: Path) -> str:  # Path is not in _TYPE_MAP
+            return str(p)
+
+        schema = process().parameters
+        assert schema["properties"]["p"]["type"] == "string"
+
+    def test_decorated_tool_registers_in_registry(self):
+        """A function_tool instance can be registered and executed via ToolRegistry."""
+        from src.tools.base import function_tool, ToolRegistry
+
+        @function_tool(description="Return constant")
+        def const() -> str:
+            return "hello"
+
+        registry = ToolRegistry()
+        registry.register(const())
+        result = registry.execute("const", {})
+        assert result == "hello"
+
+    def test_variadic_params_skipped_in_schema(self):
+        """*args and **kwargs are not included in the generated schema."""
+        from src.tools.base import function_tool
+
+        @function_tool(description="Variadic func")
+        def variadic(a: str, *args, **kwargs) -> str:
+            return a
+
+        schema = variadic().parameters
+        assert "args" not in schema["properties"]
+        assert "kwargs" not in schema["properties"]
+        assert "a" in schema["properties"]
+
+
 import threading
 
 

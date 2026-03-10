@@ -1,0 +1,13 @@
+[workspace]
+members = [
+    "crates/ferric-parse",
+    "crates/ferric-sandbox",
+    "crates/ferric-cli",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0"
+repository = "https://github.com/crussella0129/Animus"

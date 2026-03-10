@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
+from src.ferric import find_ferric_binary as _find_ferric_binary
+
 
 @dataclass
 class NodeInfo:
@@ -407,3 +409,81 @@ class TypeScriptParser(LanguageParser):
 # _default_registry.register(GoParser())
 # _default_registry.register(RustParser())
 # _default_registry.register(TypeScriptParser())
+
+
+# ---------------------------------------------------------------------------
+# Ferric binary-backed multi-language parser
+# ---------------------------------------------------------------------------
+
+
+class FerricParser(LanguageParser):
+    """Multi-language parser backed by the ferric-parse Rust binary.
+
+    Falls back gracefully to returning an empty FileParseResult if the
+    binary is not installed — preserving Animus design principle #4
+    (graceful absence).
+    """
+
+    _SUPPORTED_EXTENSIONS = {
+        ".py", ".rs", ".ts", ".tsx", ".js", ".jsx",
+        ".go", ".c", ".cpp", ".h",
+    }
+
+    def __init__(self, binary_path: str | None = None) -> None:
+        # binary_path=None triggers auto-discovery via find_ferric_binary
+        self._binary = binary_path if binary_path is not None else _find_ferric_binary("ferric-parse")
+
+    def supported_extensions(self) -> set[str]:
+        return self._SUPPORTED_EXTENSIONS
+
+    def is_available(self) -> bool:
+        """Return True if the ferric-parse binary is accessible."""
+        return self._binary is not None
+
+    def parse_file(self, path: Path) -> FileParseResult:
+        import subprocess
+        import json as _json
+
+        if self._binary is None:
+            return FileParseResult(file_path=str(path))
+        try:
+            result = subprocess.run(
+                [self._binary, str(path)],
+                capture_output=True, text=True, timeout=30,
+            )
+            if result.returncode != 0:
+                return FileParseResult(file_path=str(path))
+            data = _json.loads(result.stdout)
+            nodes = [
+                NodeInfo(
+                    kind=n.get("kind", "function"),
+                    name=n.get("name", ""),
+                    qualified_name=n.get("qualified_name", ""),
+                    file_path=n.get("file_path", str(path)),
+                    line_start=n.get("line_start", 0),
+                    line_end=n.get("line_end", 0),
+                    docstring=n.get("docstring") or "",
+                    args=n.get("args", []),
+                    bases=n.get("bases", []),
+                    decorators=n.get("decorators", []),
+                )
+                for n in data.get("nodes", [])
+            ]
+            edges = [
+                EdgeInfo(
+                    source_qname=e.get("source_qname", ""),
+                    target_name=e.get("target_name", ""),
+                    kind=e.get("kind", "CALLS"),
+                )
+                for e in data.get("edges", [])
+            ]
+            return FileParseResult(file_path=str(path), nodes=nodes, edges=edges)
+        except (subprocess.TimeoutExpired, ValueError, OSError, KeyError):
+            return FileParseResult(file_path=str(path))
+
+
+# Register FerricParser when the binary is available — it handles more
+# languages than the Python-only fallback parsers.
+_ferric = FerricParser()
+if _ferric.is_available():
+    _default_registry.register(_ferric)

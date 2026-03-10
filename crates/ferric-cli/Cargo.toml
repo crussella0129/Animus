@@ -1,0 +1,9 @@
+[package]
+name = "ferric-cli"
+version.workspace = true
+edition.workspace = true
+description = "Fast Animus CLI entrypoint — simple commands handled in Rust, heavy ones delegate to Python"
+
+[dependencies]
+clap = { version = "4", features = ["derive", "color"] }
+sysinfo = "0.32"
