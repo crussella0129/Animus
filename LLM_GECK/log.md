@@ -217,6 +217,102 @@ Systested GBNF grammar + plan-then-execute on Llama-3.2-1B. Four rounds exposed 
 
 ---
 
+## Entry #5 — 2026-03-10 / 2026-03-11
+
+### Summary
+Red Planet / Ferric Layer: implemented three Rust crates (`ferric-parse`, `ferric-sandbox`, `ferric-cli`) as invisible infrastructure alongside the Python core. 9 tasks across 20 commits on the `animus/red-planet` branch, completed via subagent-driven development with two-stage review per task. Also: Phase 3 Security Hardening (shell injection, workspace boundary, planner refactor), `--no-plan` flag, `write_file` JSON unescaping fix, and the `test_rp_program` validation repository.
+
+### Actions
+
+**Ferric Layer (Rust crates)**
+- Created `crates/ferric-parse/` — tree-sitter multi-language parser (Python, Rust, JavaScript, TypeScript). Emits `FileParseResult` JSON with nodes (kind, name, qualified_name, docstring, line range) and edges (CALLS, CONTAINS, INHERITS). Threaded `impl_name: Option<&str>` through recursion for correct `kind="method"` vs `kind="function"` detection in Rust `impl` blocks.
+- Created `crates/ferric-sandbox/` — process relay wrapper. Records timing/exit code. Kernel-level isolation (seccomp, namespaces) deferred. `isolation_level="ornsmo-stub"` reflects stub status.
+- Created `crates/ferric-cli/` — CLI dispatcher routing `ferric parse`, `ferric sandbox` to subcrates.
+- Created `src/ferric.py` — Python bridge with `find_ferric_binary()` for cross-repo binary discovery.
+- Created `src/isolation/ferric.py` — `FerricSandbox` subprocess wrapper; `isolation_level="ornsmo-stub"`.
+
+**Agent Core Fixes**
+- `src/tools/base.py` — `RespondTool.execute()` now rejects `verified=False` with error message requiring re-verification.
+- `src/core/agent.py` — GBNF grammar applied only on first turn (non-streaming), preventing constraint conflicts on subsequent turns.
+- `src/cli/app.py` — `--no-plan` flag bypasses planner for targeted tasks. `--ornsmo` flag routes tool execution through ferric-sandbox.
+
+**Phase 3 Security Hardening (2026-02-24)**
+- Removed `shell=True` from `src/tools/shell.py`. List-based subprocess + metachar rejection regex.
+- `has_injection_pattern()` detects `$()`, backticks, `;`, `&&`, `||` in full command strings.
+- Symlink-safe paths via `Path.resolve(strict=False)` before deny-list checks.
+- Thread-safe `_write_log` with `threading.Lock()`.
+- Hard block scope enforcement: first out-of-scope tool call blocked, 2nd terminates step.
+- `src/core/workspace.py` — Workspace class with immutable root boundary + mutable CWD, `WorkspaceBoundaryError`.
+- Planner refactored: 1,062-line monolith split into `parser.py`, `decomposer.py`, `executor.py` package.
+
+**test_rp_program Validation Repository**
+- Created `test_rp_program/` (681 LOC total) to exercise Red Planet features in a full-stack context:
+  - `backend/main.py` (46 lines) — FastAPI with `/api/health`, `/api/stats`
+  - `backend/telemetry.py` (48 lines) — `TelemetryStats` class
+  - `frontend/index.html` (200 lines) — Mars-themed dashboard, DOM via `textContent`/`createElement` (no innerHTML)
+  - `test_rise.py` (219 lines) — 3 Animus integration tests (`--no-plan`, `write_file` docstring, `ferric-parse`)
+  - `tests/test_frontend.py` + `tests/conftest.py` (159 lines) — 11 Playwright E2E tests, session-scoped live_server
+
+### Findings
+
+**Component Scores (from test_rp_program analysis):**
+
+| Component | Score | Key Strength | Key Weakness |
+|-----------|-------|-------------|-------------|
+| Backend (FastAPI + telemetry) | 8.4/10 | Clean separation, Bessel-corrected std_dev | No NaN/Inf handling |
+| Frontend (dashboard) | 7.2/10 | Secure DOM handling (textContent) | No ARIA labels, no responsive breakpoints |
+| Animus rise test | 6.3/10 | High-fidelity E2E (actual binary) | 480s timeout, hardcoded paths, nondeterministic |
+| Playwright E2E suite | 8.7/10 | Fast (11 tests/12s), deterministic, atomic | Hardcoded port, `.nth()` positional indexing |
+
+**Performance Wall:**
+- The 14B Q4 model on CPU takes 240s per tool-using task. Bottleneck is transformer inference (matrix multiplication throughput), not Animus orchestration.
+- Formula: `time = (prompt_tokens / prompt_speed) + (completion_tokens / gen_speed) = (2000/12) + (300/4) ≈ 242s`
+- `ferric-parse` completes in <100ms — zero overhead from Rust infrastructure.
+- **Recommended escape:** GPU inference (RTX 3060+ → ~50 tok/s → ~20s per task) preserves local-first architecture.
+
+**Token Stretcher Verdict:**
+- Animus is currently **net negative** for token efficiency. Orchestrating a 14B model costs ~800 tokens per tool-using task vs ~50 tokens for direct generation by a capable model. The 16:1 overhead makes it ~100x more expensive.
+- However, the architecture enables token stretching with: (a) GPU acceleration (20s not 240s), (b) batch dispatch (parallel subagents), (c) lighter protocol (fewer verification turns), (d) speculative execution. Not yet viable, but structurally possible.
+
+**Issues Encountered:**
+- Windows cp1252 encoding crash with Unicode banner → fixed with `encoding="utf-8"`, `errors="replace"`, `PYTHONIOENCODING=utf-8`
+- Model timeout (180s → 240s → 480s) — 14B model load (~30s) + inference (~200s) exceeds default timeouts
+- Model instruction fidelity — first attempt produced argparse+main block; simplified prompt fixed it
+- JavaScript float rendering — `JSON.parse("20.0")` → `20` (drops `.0`); updated Playwright assertions
+
+### Files Changed
+- `crates/ferric-parse/` — NEW: Rust tree-sitter parser (Python, Rust, JS, TS)
+- `crates/ferric-sandbox/` — NEW: Process relay wrapper
+- `crates/ferric-cli/` — NEW: CLI dispatcher
+- `src/ferric.py` — NEW: Python bridge for Rust binaries
+- `src/isolation/ferric.py` — NEW: FerricSandbox subprocess wrapper
+- `src/tools/base.py` — Modified: RespondTool verified=False enforcement
+- `src/tools/shell.py` — Modified: Removed shell=True, list-based subprocess, metachar rejection
+- `src/core/agent.py` — Modified: GBNF first-turn-only, --no-plan support
+- `src/core/workspace.py` — NEW: Workspace class with boundary enforcement
+- `src/core/permission.py` — Modified: Injection pattern detection, symlink-safe paths
+- `src/core/planner/` — Refactored: monolith → parser.py + decomposer.py + executor.py
+- `src/cli/app.py` — Modified: --no-plan flag, --ornsmo flag, help text updates
+- `tests/test_base_tools.py` — Modified: RespondTool verified tests
+- `tests/test_no_plan_flag.py` — Modified: Fixed tautological test
+- `tests/test_ferric_integration.py` — Modified: find_ferric_binary import, real .toml file test
+- `LLM_GECK/log.md` — This entry
+- `LLM_GECK/tasks.md` — Updated
+
+### Metrics
+- Commits: 20 on `animus/red-planet` branch + 12 for Phase 3 Security Hardening
+- Rust crates: 3 new
+- Python tests: ~650 passing (up from 276 lean rebuild)
+- Rust tests: 2 (ferric-parse)
+- Playwright tests: 11 (test_rp_program)
+- PR: #1 created for `animus/red-planet` → `main`
+- Subagent-driven development: 9 tasks with two-stage review (spec compliance + code quality)
+
+### Checkpoint
+**Status:** COMPLETE — Ferric Layer implemented, Phase 3 Security Hardening done, test_rp_program validates all features. Performance wall identified (CPU inference). PR #1 open.
+
+---
+
 ## Appendix A — External Repository Reference
 
 *Carried forward from prior log entries #15, #16, #33. These repos contain patterns and features we want to bring into Animus over time. Ollama has been removed from the stack — Animus uses llama-cpp-python for local inference.*

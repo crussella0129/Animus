@@ -1,6 +1,12 @@
 """Test that --no-plan flag bypasses the planner at the CLI level."""
+import re
 from unittest.mock import patch, MagicMock
 import pytest
+
+
+def _strip_ansi(text: str) -> str:
+    """Remove ANSI escape sequences from text."""
+    return re.sub(r"\x1b\[[0-9;]*m", "", text)
 
 
 def test_no_plan_short_circuits_use_plan():
@@ -37,4 +43,4 @@ def test_rise_help_contains_no_plan():
     runner = typer.testing.CliRunner()
     result = runner.invoke(app, ["rise", "--help"])
     assert result.exit_code == 0
-    assert "--no-plan" in result.output
+    assert "--no-plan" in _strip_ansi(result.output)

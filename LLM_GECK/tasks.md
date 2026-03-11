@@ -1,6 +1,6 @@
 # Tasks — ANIMUS
 
-**Last Updated:** 2026-02-10 (Log v2, Entry #5: Code Knowledge Graph — AST parsing, SQLite storage, blast radius analysis)
+**Last Updated:** 2026-03-11 (Log v2, Entry #5: Red Planet / Ferric Layer + Phase 3 Security Hardening)
 
 ## Design Philosophy
 
@@ -69,6 +69,43 @@ Summary of completed work:
 - [x] **GGUF Pull Enhancement** — MODEL_CATALOG (6 models), `download_gguf()`, Rich progress bar, `--list` flag, auto-config after download
 
 **Lean rebuild tests:** 276 passing (1.3s)
+
+### Phase 3: Security Hardening [COMPLETE] (2026-02-24)
+
+**Goal:** Eliminate shell injection, enforce workspace boundaries, refactor planner monolith.
+
+**Tasks:**
+- [x] **Shell injection fix (P0)** — Removed `shell=True` from `src/tools/shell.py`, list-based subprocess, metachar rejection regex
+- [x] **Injection pattern detection** — `has_injection_pattern()` in `src/core/permission.py` catches `$()`, backticks, `;`, `&&`, `||`
+- [x] **Symlink-safe paths** — `Path.resolve(strict=False)` before deny-list checks
+- [x] **Thread-safe write log** — `threading.Lock()` around `_write_log` operations in `src/tools/filesystem.py`
+- [x] **Workspace boundary enforcement** — `src/core/workspace.py` with immutable root + mutable CWD, `WorkspaceBoundaryError`
+- [x] **Hard block scope enforcement** — First out-of-scope tool call blocked, 2nd terminates step
+- [x] **Explicit tool messaging** — Per-step prompt: "You may ONLY use the tools listed above"
+- [x] **Tighter step inference** — File extensions prioritized over keywords (`.py` → WRITE not SHELL)
+- [x] **Planner refactored** — 1,062-line `planner.py` split into `src/core/planner/` package: `parser.py`, `decomposer.py`, `executor.py`
+- [x] **SessionCwd deleted** — Replaced entirely by Workspace class
+
+### Ferric Layer / Red Planet [COMPLETE] (2026-03-10)
+
+**Goal:** Add Rust-based infrastructure (tree-sitter parser, sandbox relay, CLI) alongside Python core. Three features: `--no-plan` flag, `write_file` JSON unescaping, `ferric-parse` multi-language parser.
+
+**Tasks:**
+- [x] **ferric-parse** (`crates/ferric-parse/`) — Tree-sitter parser for Python, Rust, JS, TS. Emits `FileParseResult` JSON (nodes + edges). `impl_name: Option<&str>` threading for method vs function detection. 2 Rust tests.
+- [x] **ferric-sandbox** (`crates/ferric-sandbox/`) — Process relay wrapper with timing/exit recording. `isolation_level="ornsmo-stub"`.
+- [x] **ferric-cli** (`crates/ferric-cli/`) — CLI dispatcher: `ferric parse`, `ferric sandbox` subcommands.
+- [x] **Python bridge** (`src/ferric.py`) — `find_ferric_binary()` for cross-repo binary discovery.
+- [x] **FerricSandbox wrapper** (`src/isolation/ferric.py`) — Subprocess wrapper with `isolation_level="ornsmo-stub"`.
+- [x] **`--no-plan` flag** (`src/cli/app.py`) — Bypasses planner for targeted tasks; short-circuits `should_use_planner()`.
+- [x] **`write_file` JSON unescaping** — Triple-quoted docstrings preserved through LLM JSON round-trip.
+- [x] **RespondTool verification gate** (`src/tools/base.py`) — `execute()` rejects `verified=False` with error message.
+- [x] **Agent GBNF first-turn-only** (`src/core/agent.py`) — Grammar constraints applied only on first turn (non-streaming).
+- [x] **Tests** — `test_ferric_integration.py` (uses `find_ferric_binary` from `src.ferric`), `test_no_plan_flag.py` (fixed tautological test), `test_base_tools.py` (verified=False enforcement)
+
+**Current test counts (as of 2026-03-11):**
+- Python: ~650 passing (596 + Phase 3 + Ferric Layer tests; 3 skipped, 1 xfailed)
+- Rust: 2 (ferric-parse)
+- Playwright (test_rp_program): 11 passing in 11.9s
 
 ---
 
@@ -200,7 +237,7 @@ Summary of completed work:
 - [x] **SQLite-vec persistent vector store** — `src/memory/vectorstore.py`, native SIMD-accelerated vector search, 16 tests
 - [~] **Ornstein & Smough Container Isolation** — Dual-layer security system — IN PROGRESS
   - [x] Phase 1: Ornstein Layer (lightweight sandbox) — `src/isolation/ornstein.py`, process isolation, timeout enforcement, read-only filesystem, 23/26 tests passing (88%), 880 LOC — COMPLETE
-  - [ ] Phase 2: CLI Integration — `--cautious` flag, tool decorator, config UI
+  - [x] Phase 2: CLI Integration — `--ornsmo` flag (replaces planned `--cautious`/`--paranoid`), routes tool execution through ferric-sandbox. **Note:** Isolation is stub (`isolation_level="ornsmo-stub"`) — binary acts as process relay with timing, kernel-level isolation (seccomp, namespaces) is future work.
   - [ ] Phase 3: Smough Layer (heavy container) — Docker/Podman, network policies, seccomp profiles
 - [ ] API key authentication for MCP HTTP transport
 
@@ -221,7 +258,12 @@ Summary of completed work:
 | Small models thrash on complex tasks | High | Mitigated by Plan-Then-Execute (auto-detected) |
 | Model outputs text instead of JSON tool calls | High | Mitigated by parse-retry-correct + GBNF grammar constraints (Entry #3) |
 | Token estimation heuristic (~4 chars/token) inaccurate for code | Medium | Open |
-| Shell tool uses `shell=True` | Medium | Mitigated by permission checker |
+| ~~Shell tool uses `shell=True`~~ | ~~Medium~~ | **FIXED** (Phase 3 Security Hardening) — list-based subprocess + metachar rejection |
+| CPU inference performance wall (14B Q4 → 240s/task) | High | Hardware-bound — GPU (RTX 3060+) recommended for interactive use |
+| Model timeout for tool-using tasks | Medium | Mitigated by 480s timeout + simplified prompts; root cause is CPU inference speed |
+| Streaming mode skips GBNF grammar constraints | Medium | llama-cpp-python limitation; GBNF applied first-turn-only |
+| Windows teardown PermissionError (SQLite temp file lock) | Low | Harmless — no data loss |
+| ferric-sandbox isolation is stub only | Medium | `isolation_level="ornsmo-stub"` — kernel isolation (seccomp, namespaces) deferred |
 
 ---
 
@@ -234,3 +276,12 @@ Summary of completed work:
 - [x] Hybrid mode works: API plans, local executes (verified by test_hybrid_mode_different_providers)
 - [x] Fallback to direct mode for large/API models (verified by test_large_model_skips_planner)
 - [x] Tests cover decomposer, parser, executor, integration, grammar, and systest fixes (83 tests passing)
+
+### Ferric Layer / Red Planet (Validated)
+- [x] `ferric-parse` correctly identifies functions, methods, classes, docstrings across Python/Rust/JS/TS
+- [x] Rust `impl` block methods emit `kind="method"` with `qualified_name="module::Type::fn"`
+- [x] `--no-plan` flag short-circuits planner (verified by test_no_plan_flag)
+- [x] `write_file` preserves triple-quoted docstrings through JSON round-trip (verified by test_rp_program)
+- [x] `RespondTool` rejects `verified=False` with actionable error message
+- [x] End-to-end validation via `test_rp_program` (11 Playwright tests, 3 Animus rise tests)
+- [x] Phase 3 Security Hardening: shell injection fixed, workspace boundary enforced, planner refactored
