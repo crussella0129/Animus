@@ -5,7 +5,7 @@ from pathlib import Path
 from src.isolation import execute_with_isolation, IsolationLevel, OrnsteinConfig
 
 
-def test_function_safe():
+def _sample_safe():
     """Safe function that reads a file."""
     test_file = Path(__file__)
     with open(test_file, 'r') as f:
@@ -13,13 +13,13 @@ def test_function_safe():
     return f"Read {len(lines)} lines from {test_file.name}"
 
 
-def test_function_timeout():
+def _sample_timeout():
     """Function that takes too long."""
     time.sleep(10)
     return "This should timeout"
 
 
-def test_function_dangerous():
+def _sample_dangerous():
     """Function that tries to write a file."""
     with open("/tmp/test_dangerous.txt", "w") as f:
         f.write("This should be blocked")
@@ -36,7 +36,7 @@ def main():
     print("-" * 70)
     start = time.time()
     result = execute_with_isolation(
-        test_function_safe,
+        _sample_safe,
         level=IsolationLevel.NONE
     )
     elapsed = time.time() - start
@@ -50,7 +50,7 @@ def main():
     config = OrnsteinConfig(timeout_seconds=5)
     start = time.time()
     result = execute_with_isolation(
-        test_function_safe,
+        _sample_safe,
         level=IsolationLevel.ORNSTEIN,
         config=config
     )
@@ -67,7 +67,7 @@ def main():
     config = OrnsteinConfig(timeout_seconds=2)
     start = time.time()
     result = execute_with_isolation(
-        test_function_timeout,
+        _sample_timeout,
         level=IsolationLevel.ORNSTEIN,
         config=config
     )
@@ -82,7 +82,7 @@ def main():
     config = OrnsteinConfig(timeout_seconds=5, allow_write=False)
     start = time.time()
     result = execute_with_isolation(
-        test_function_dangerous,
+        _sample_dangerous,
         level=IsolationLevel.ORNSTEIN,
         config=config
     )

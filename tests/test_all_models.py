@@ -32,7 +32,7 @@ MODELS = [
 TEST_QUERY = "List the Python files in the src/isolation directory and tell me how many lines of code are in ornstein.py"
 
 
-def test_model(model_info):
+def _run_model_test(model_info):
     """Test a single model with Ornstein integration."""
     model_path = Path.home() / ".animus" / "models" / model_info["file"]
 
@@ -143,7 +143,7 @@ def main():
         print(f"  Est. VRAM: {model['vram_estimate']}")
         print()
 
-        result = test_model(model)
+        result = _run_model_test(model)
 
         if result:
             results.append({**model, **result})
