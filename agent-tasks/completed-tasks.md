@@ -1,0 +1,1 @@
+- [x] Update `LICENSE` to be a Dual License (Apache 2.0 OR GPL 3.0)
