@@ -1,6 +1,6 @@
 ---
 sprint_id: s1
-status: in_progress
+status: completed
 start_date: 2026-07-06
 ---
 
