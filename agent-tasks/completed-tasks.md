@@ -1,1 +1,4 @@
 - [x] Update `LICENSE` to be a Dual License (Apache 2.0 OR GPL 3.0)
+- [x] 1. Generate Custom "Animus License" and replace Dual License.
+- [x] 2. Create `ecosystem.json` configuration file.
+- [x] 3. Create `scripts/sync-license.ps1` pull mechanism.

@@ -1,0 +1,12 @@
+{
+  "ecosystem": [
+    {
+      "name": "Animus-Model-Lab",
+      "url": "https://github.com/crussella0129/Animus-Model-Lab.git"
+    },
+    {
+      "name": "Banquo",
+      "url": "https://github.com/crussella0129/Banquo.git"
+    }
+  ]
+}
