@@ -1,9 +1,10 @@
 # Animus
-The Animus Project - an open-source ecosystem of accessible and highly performant local AI applications
-
-**Note:** *The Animus License Applies To All Animus Project Components*
+The Animus Project - 
 
 # **The Animus Project**
+***an open-source ecosystem of accessible and highly performant local AI applications***
+
+**Note:** *The Animus License Applies To All Animus Project Components*
 
 **Local Model Harnesses:**
 
