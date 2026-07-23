@@ -29,6 +29,6 @@
 
 - Animus AutoResearch (Current): [https://github.com/crussella0129/Animus-AutoResearch]
 
-- Animus Puccinia (Under Developemnt): [https://github.com/crussella0129/Animus_Puccinia]
+- Animus Puccinia (Under Development): [https://github.com/crussella0129/Animus_Puccinia]
 
 ---
