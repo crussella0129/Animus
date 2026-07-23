@@ -5,28 +5,30 @@
 
 **Local Model Harnesses:**
 
-- Animus Ferric (Current): https://github.com/crussella0129/Animus_Ferric
+- Animus Ferric (Current): [https://github.com/crussella0129/Animus_Ferric]
 
-- Animus Fev (Deprecated): https://github.com/crussella0129/Animus_fev
+- Animus Fev (Deprecated): [https://github.com/crussella0129/Animus_fev]
 
-- Animus Prion (Deprecated): https://github.com/crussella0129/Animus_Prion
+- Animus Prion (Deprecated): [https://github.com/crussella0129/Animus_Prion]
 
-- Animus 1.0 (Deprecated): https://github.com/crussella0129/Animus_1.0
+- Animus 1.0 (Deprecated): [https://github.com/crussella0129/Animus_1.0]
 
 ---
 
 **Tools + Agent Skills**
 
-- Animus Sprint-Loops (Current): https://github.com/crussella0129/Animus_Sprint_Loops
+- Animus Sprint-Loops (Current): [https://github.com/crussella0129/Animus_Sprint_Loops]
 
-- Animus Model Lab (Under Development): https://github.com/crussella0129/Animus-Model-Lab
+- Animus Model Lab (Under Development): [https://github.com/crussella0129/Animus-Model-Lab]
 
-- Animus Dark Matter Local Intelligence Multiplier (Under Development): https://github.com/crussella0129/Animus_Dark_Matter
+- Animus Dark Matter Local Intelligence Multiplier (Under Development): [https://github.com/crussella0129/Animus_Dark_Matter]
 
-- Animus IDE (Under Development): https://github.com/crussella0129/Animus_IDE
+- Animus IDE (Under Development): [https://github.com/crussella0129/Animus_IDE]
 
-- Animus GECK (Current): https://github.com/crussella0129/Animus_GECK
+- Animus GECK (Current): [https://github.com/crussella0129/Animus_GECK]
 
-- Animus AutoResearch (Current): https://github.com/crussella0129/Animus-AutoResearch 
+- Animus AutoResearch (Current): [https://github.com/crussella0129/Animus-AutoResearch]
+
+- Animus Puccinia (Under Developemnt): [https://github.com/crussella0129/Animus_Puccinia]
 
 ---
